@@ -1,0 +1,9 @@
+@import '@xterm/xterm/css/xterm.css';
+
+.xterm {
+  padding: 8px;
+  height: 100%;
+}
+.xterm-viewport {
+  background-color: #0d1322 !important;
+}
