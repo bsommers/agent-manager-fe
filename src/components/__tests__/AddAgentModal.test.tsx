@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { AddAgentModal } from '../agent/AddAgentModal';
 import { agentStore } from '../../store/agentStore';
 
@@ -19,11 +19,15 @@ describe('AddAgentModal Component', () => {
     const nameInput = screen.getByPlaceholderText(/e.g. Code Review Worker/i);
     const targetInput = screen.getByPlaceholderText(/localhost:tmux_session_2/i);
 
-    fireEvent.change(nameInput, { target: { value: 'QA Test Agent' } });
-    fireEvent.change(targetInput, { target: { value: 'localhost:tmux_qa_test' } });
+    act(() => {
+      fireEvent.change(nameInput, { target: { value: 'QA Test Agent' } });
+      fireEvent.change(targetInput, { target: { value: 'localhost:tmux_qa_test' } });
+    });
 
     const submitBtn = screen.getByRole('button', { name: /Start Agent/i });
-    fireEvent.click(submitBtn);
+    act(() => {
+      fireEvent.click(submitBtn);
+    });
 
     expect(handleClose).toHaveBeenCalled();
     const created = agentStore.agents.find((a) => a.name === 'QA Test Agent');
@@ -32,7 +36,9 @@ describe('AddAgentModal Component', () => {
 
     // Clean up
     if (created) {
-      agentStore.removeAgent(created.id);
+      act(() => {
+        agentStore.removeAgent(created.id);
+      });
     }
   });
 
@@ -40,7 +46,9 @@ describe('AddAgentModal Component', () => {
     render(<AddAgentModal isOpen={true} onClose={() => {}} />);
 
     const sshModeBtn = screen.getByRole('button', { name: /Remote SSH/i });
-    fireEvent.click(sshModeBtn);
+    act(() => {
+      fireEvent.click(sshModeBtn);
+    });
 
     expect(screen.getByPlaceholderText(/root@10.0.0.45:22/i)).toBeInTheDocument();
   });
