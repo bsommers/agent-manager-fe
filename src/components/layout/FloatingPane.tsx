@@ -17,6 +17,17 @@ export const FloatingPane: React.FC<FloatingPaneProps> = ({ agent }) => {
     posY: agent.layout.y || 120,
   });
 
+  const activeListenersRef = useRef<{ move: (e: MouseEvent) => void; up: () => void } | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (activeListenersRef.current) {
+        window.removeEventListener('mousemove', activeListenersRef.current.move);
+        window.removeEventListener('mouseup', activeListenersRef.current.up);
+      }
+    };
+  }, []);
+
   const handleMouseDown = (e: React.MouseEvent) => {
     bringToFront(agent.id);
     setIsDragging(true);
@@ -41,8 +52,10 @@ export const FloatingPane: React.FC<FloatingPaneProps> = ({ agent }) => {
       setIsDragging(false);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      activeListenersRef.current = null;
     };
 
+    activeListenersRef.current = { move: handleMouseMove, up: handleMouseUp };
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
   };

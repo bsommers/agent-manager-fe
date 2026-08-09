@@ -1,5 +1,5 @@
 import React from 'react';
-import { Terminal, RefreshCw, Trash2, ArrowUpRight, Maximize2 } from 'lucide-react';
+import { Trash2, ArrowUpRight } from 'lucide-react';
 import { agentSocket } from '../../services/agentSocket';
 import { useAgentStore } from '../../store/agentStore';
 
@@ -23,7 +23,7 @@ export const AgentControls: React.FC<AgentControlsProps> = ({ agentId, isFloatin
     agentSocket.send({
       type: 'agent:input',
       agentId,
-      data: 'clear',
+      data: 'clear\r',
     });
   };
 

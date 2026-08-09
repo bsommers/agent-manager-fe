@@ -16,7 +16,7 @@ export const Workspace: React.FC = () => {
   const floatingAgents = filteredAgents.filter((a) => a.layout.isFloating);
 
   // Focus layout mode logic
-  const activeFocusedAgent = agents.find((a) => a.id === activeAgentId) || dockedAgents[0];
+  const activeFocusedAgent = dockedAgents.find((a) => a.id === activeAgentId) || dockedAgents[0];
   const sideStripAgents = dockedAgents.filter((a) => a.id !== activeFocusedAgent?.id);
 
   return (

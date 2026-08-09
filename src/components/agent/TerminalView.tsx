@@ -124,10 +124,11 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
 
   useEffect(() => {
     if (isActive && fitAddonRef.current && terminalRef.current) {
-      setTimeout(() => {
+      const timerId = setTimeout(() => {
         fitAddonRef.current?.fit();
         terminalRef.current?.focus();
       }, 50);
+      return () => clearTimeout(timerId);
     }
   }, [isActive]);
 

@@ -24,6 +24,15 @@ export class AgentSocketService {
         const msg = JSON.parse(event.data) as WSMessageServer;
         this.notify(msg);
       };
+      this.ws.onerror = (err) => {
+        console.warn('Live WS error, switching to mock mode', err);
+        this.isMockMode = true;
+      };
+      this.ws.onclose = () => {
+        console.info('Live WS closed, switching to mock mode');
+        this.isMockMode = true;
+        this.ws = null;
+      };
     } catch (e) {
       console.warn('Live WS failed, falling back to mock driver', e);
       this.isMockMode = true;
@@ -57,6 +66,8 @@ export class AgentSocketService {
   }
 
   startMockStream(agentId: string, name: string, mode: string, targetHost: string) {
+    this.stopMockStream(agentId);
+
     // Send initial banner
     const banner = MockStreamGenerator.getInitialBanner(name, mode, targetHost);
     this.notify({ type: 'agent:output', agentId, data: banner });
