@@ -10,10 +10,8 @@ export class AgentSocketService {
   private mockIntervals: Map<string, ReturnType<typeof setInterval>> = new Map();
 
   constructor() {
-    const wsUrl = import.meta.env.VITE_WS_URL;
-    if (wsUrl) {
-      this.connectLive(wsUrl);
-    }
+    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws';
+    this.connectLive(wsUrl);
   }
 
   private connectLive(url: string) {
