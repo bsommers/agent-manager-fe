@@ -13,7 +13,9 @@ describe('AgentSocketService', () => {
     expect(mockListener).toHaveBeenCalled();
     const firstCallMsg = mockListener.mock.calls[0][0] as WSMessageServer;
     expect(firstCallMsg.type).toBe('agent:output');
-    expect(firstCallMsg.agentId).toBe('test-agent-1');
+    if (firstCallMsg.type === 'agent:output') {
+      expect(firstCallMsg.agentId).toBe('test-agent-1');
+    }
 
     unsubscribe();
     socketService.stopMockStream('test-agent-1');

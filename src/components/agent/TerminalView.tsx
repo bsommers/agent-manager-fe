@@ -130,6 +130,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       }, 50);
       return () => clearTimeout(timerId);
     }
+    return undefined;
   }, [isActive]);
 
   return <div ref={containerRef} className="w-full h-full min-h-[180px] bg-[#0d1322] rounded-b-lg" />;
