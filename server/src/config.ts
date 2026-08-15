@@ -2,7 +2,7 @@ import path from 'path';
 import os from 'os';
 
 export const CONFIG = {
-  PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 8080,
+  PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 8088,
   WS_PATH: '/ws',
   DEFAULT_SHELL: process.env.SHELL || '/bin/bash',
   SSH_KEY_PATHS: [
