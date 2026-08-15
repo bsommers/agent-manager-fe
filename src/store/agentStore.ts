@@ -139,6 +139,131 @@ export const agentStore = {
     notifyStore();
   },
 
+  updateFloatingBounds: (id: string, x: number, y: number, width: number, height: number) => {
+    agentsState = agentsState.map((a) => {
+      if (a.id === id) {
+        return {
+          ...a,
+          layout: { ...a.layout, x, y, width, height },
+        };
+      }
+      return a;
+    });
+    notifyStore();
+  },
+
+  arrangeGrid: (containerWidth: number = 1200, containerHeight: number = 750) => {
+    const total = agentsState.length;
+    if (total === 0) return;
+
+    let cols = 1;
+    let rows = 1;
+    if (total === 2) { cols = 2; rows = 1; }
+    else if (total <= 4) { cols = 2; rows = 2; }
+    else if (total <= 6) { cols = 3; rows = 2; }
+    else { cols = 3; rows = Math.ceil(total / 3); }
+
+    const gap = 12;
+    const padding = 16;
+    const availW = containerWidth - (padding * 2) - (gap * (cols - 1));
+    const availH = containerHeight - (padding * 2) - (gap * (rows - 1));
+    const itemW = Math.max(320, Math.floor(availW / cols));
+    const itemH = Math.max(240, Math.floor(availH / rows));
+
+    agentsState = agentsState.map((agent, i) => {
+      const r = Math.floor(i / cols);
+      const c = i % cols;
+      const x = padding + c * (itemW + gap);
+      const y = padding + r * (itemH + gap);
+      return {
+        ...agent,
+        layout: {
+          ...agent.layout,
+          isFloating: true,
+          x,
+          y,
+          width: itemW,
+          height: itemH,
+        },
+      };
+    });
+    layoutModeState = 'grid';
+    notifyStore();
+  },
+
+  arrangeCascade: (containerWidth: number = 1200, containerHeight: number = 750) => {
+    const defaultW = Math.min(680, Math.max(360, containerWidth - 80));
+    const defaultH = Math.min(440, Math.max(260, containerHeight - 80));
+    const step = 35;
+
+    agentsState = agentsState.map((agent, i) => {
+      const maxX = Math.max(20, containerWidth - defaultW - 20);
+      const maxY = Math.max(20, containerHeight - defaultH - 20);
+      const x = 20 + ((i * step) % maxX);
+      const y = 20 + ((i * step) % maxY);
+      return {
+        ...agent,
+        layout: {
+          ...agent.layout,
+          isFloating: true,
+          x,
+          y,
+          width: defaultW,
+          height: defaultH,
+          zIndex: 10 + i,
+        },
+      };
+    });
+    layoutModeState = 'cascade';
+    notifyStore();
+  },
+
+  arrangeFocus: (activeId?: string, containerWidth: number = 1200, containerHeight: number = 750) => {
+    const focusId = activeId || activeAgentIdState || agentsState[0]?.id;
+    const gap = 12;
+    const padding = 16;
+    const sideW = Math.min(320, Math.floor(containerWidth * 0.28));
+    const mainW = containerWidth - (padding * 2) - sideW - gap;
+    const mainH = containerHeight - (padding * 2);
+
+    let sideIdx = 0;
+    agentsState = agentsState.map((agent) => {
+      if (agent.id === focusId) {
+        return {
+          ...agent,
+          layout: {
+            ...agent.layout,
+            isFloating: true,
+            x: padding,
+            y: padding,
+            width: mainW,
+            height: mainH,
+            zIndex: 100,
+          },
+        };
+      } else {
+        const x = padding + mainW + gap;
+        const itemH = 200;
+        const y = padding + sideIdx * (itemH + gap);
+        sideIdx++;
+        return {
+          ...agent,
+          layout: {
+            ...agent.layout,
+            isFloating: true,
+            x,
+            y,
+            width: sideW,
+            height: itemH,
+            zIndex: 50 + sideIdx,
+          },
+        };
+      }
+    });
+    layoutModeState = 'focus';
+    notifyStore();
+  },
+
   bringToFront: (id: string) => {
     const maxZ = Math.max(...agentsState.map((a) => a.layout.zIndex || 1), 100);
     agentsState = agentsState.map((a) => {

@@ -10,6 +10,10 @@ export class AgentSocketService {
   private mockIntervals: Map<string, ReturnType<typeof setInterval>> = new Map();
 
   constructor() {
+    if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
+      this.isMockMode = true;
+      return;
+    }
     const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8088/ws';
     this.connectLive(wsUrl);
   }

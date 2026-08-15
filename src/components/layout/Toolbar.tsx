@@ -7,7 +7,7 @@ interface ToolbarProps {
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({ onOpenAddModal }) => {
-  const { layoutMode, setLayoutMode, searchQuery, setSearchQuery } = useAgentStore();
+  const { layoutMode, arrangeGrid, arrangeFocus, arrangeCascade, searchQuery, setSearchQuery } = useAgentStore();
 
   return (
     <div className="h-12 bg-[#090d16] border-b border-slate-800/80 flex items-center px-4 justify-between gap-4 select-none">
@@ -26,37 +26,37 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenAddModal }) => {
       {/* Layout Presets */}
       <div className="flex items-center gap-1 bg-[#0d1322] p-1 border border-slate-800 rounded-md">
         <button
-          onClick={() => setLayoutMode('grid')}
+          onClick={() => arrangeGrid()}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition ${
             layoutMode === 'grid'
               ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
           }`}
-          title="Auto Grid Layout"
+          title="Snap to Grid"
         >
           <LayoutGrid className="w-3.5 h-3.5" />
           Grid
         </button>
         <button
-          onClick={() => setLayoutMode('focus')}
+          onClick={() => arrangeFocus()}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition ${
             layoutMode === 'focus'
               ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
           }`}
-          title="Focus Mode"
+          title="Focus Layout"
         >
           <Maximize2 className="w-3.5 h-3.5" />
           Focus
         </button>
         <button
-          onClick={() => setLayoutMode('cascade')}
+          onClick={() => arrangeCascade()}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition ${
             layoutMode === 'cascade'
               ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
           }`}
-          title="Floating Cascade"
+          title="Cascade Layout"
         >
           <Layers className="w-3.5 h-3.5" />
           Cascade
