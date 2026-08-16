@@ -1,0 +1,252 @@
+# AI Agent Manager System Architecture
+
+This document provides a comprehensive technical overview of the **AI Agent Manager** architecture, data flow, communication protocol, and internal component design.
+
+---
+
+## 1. System High-Level Topology
+
+The system uses a decoupled client-server architecture:
+- **Frontend (Client)**: React 18 SPA rendering terminal instances using `@xterm/xterm` canvas renderer inside absolute-positioned window panes. Managed by a central Zustand state store.
+- **Backend (Server)**: Node.js Express server + WebSocket endpoint (`ws://localhost:8088/ws`). Maintains active pseudo-terminals (`node-pty`) attached to local `tmux` sessions or remote `ssh2` shell streams.
+
+```mermaid
+graph TD
+    subgraph Frontend [React 18 + Vite Web Client]
+        UI[Workspace Viewport & Header/Toolbar]
+        Store[Zustand agentStore]
+        SocketService[AgentSocketService]
+        Terminal[xterm.js Canvas Component]
+        
+        UI --> Store
+        Store --> Terminal
+        SocketService --> Store
+        SocketService --> Terminal
+    end
+
+    subgraph Backend [Node.js + Express Server]
+        WSServer[WebSocket Server /ws]
+        SessionMgr[SessionManager Registry]
+        Discovery[TmuxDiscovery Engine]
+        TmuxDriver[TmuxDriver node-pty]
+        SshDriver[SshDriver ssh2]
+        
+        WSServer --> SessionMgr
+        SessionMgr --> Discovery
+        SessionMgr --> TmuxDriver
+        SessionMgr --> SshDriver
+    end
+
+    SocketService <==>|JSON Messages over WebSocket| WSServer
+    TmuxDriver <==>|pty stdin/stdout| LocalTmux[Local tmux session]
+    SshDriver <==>|SSH Channel Stream| RemoteHost[Remote Host SSH]
+```
+
+---
+
+## 2. Sequence Diagrams
+
+### 2.1 Agent Creation & Session Attachment
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AddAgentModal
+    participant Store as agentStore
+    participant Socket as AgentSocketService
+    participant WS as Backend WSServer
+    participant Session as SessionManager
+    participant Driver as TmuxDriver / SshDriver
+
+    User->>UI: Fills form (Name, Mode, Target Host) & clicks "Create Agent"
+    UI->>Socket: send({ type: 'agent:create', name, mode, targetHost })
+    Socket->>WS: JSON payload (agent:create)
+    WS->>Session: handleClientMessage(agent:create)
+    
+    alt Mode == 'tmux'
+        Session->>Driver: new TmuxDriver("tmux new-session -A -s <name>")
+        Driver-->>Session: ptyProcess created & listening onData
+    else Mode == 'ssh'
+        Session->>Driver: new SshDriver("ssh user@host:port")
+        Driver-->>Session: sshClient shell connected & listening stream
+    end
+
+    Session->>WS: broadcast({ type: 'agent:init_list', agents })
+    WS->>Socket: agent:init_list
+    Socket->>Store: updates agentsState
+    Store-->>User: UI renders new AgentPane in Workspace
+```
+
+### 2.2 Terminal Stream IO Flow (Input & Output)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Term as xterm.js TerminalView
+    participant Socket as AgentSocketService
+    participant WS as Backend WSServer
+    participant Session as SessionManager
+    participant Driver as TmuxDriver / SshDriver
+
+    User->>Term: Types key (e.g. "ls -la\r")
+    Term->>Socket: send({ type: 'agent:input', agentId, data })
+    Socket->>WS: JSON payload
+    WS->>Session: sendInput(agentId, data)
+    Session->>Driver: driver.write(data)
+    
+    Driver-->>Session: onData(outputData)
+    Session->>WS: broadcast({ type: 'agent:output', agentId, data })
+    WS->>Socket: agent:output
+    Socket->>Term: term.write(data)
+    Term-->>User: Renders ANSI formatted terminal output on Canvas
+```
+
+---
+
+## 3. Frontend Architecture
+
+### 3.1 Directory Structure
+- `src/components/agent/AgentPane.tsx`: Window frame container wrapping terminal header, control bar, and canvas view.
+- `src/components/agent/TerminalView.tsx`: Manages xterm.js lifecycle, canvas fitting via `@xterm/addon-fit`, web links addon, and socket event subscriptions.
+- `src/components/layout/FloatingPane.tsx`: Absolute-positioned window container providing header drag handles, bottom-right resize handles, and z-index elevation.
+- `src/components/layout/Workspace.tsx`: Workspace canvas rendering active panes with auto-arrange layout algorithms.
+- `src/store/agentStore.ts`: Zustand application store handling state mutations, layout calculations, and subscriber notifications.
+- `src/services/agentSocket.ts`: Dual-mode WebSocket client offering live connection with graceful failover to offline mock stream generator.
+
+### 3.2 Layout Algorithms
+The frontend store implements three layout auto-arrange functions:
+1. **`arrangeGrid(width, height)`**:
+   Calculates optimal column (`cols`) and row (`rows`) bounds for active agents based on container dimensions, setting `x`, `y`, `width`, and `height` to tile the screen cleanly.
+2. **`arrangeCascade(width, height)`**:
+   Positions windows in a staggered diagonal pattern starting at `(20, 20)` with `+35px` offsets per window.
+3. **`arrangeFocus(activeId, width, height)`**:
+   Allocates the left 70% of the canvas to the primary focused agent while stacking secondary agents vertically along the right 28% sidebar column.
+
+---
+
+## 4. Backend Architecture
+
+### 4.1 Component Breakdown
+
+#### `SessionManager.ts`
+Central registry mapping `agentId` to `TmuxDriver` or `SshDriver` instances.
+- Maintains active connected WebSocket client set (`clients: Set<WebSocket>`).
+- Routes incoming client messages to the appropriate driver instance.
+- Broadcasts server events (`agent:output`, `agent:status_change`, `agent:init_list`) to all connected clients.
+- Implements lazy driver attachment for sessions discovered at startup upon first client input or window resize.
+
+#### `TmuxDriver.ts`
+Pty process wrapper built on `node-pty`.
+- Spawns `tmux new-session -A -s <session_name>` with `cols` and `rows`.
+- `new-session -A` automatically attaches to existing sessions if available, or creates a new session if none exists.
+- Exposes `write(data)`, `resize(cols, rows)`, and `close()` handles.
+
+#### `SshDriver.ts`
+Remote PTY manager built on `ssh2`.
+- Parses target host formats: `user@host:port`, `user@host`, `host:port`, `host`.
+- Resolves SSH authentication automatically via `sshKeyLoader.ts`:
+  1. Prefers active SSH agent socket (`SSH_AUTH_SOCK`).
+  2. Falls back to default local keyfiles (`~/.ssh/id_rsa`, `~/.ssh/id_ed25519`).
+- Requests an interactive PTY shell (`sshClient.shell({ term: 'xterm-256color', cols, rows })`).
+
+#### `TmuxDiscovery.ts`
+Startup auto-discovery engine.
+- Runs `tmux list-sessions -F '#{session_name}'` safely using `child_process.execFile`.
+- Rehydrates active tmux sessions into the agent roster at server startup.
+
+---
+
+## 5. WebSocket Protocol Specification
+
+The WebSocket server listens on `/ws` using JSON-encoded message schemas defined in `server/src/protocol/wsProtocol.ts`.
+
+### 5.1 Client to Server Messages (`WSMessageClient`)
+
+#### `agent:create`
+Requests creation of a new agent session.
+```json
+{
+  "type": "agent:create",
+  "name": "Code Refactor Agent",
+  "mode": "tmux",
+  "targetHost": "localhost:dev_session",
+  "initialCmd": "htop\r"
+}
+```
+
+#### `agent:input`
+Sends terminal stdin data.
+```json
+{
+  "type": "agent:input",
+  "agentId": "agent-1723700000000",
+  "data": "ls -la\r"
+}
+```
+
+#### `agent:resize`
+Notifies backend of terminal dimensions change.
+```json
+{
+  "type": "agent:resize",
+  "agentId": "agent-1723700000000",
+  "cols": 120,
+  "rows": 36
+}
+```
+
+#### `agent:kill`
+Terminates an agent session.
+```json
+{
+  "type": "agent:kill",
+  "agentId": "agent-1723700000000"
+}
+```
+
+---
+
+### 5.2 Server to Client Messages (`WSMessageServer`)
+
+#### `agent:init_list`
+Initial or updated agent roster sent upon connection or agent creation/removal.
+```json
+{
+  "type": "agent:init_list",
+  "agents": [
+    {
+      "id": "tmux-dev_session",
+      "name": "Tmux: dev_session",
+      "mode": "tmux",
+      "targetHost": "localhost:dev_session",
+      "status": "running",
+      "unreadOutput": false,
+      "layout": { "isFloating": false },
+      "createdAt": 1723700000000,
+      "lastActivity": 1723700000000
+    }
+  ]
+}
+```
+
+#### `agent:output`
+Streams stdout/stderr data from PTY or SSH stream.
+```json
+{
+  "type": "agent:output",
+  "agentId": "tmux-dev_session",
+  "data": "\u001b[32m[task]\u001b[0m context sync completed.\r\n"
+}
+```
+
+#### `agent:status_change`
+Notifies client of agent status transition (`idle` | `running` | `thinking` | `error` | `disconnected`).
+```json
+{
+  "type": "agent:status_change",
+  "agentId": "tmux-dev_session",
+  "status": "disconnected"
+}
+```
