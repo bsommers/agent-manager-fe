@@ -13,6 +13,7 @@ export class SessionManager {
     const discovered = await discoverTmuxSessions();
     for (const agent of discovered) {
       this.agents.set(agent.id, agent);
+      this.getOrCreateDriver(agent.id);
     }
   }
 

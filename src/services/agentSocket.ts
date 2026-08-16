@@ -58,7 +58,7 @@ export class AgentSocketService {
 
     // Mock mode handling
     if (msg.type === 'agent:input') {
-      const output = MockStreamGenerator.handleMockCommand(msg.data, msg.agentId);
+      const output = MockStreamGenerator.processInput(msg.agentId, msg.data, msg.agentId);
       this.notify({
         type: 'agent:output',
         agentId: msg.agentId,

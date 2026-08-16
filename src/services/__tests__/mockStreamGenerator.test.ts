@@ -33,8 +33,49 @@ describe('MockStreamGenerator', () => {
     expect(output).toContain('Complete.');
   });
 
+  it('should handle clear mock command', () => {
+    const output = MockStreamGenerator.handleMockCommand('clear', 'Dev Agent');
+    expect(output).toContain('\x1bc');
+  });
+
   it('should handle unknown command with bash error message', () => {
     const output = MockStreamGenerator.handleMockCommand('foobar_cmd', 'Dev Agent');
     expect(output).toContain('bash: foobar_cmd: command not found');
+  });
+
+  describe('processInput streaming buffer', () => {
+    it('should buffer character inputs and evaluate command on Enter (\\r)', () => {
+      const agentId = 'stream-agent-1';
+      expect(MockStreamGenerator.processInput(agentId, 'h')).toBe('h');
+      expect(MockStreamGenerator.processInput(agentId, 'e')).toBe('e');
+      expect(MockStreamGenerator.processInput(agentId, 'l')).toBe('l');
+      expect(MockStreamGenerator.processInput(agentId, 'p')).toBe('p');
+
+      const result = MockStreamGenerator.processInput(agentId, '\r');
+      expect(result).toContain('Available mock commands:');
+    });
+
+    it('should handle backspace (\\u007F) in buffer', () => {
+      const agentId = 'stream-agent-2';
+      MockStreamGenerator.processInput(agentId, 'x');
+      const backspaceResult = MockStreamGenerator.processInput(agentId, '\u007F');
+      expect(backspaceResult).toBe('\b \b');
+
+      // Empty buffer backspace returns empty string
+      expect(MockStreamGenerator.processInput(agentId, '\u007F')).toBe('');
+    });
+
+    it('should handle Ctrl+C (\\x03) interrupt signal', () => {
+      const agentId = 'stream-agent-3';
+      MockStreamGenerator.processInput(agentId, 'partial command');
+      const ctrlCResult = MockStreamGenerator.processInput(agentId, '\x03', 'Dev Agent');
+      expect(ctrlCResult).toContain('^C');
+      expect(ctrlCResult).toContain('agent@dev-agent:~$');
+    });
+
+    it('should execute direct command string passed with newline', () => {
+      const result = MockStreamGenerator.processInput('stream-agent-4', 'status\n');
+      expect(result).toContain('[AGENT METRICS]');
+    });
   });
 });

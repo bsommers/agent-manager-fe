@@ -70,28 +70,13 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       }
     });
 
-    // Handle user keystrokes in xterm
+    // Handle user keystrokes in xterm: forward raw PTY stream data directly to socket
     term.onData((data) => {
-      if (data === '\r') {
-        // Enter pressed: send line to socket
-        term.write('\r\n');
-        const inputToSend = currentInputRef.current;
-        currentInputRef.current = '';
-        agentSocket.send({
-          type: 'agent:input',
-          agentId,
-          data: inputToSend,
-        });
-      } else if (data === '\u007F') {
-        // Backspace pressed
-        if (currentInputRef.current.length > 0) {
-          currentInputRef.current = currentInputRef.current.slice(0, -1);
-          term.write('\b \b');
-        }
-      } else if (data >= ' ' || data === '\t') {
-        currentInputRef.current += data;
-        term.write(data);
-      }
+      agentSocket.send({
+        type: 'agent:input',
+        agentId,
+        data,
+      });
     });
 
     // Handle container resize

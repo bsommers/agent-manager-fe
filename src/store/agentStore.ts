@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { create } from 'zustand';
 import { Agent, LayoutMode } from '../types/agent';
 import { agentSocket } from '../services/agentSocket';
 
@@ -38,46 +38,39 @@ const INITIAL_AGENTS: Agent[] = [
   },
 ];
 
-let agentsState: Agent[] = INITIAL_AGENTS;
-let activeAgentIdState: string | null = 'agent-1';
-let layoutModeState: LayoutMode = 'grid';
-let searchQueryState: string = '';
-const listeners = new Set<() => void>();
+export interface AgentStoreState {
+  agents: Agent[];
+  activeAgentId: string | null;
+  layoutMode: LayoutMode;
+  searchQuery: string;
 
-function notifyStore() {
-  listeners.forEach((l) => l());
+  setActiveAgentId: (id: string | null) => void;
+  setLayoutMode: (mode: LayoutMode) => void;
+  setSearchQuery: (query: string) => void;
+  addAgent: (name: string, mode: 'tmux' | 'ssh', targetHost: string) => void;
+  removeAgent: (id: string) => void;
+  toggleUndock: (id: string) => void;
+  updateFloatingPosition: (id: string, x: number, y: number) => void;
+  updateFloatingBounds: (id: string, x: number, y: number, width: number, height: number) => void;
+  arrangeGrid: (containerWidth?: number, containerHeight?: number) => void;
+  arrangeCascade: (containerWidth?: number, containerHeight?: number) => void;
+  arrangeFocus: (activeId?: string, containerWidth?: number, containerHeight?: number) => void;
+  bringToFront: (id: string) => void;
+  setAgents: (agents: Agent[]) => void;
 }
 
-export const agentStore = {
-  get agents() {
-    return agentsState;
-  },
-  get activeAgentId() {
-    return activeAgentIdState;
-  },
-  get layoutMode() {
-    return layoutModeState;
-  },
-  get searchQuery() {
-    return searchQueryState;
-  },
+export const useAgentStore = create<AgentStoreState>((set, get) => ({
+  agents: INITIAL_AGENTS,
+  activeAgentId: 'agent-1',
+  layoutMode: 'grid',
+  searchQuery: '',
 
-  setActiveAgentId: (id: string | null) => {
-    activeAgentIdState = id;
-    notifyStore();
-  },
+  setActiveAgentId: (id) => set({ activeAgentId: id }),
+  setLayoutMode: (mode) => set({ layoutMode: mode }),
+  setSearchQuery: (query) => set({ searchQuery: query }),
+  setAgents: (agents) => set({ agents }),
 
-  setLayoutMode: (mode: LayoutMode) => {
-    layoutModeState = mode;
-    notifyStore();
-  },
-
-  setSearchQuery: (query: string) => {
-    searchQueryState = query;
-    notifyStore();
-  },
-
-  addAgent: (name: string, mode: 'tmux' | 'ssh', targetHost: string) => {
+  addAgent: (name, mode, targetHost) => {
     const newAgent: Agent = {
       id: `agent-${Date.now()}`,
       name,
@@ -89,71 +82,61 @@ export const agentStore = {
       createdAt: Date.now(),
       lastActivity: Date.now(),
     };
-    agentsState = [...agentsState, newAgent];
-    activeAgentIdState = newAgent.id;
+    set((state) => ({
+      agents: [...state.agents, newAgent],
+      activeAgentId: newAgent.id,
+    }));
     agentSocket.startMockStream(newAgent.id, newAgent.name, newAgent.mode, newAgent.targetHost);
-    notifyStore();
   },
 
-  removeAgent: (id: string) => {
-    agentsState = agentsState.filter((a) => a.id !== id);
+  removeAgent: (id) => {
+    const currentActive = get().activeAgentId;
+    const nextAgents = get().agents.filter((a) => a.id !== id);
     agentSocket.stopMockStream(id);
-    if (activeAgentIdState === id) {
-      activeAgentIdState = agentsState[0]?.id || null;
-    }
-    notifyStore();
-  },
-
-  toggleUndock: (id: string) => {
-    agentsState = agentsState.map((a) => {
-      if (a.id === id) {
-        const isFloating = !a.layout.isFloating;
-        return {
-          ...a,
-          layout: {
-            ...a.layout,
-            isFloating,
-            x: isFloating ? Math.random() * 200 + 100 : undefined,
-            y: isFloating ? Math.random() * 100 + 100 : undefined,
-            width: isFloating ? 650 : undefined,
-            height: isFloating ? 400 : undefined,
-            zIndex: isFloating ? 100 : undefined,
-          },
-        };
-      }
-      return a;
+    set({
+      agents: nextAgents,
+      activeAgentId: currentActive === id ? nextAgents[0]?.id || null : currentActive,
     });
-    notifyStore();
   },
 
-  updateFloatingPosition: (id: string, x: number, y: number) => {
-    agentsState = agentsState.map((a) => {
-      if (a.id === id) {
-        return {
-          ...a,
-          layout: { ...a.layout, x, y },
-        };
-      }
-      return a;
-    });
-    notifyStore();
+  toggleUndock: (id) => {
+    set((state) => ({
+      agents: state.agents.map((a) => {
+        if (a.id === id) {
+          const isFloating = !a.layout.isFloating;
+          return {
+            ...a,
+            layout: {
+              ...a.layout,
+              isFloating,
+              x: isFloating ? Math.random() * 200 + 100 : undefined,
+              y: isFloating ? Math.random() * 100 + 100 : undefined,
+              width: isFloating ? 650 : undefined,
+              height: isFloating ? 400 : undefined,
+              zIndex: isFloating ? 100 : undefined,
+            },
+          };
+        }
+        return a;
+      }),
+    }));
   },
 
-  updateFloatingBounds: (id: string, x: number, y: number, width: number, height: number) => {
-    agentsState = agentsState.map((a) => {
-      if (a.id === id) {
-        return {
-          ...a,
-          layout: { ...a.layout, x, y, width, height },
-        };
-      }
-      return a;
-    });
-    notifyStore();
+  updateFloatingPosition: (id, x, y) => {
+    set((state) => ({
+      agents: state.agents.map((a) => (a.id === id ? { ...a, layout: { ...a.layout, x, y } } : a)),
+    }));
   },
 
-  arrangeGrid: (containerWidth: number = 1200, containerHeight: number = 750) => {
-    const total = agentsState.length;
+  updateFloatingBounds: (id, x, y, width, height) => {
+    set((state) => ({
+      agents: state.agents.map((a) => (a.id === id ? { ...a, layout: { ...a.layout, x, y, width, height } } : a)),
+    }));
+  },
+
+  arrangeGrid: (containerWidth = 1200, containerHeight = 750) => {
+    const currentAgents = get().agents;
+    const total = currentAgents.length;
     if (total === 0) return;
 
     let cols = 1;
@@ -170,7 +153,7 @@ export const agentStore = {
     const itemW = Math.max(320, Math.floor(availW / cols));
     const itemH = Math.max(240, Math.floor(availH / rows));
 
-    agentsState = agentsState.map((agent, i) => {
+    const nextAgents = currentAgents.map((agent, i) => {
       const r = Math.floor(i / cols);
       const c = i % cols;
       const x = padding + c * (itemW + gap);
@@ -187,16 +170,17 @@ export const agentStore = {
         },
       };
     });
-    layoutModeState = 'grid';
-    notifyStore();
+
+    set({ agents: nextAgents, layoutMode: 'grid' });
   },
 
-  arrangeCascade: (containerWidth: number = 1200, containerHeight: number = 750) => {
+  arrangeCascade: (containerWidth = 1200, containerHeight = 750) => {
+    const currentAgents = get().agents;
     const defaultW = Math.min(680, Math.max(360, containerWidth - 80));
     const defaultH = Math.min(440, Math.max(260, containerHeight - 80));
     const step = 35;
 
-    agentsState = agentsState.map((agent, i) => {
+    const nextAgents = currentAgents.map((agent, i) => {
       const maxX = Math.max(20, containerWidth - defaultW - 20);
       const maxY = Math.max(20, containerHeight - defaultH - 20);
       const x = 20 + ((i * step) % maxX);
@@ -214,12 +198,13 @@ export const agentStore = {
         },
       };
     });
-    layoutModeState = 'cascade';
-    notifyStore();
+
+    set({ agents: nextAgents, layoutMode: 'cascade' });
   },
 
-  arrangeFocus: (activeId?: string, containerWidth: number = 1200, containerHeight: number = 750) => {
-    const focusId = activeId || activeAgentIdState || agentsState[0]?.id;
+  arrangeFocus: (activeId, containerWidth = 1200, containerHeight = 750) => {
+    const currentAgents = get().agents;
+    const focusId = activeId || get().activeAgentId || currentAgents[0]?.id;
     const gap = 12;
     const padding = 16;
     const sideW = Math.min(320, Math.floor(containerWidth * 0.28));
@@ -227,7 +212,7 @@ export const agentStore = {
     const mainH = containerHeight - (padding * 2);
 
     let sideIdx = 0;
-    agentsState = agentsState.map((agent) => {
+    const nextAgents = currentAgents.map((agent) => {
       if (agent.id === focusId) {
         return {
           ...agent,
@@ -260,13 +245,14 @@ export const agentStore = {
         };
       }
     });
-    layoutModeState = 'focus';
-    notifyStore();
+
+    set({ agents: nextAgents, layoutMode: 'focus' });
   },
 
-  bringToFront: (id: string) => {
-    const maxZ = Math.max(...agentsState.map((a) => a.layout.zIndex || 1), 100);
-    agentsState = agentsState.map((a) => {
+  bringToFront: (id) => {
+    const currentAgents = get().agents;
+    const maxZ = Math.max(...currentAgents.map((a) => a.layout.zIndex || 1), 100);
+    const nextAgents = currentAgents.map((a) => {
       if (a.id === id) {
         return {
           ...a,
@@ -275,24 +261,21 @@ export const agentStore = {
       }
       return a;
     });
-    activeAgentIdState = id;
-    notifyStore();
+
+    set({ agents: nextAgents, activeAgentId: id });
   },
+}));
 
-  subscribe: (listener: () => void) => {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
+// Compatibility proxy for direct store references (agentStore.agents, agentStore.addAgent, etc.)
+export const agentStore = new Proxy({} as AgentStoreState & { subscribe: (listener: () => void) => () => void }, {
+  get(_target, prop: string | symbol) {
+    const state = useAgentStore.getState();
+    if (prop === 'subscribe') {
+      return (listener: (state: AgentStoreState) => void) => useAgentStore.subscribe(listener);
+    }
+    if (prop in state) {
+      return (state as any)[prop];
+    }
+    return undefined;
   },
-};
-
-export function useAgentStore() {
-  const [, setTick] = useState(0);
-
-  useEffect(() => {
-    return agentStore.subscribe(() => setTick((t) => t + 1));
-  }, []);
-
-  return agentStore;
-}
+});

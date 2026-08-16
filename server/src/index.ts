@@ -1,11 +1,16 @@
 import express from 'express';
-import { createServer } from 'http';
+import { createServer, Server } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { CONFIG } from './config.js';
 import { SessionManager } from './services/SessionManager.js';
 import { WSMessageClient } from './protocol/wsProtocol.js';
 
-async function bootstrap() {
+export async function bootstrap(port: number = CONFIG.PORT): Promise<{
+  app: express.Application;
+  server: Server;
+  wss: WebSocketServer;
+  sessionManager: SessionManager;
+}> {
   const app = express();
   const server = createServer(app);
   const wss = new WebSocketServer({ server, path: CONFIG.WS_PATH });
@@ -43,13 +48,22 @@ async function bootstrap() {
     });
   });
 
-  server.listen(CONFIG.PORT, () => {
-    console.log(`⚡ AI Agent Manager Server listening on http://localhost:${CONFIG.PORT}`);
-    console.log(`🔌 WebSocket Endpoint: ws://localhost:${CONFIG.PORT}${CONFIG.WS_PATH}`);
+  await new Promise<void>((resolve) => {
+    server.listen(port, () => {
+      if (process.env.NODE_ENV !== 'test') {
+        console.log(`⚡ AI Agent Manager Server listening on http://localhost:${port}`);
+        console.log(`🔌 WebSocket Endpoint: ws://localhost:${port}${CONFIG.WS_PATH}`);
+      }
+      resolve();
+    });
   });
+
+  return { app, server, wss, sessionManager };
 }
 
-bootstrap().catch((err) => {
-  console.error('Fatal error starting server:', err);
-  process.exit(1);
-});
+if (process.env.NODE_ENV !== 'test') {
+  bootstrap().catch((err) => {
+    console.error('Fatal error starting server:', err);
+    process.exit(1);
+  });
+}

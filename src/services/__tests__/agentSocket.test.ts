@@ -1,8 +1,16 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AgentSocketService } from '../agentSocket';
 import { WSMessageServer } from '../wsProtocol';
 
 describe('AgentSocketService', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('should allow listeners to subscribe and receive notifications', () => {
     const socketService = new AgentSocketService();
     const mockListener = vi.fn();
@@ -19,6 +27,27 @@ describe('AgentSocketService', () => {
 
     unsubscribe();
     socketService.stopMockStream('test-agent-1');
+  });
+
+  it('should trigger periodic mock heartbeat logs until stopped', () => {
+    const socketService = new AgentSocketService();
+    const receivedMsgs: WSMessageServer[] = [];
+
+    const unsubscribe = socketService.subscribe((msg) => receivedMsgs.push(msg));
+    socketService.startMockStream('test-agent-hb', 'HB Agent', 'tmux', 'localhost:hb');
+
+    expect(receivedMsgs.length).toBe(1); // Banner
+
+    vi.advanceTimersByTime(15000);
+    expect(receivedMsgs.length).toBeGreaterThanOrEqual(2);
+
+    socketService.stopMockStream('test-agent-hb');
+    const msgCountBefore = receivedMsgs.length;
+
+    vi.advanceTimersByTime(30000);
+    expect(receivedMsgs.length).toBe(msgCountBefore); // No new logs after stop
+
+    unsubscribe();
   });
 
   it('should handle agent:input messages in mock mode', () => {
@@ -39,5 +68,32 @@ describe('AgentSocketService', () => {
     }
 
     unsubscribe();
+  });
+
+  it('should send JSON over live WebSocket when socket is open', () => {
+    const socketService = new AgentSocketService();
+    const mockWs: any = {
+      readyState: 1, // WebSocket.OPEN
+      send: vi.fn(),
+    };
+
+    (socketService as any).isMockMode = false;
+    (socketService as any).ws = mockWs;
+
+    socketService.send({
+      type: 'agent:resize',
+      agentId: 'agent-live',
+      cols: 120,
+      rows: 40,
+    });
+
+    expect(mockWs.send).toHaveBeenCalledWith(
+      JSON.stringify({
+        type: 'agent:resize',
+        agentId: 'agent-live',
+        cols: 120,
+        rows: 40,
+      })
+    );
   });
 });

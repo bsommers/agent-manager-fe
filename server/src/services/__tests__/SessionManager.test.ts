@@ -105,6 +105,13 @@ describe('SessionManager', () => {
 
       expect(manager.getAgentCount()).toBe(1);
       expect(manager.getAgent('tmux-session-1')).toEqual(mockDiscovered[0]);
+      expect(TmuxDriver).toHaveBeenCalledWith(
+        'session-1',
+        80,
+        24,
+        expect.any(Function),
+        expect.any(Function)
+      );
     });
 
     it('should handle empty discovered sessions gracefully', async () => {

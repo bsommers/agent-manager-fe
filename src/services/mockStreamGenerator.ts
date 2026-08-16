@@ -12,6 +12,8 @@ export class MockStreamGenerator {
     blue: '\x1b[34m',
   };
 
+  private static buffers: Map<string, string> = new Map();
+
   static getInitialBanner(name: string, mode: string, targetHost: string): string {
     const c = this.colors;
     const time = new Date().toISOString().replace('T', ' ').substring(0, 19);
@@ -23,10 +25,56 @@ export class MockStreamGenerator {
     );
   }
 
+  static processInput(agentId: string, data: string, name: string = 'agent'): string {
+    let currentBuf = this.buffers.get(agentId) || '';
+
+    if (data === '\r' || data === '\n' || data === '\r\n') {
+      const output = this.handleMockCommand(currentBuf, name);
+      this.buffers.set(agentId, '');
+      return output;
+    }
+
+    if (data.includes('\r') || data.includes('\n')) {
+      const fullCmd = currentBuf + data.replace(/[\r\n]+/g, '');
+      const output = this.handleMockCommand(fullCmd, name);
+      this.buffers.set(agentId, '');
+      return output;
+    }
+
+    if (data === '\u007F') {
+      if (currentBuf.length > 0) {
+        this.buffers.set(agentId, currentBuf.slice(0, -1));
+        return '\b \b';
+      }
+      return '';
+    }
+
+    if (data === '\x03') {
+      const c = this.colors;
+      this.buffers.set(agentId, '');
+      const prompt = `${c.bright}${c.magenta}agent@${name.toLowerCase().replace(/\s+/g, '-')}:~$ ${c.reset}`;
+      return `^C\r\n${prompt}`;
+    }
+
+    // Direct command execution fallback for complete command strings
+    const lower = data.trim().toLowerCase();
+    if (lower === 'help' || lower === 'status' || lower === 'run' || lower === 'clear') {
+      return this.handleMockCommand(lower, name);
+    }
+
+    // Append to buffer and return character echo for raw input
+    this.buffers.set(agentId, currentBuf + data);
+    return data;
+  }
+
   static handleMockCommand(input: string, name: string): string {
     const c = this.colors;
     const cmd = input.trim().toLowerCase();
     const prompt = `\r\n${c.bright}${c.magenta}agent@${name.toLowerCase().replace(/\s+/g, '-')}:~$ ${c.reset}`;
+
+    if (cmd === 'clear') {
+      return `\x1bc${prompt}`;
+    }
 
     if (cmd === 'help') {
       return (
