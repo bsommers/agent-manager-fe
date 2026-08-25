@@ -3,6 +3,7 @@ import { Header } from './components/layout/Header';
 import { Toolbar } from './components/layout/Toolbar';
 import { Workspace } from './components/layout/Workspace';
 import { AddAgentModal } from './components/agent/AddAgentModal';
+import { NotificationToastManager } from './components/layout/NotificationToastManager';
 
 export default function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -13,6 +14,7 @@ export default function App() {
       <Toolbar onOpenAddModal={() => setIsAddModalOpen(true)} />
       <Workspace />
       <AddAgentModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} />
+      <NotificationToastManager />
     </div>
   );
 }
