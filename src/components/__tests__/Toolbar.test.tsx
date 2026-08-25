@@ -41,4 +41,18 @@ describe('Toolbar Component', () => {
     fireEvent.change(input, { target: { value: '' } });
     expect(agentStore.searchQuery).toBe('');
   });
+
+  it('toggles BroadcastBar display on broadcast button click', () => {
+    render(<Toolbar onOpenAddModal={() => {}} />);
+
+    expect(screen.queryByPlaceholderText(/Broadcast command/i)).not.toBeInTheDocument();
+
+    const broadcastBtn = screen.getByRole('button', { name: /Broadcast/i });
+    fireEvent.click(broadcastBtn);
+
+    expect(screen.getByPlaceholderText(/Broadcast command/i)).toBeInTheDocument();
+
+    fireEvent.click(broadcastBtn);
+    expect(screen.queryByPlaceholderText(/Broadcast command/i)).not.toBeInTheDocument();
+  });
 });
