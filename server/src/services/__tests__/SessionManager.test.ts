@@ -360,6 +360,20 @@ describe('SessionManager', () => {
 
       expect(spy).toHaveBeenCalledWith('agent-123');
     });
+
+    it('should route agent:broadcast to sendInput for all targetAgentIds', () => {
+      const spy = vi.spyOn(manager, 'sendInput');
+      manager.handleClientMessage({
+        type: 'agent:broadcast',
+        targetAgentIds: ['agent-1', 'agent-2', 'agent-3'],
+        data: 'echo broadcast\r',
+      });
+
+      expect(spy).toHaveBeenCalledTimes(3);
+      expect(spy).toHaveBeenCalledWith('agent-1', 'echo broadcast\r');
+      expect(spy).toHaveBeenCalledWith('agent-2', 'echo broadcast\r');
+      expect(spy).toHaveBeenCalledWith('agent-3', 'echo broadcast\r');
+    });
   });
 
   describe('sendInput & resizeSession', () => {

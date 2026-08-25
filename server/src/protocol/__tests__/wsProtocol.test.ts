@@ -9,6 +9,12 @@ describe('wsProtocol', () => {
       data: 'ls -la\r',
     };
 
+    const broadcastMsg: WSMessageClient = {
+      type: 'agent:broadcast',
+      targetAgentIds: ['agent-1', 'agent-2'],
+      data: 'echo broadcast\r',
+    };
+
     const outputMsg: WSMessageServer = {
       type: 'agent:output',
       agentId: 'agent-1',
@@ -16,6 +22,7 @@ describe('wsProtocol', () => {
     };
 
     expect(JSON.parse(JSON.stringify(inputMsg))).toEqual(inputMsg);
+    expect(JSON.parse(JSON.stringify(broadcastMsg))).toEqual(broadcastMsg);
     expect(JSON.parse(JSON.stringify(outputMsg))).toEqual(outputMsg);
   });
 });

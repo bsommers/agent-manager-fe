@@ -65,6 +65,10 @@ export class SessionManager {
       case 'agent:kill':
         this.killAgent(msg.agentId);
         break;
+
+      case 'agent:broadcast':
+        msg.targetAgentIds.forEach((id) => this.sendInput(id, msg.data));
+        break;
     }
   }
 
