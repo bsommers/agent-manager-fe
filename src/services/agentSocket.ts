@@ -65,6 +65,17 @@ export class AgentSocketService {
         data: output,
       });
     }
+
+    if (msg.type === 'agent:broadcast') {
+      msg.targetAgentIds.forEach((agentId) => {
+        const output = MockStreamGenerator.processInput(agentId, msg.data, agentId);
+        this.notify({
+          type: 'agent:output',
+          agentId,
+          data: output,
+        });
+      });
+    }
   }
 
   startMockStream(agentId: string, name: string, mode: string, targetHost: string) {
