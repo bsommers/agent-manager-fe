@@ -1,0 +1,4 @@
+@prefix bfo: <http://purl.obolibrary.org/obo/bfo.owl#> .
+@prefix : <http://bsommers.github.io/agent-manager-fe/> .
+
+:CognitiveProcess a bfo:Process .

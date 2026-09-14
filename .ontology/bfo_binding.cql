@@ -1,0 +1,1 @@
+CREATE (d:Domain {name: 'AutonomousAgent'})-[:SUBCLASS_OF]->(b:BFO:Continuant:IndependentContinuant)
