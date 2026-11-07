@@ -44,7 +44,7 @@ Phase numbers continue after v1.1 (no restart). Source milestone mapping: M-INT-
 |------|-------|--------|
 | 1 | 01-01, 02-01, 03-01, 04-01 | Complete. 01-01 manual QA pending-human. |
 | 2 | 02-02, 03-02, 05-01 | Planned. 05-01 touches only modals, so it needs none of the files 03-02 (Header, App) and 02-0x (package.json) own. |
-| 3 | 02-03, 10-01, 10-02 (planned); 05-02, 05-03 (to plan after wave 2 merges) | 02-03 needs 02-02 (same package files). 10-01 and 10-02 are the Phase 10 roster slice pulled forward on 2026-11-07 (disjoint from 02-03: they touch `src/store`, `agentSocket.ts`, `NotificationToastManager.tsx`, `AgentPane.tsx`, `Workspace.tsx`, `server/__tests__` and four docs). 05-02 edits Header.tsx, App.tsx, Toolbar.tsx and needs 03-02 and 05-01 merged; 05-03 (pane chrome) is disjoint from 05-02 but shares `AgentPane.tsx` with 10-01, so plan it for wave 4 (after 10-01 merges) or exclude that file. Wave 3 now holds three plans, the configured `max_concurrent_agents`, so 05-02/05-03 would run as a second batch or move to wave 4 when planned. |
+| 3 | 02-03, 05-02, 05-03 (planned); 10-01, 10-02 (merged) | 02-03 needs 02-02 (same package files) and owns `packages/protocol/**`. 10-01 and 10-02 are the Phase 10 roster slice pulled forward on 2026-11-07 and are merged, so 05-03 plans against the current `AgentPane.tsx`. 05-02 owns Header.tsx, App.tsx, Toolbar.tsx, TerminalView.tsx, the shared UI store, `src/keyboard/**` and the keyboard docs; 05-03 owns FloatingPane.tsx, AgentPane.tsx, AgentControls.tsx and `paneKeyboard.ts`. The three plans are disjoint (checked with `node .planning/tools/check-wave-collisions.mjs --pending`) and fill the configured `max_concurrent_agents` of three. 05-02 documents the pane keys 05-03 implements (10 px, 50 px with Shift); the two must agree at merge. |
 | 4 | 02-04 (planned); Phase 6 plans (to plan; needs 02-03 merged) | 02-04 owns package.json, CI and the surface snapshot; Phase 6 owns `server/src` dispatch and FE lifecycle, so they are disjoint. |
 | 5 | 05-04 (devDependency for the axe audit, so after 02-04 owns package.json); Phase 8 plans (after Phase 6: both edit `server/src/index.ts`) | |
 | 6 | Phase 7 plans (adds devDependencies, so after 05-04) | |
@@ -108,10 +108,10 @@ Plans: 1 plan (complete)
 3. An axe run reports zero serious or critical issues on the main views
 4. Reduced-motion, high-contrast and light/dark themes work
 
-Plans: 1 of 4 planned (split by file ownership so the unblocked part runs in wave 2)
+Plans: 3 of 4 planned (split by file ownership; 05-01 ran in wave 2, 05-02 and 05-03 are planned for wave 3, 05-04 follows)
 - [ ] 05-01-PLAN.md - Shared modal focus hook; dialog semantics, labels, focus trap and restoration for the three modals (wave 2; criterion 2)
-- [ ] 05-02 (to plan after wave 2 merges) - Shortcut registry, Ctrl+K command palette, shortcut help overlay, shared UI store; edits Header.tsx, App.tsx, Toolbar.tsx (wave 3; criterion 1)
-- [ ] 05-03 (to plan) - Pane chrome keyboard operation: keyboard move/resize of floating panes, accessible names for pane controls, status not by colour alone (wave 3; part of criterion 3)
+- [ ] 05-02-PLAN.md - Shortcut registry, shared UI store, Ctrl+K command palette (agents, layouts, broadcast, search), shortcut help overlay, global chords working inside terminals, docs/KEYBOARD.md; edits Header.tsx, App.tsx, Toolbar.tsx, TerminalView.tsx (wave 3; criterion 1)
+- [ ] 05-03-PLAN.md - Pane chrome keyboard operation: keyboard move/resize of floating panes, accessible names for pane controls, status not by colour alone; owns FloatingPane.tsx, AgentPane.tsx, AgentControls.tsx, disjoint from 05-02 (wave 3; part of criterion 3)
 - [ ] 05-04 (to plan) - Light/dark/high-contrast themes, reduced motion, axe audit on the main views; adds a devDependency, so RESEARCH.md needs a Package Legitimacy Audit (wave 5; criteria 3 and 4)
 
 ### Phase 6: Agent Lifecycle API
