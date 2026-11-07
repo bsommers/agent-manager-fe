@@ -166,7 +166,7 @@ describe('map kind', () => {
 });
 
 describe('enumList kind', () => {
-  const spec = { l: { kind: 'enumList', values: ['x', 'y', 'z'], maxItems: 4 } } as const;
+  const spec = { l: { kind: 'enumList', values: ['x', 'y', 'z'], maxItems: 5 } } as const;
 
   it('filters unknown and duplicate entries keeping order', () => {
     expect(validateObject(spec, { l: ['z', 'q', 'x', 'z', 3] }, '')).toEqual({
@@ -177,6 +177,6 @@ describe('enumList kind', () => {
 
   it('rejects non-arrays and applies maxItems before filtering', () => {
     expect(validateObject(spec, { l: 'x' }, '').ok).toBe(false);
-    expect(validateObject(spec, { l: ['q', 'q', 'q', 'q', 'q'] }, '').ok).toBe(false);
+    expect(validateObject(spec, { l: ['q', 'q', 'q', 'q', 'q', 'q'] }, '').ok).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import type { Agent } from './agent.js';
 import type { WSMessageClient, WSMessageServer } from './messages.js';
 import { LIMITS } from './limits.js';
+import { GATEWAY_CAPABILITIES } from './capabilities.js';
 import { hasOwn, isPlainObjectLike, validateObject } from './fieldspec.js';
 import { evaluateRules } from './fieldspec.js';
 import type { FieldSpec, MessageSpec, ObjectSpec } from './fieldspec.js';
@@ -55,7 +56,30 @@ const inputData: FieldSpec = {
 // missing or surplus row a compile error when the unions change.
 // ---------------------------------------------------------------------------
 
+const nameSpec: FieldSpec = { kind: 'string', min: 1, max: 64 };
+const versionSpec: FieldSpec = { kind: 'string', min: 1, max: 32 };
+const positiveInt: FieldSpec = { kind: 'integer', min: 1, max: Number.MAX_SAFE_INTEGER };
+
 export const CLIENT_TABLE = {
+  hello: {
+    fields: {
+      contract: positiveInt,
+      token: { kind: 'string', min: 0, max: 512, noControl: true, optional: true },
+      epoch: { kind: 'string', min: 1, max: 128, optional: true },
+      resumeFrom: {
+        kind: 'map',
+        maxEntries: 1000,
+        keyMax: LIMITS.MAX_ID_LENGTH,
+        value: { kind: 'integer', min: 0, max: Number.MAX_SAFE_INTEGER },
+        optional: true,
+      },
+      client: {
+        kind: 'object',
+        fields: { name: nameSpec, version: versionSpec },
+        optional: true,
+      },
+    },
+  },
   'agent:input': { fields: { agentId: idSpec, data: inputData } },
   'agent:resize': {
     fields: {
@@ -92,6 +116,32 @@ export const CLIENT_TABLE = {
 } as const satisfies Record<WSMessageClient['type'], MessageSpec>;
 
 export const SERVER_TABLE = {
+  hello_ack: {
+    fields: {
+      contract: positiveInt,
+      epoch: { kind: 'string', min: 1, max: 128 },
+      server: { kind: 'object', fields: { name: nameSpec, version: versionSpec } },
+      auth: { kind: 'object', fields: { required: { kind: 'boolean' } } },
+      limits: {
+        kind: 'object',
+        fields: {
+          maxFrameBytes: positiveInt,
+          maxInputBytes: positiveInt,
+          maxBroadcastTargets: positiveInt,
+        },
+      },
+      backends: {
+        kind: 'objectArray',
+        maxItems: 16,
+        fields: {
+          id: idSpec,
+          label: { kind: 'string', min: 1, max: LIMITS.MAX_NAME_LENGTH },
+          up: { kind: 'boolean' },
+          capabilities: { kind: 'enumList', values: GATEWAY_CAPABILITIES, maxItems: 64 },
+        },
+      },
+    },
+  },
   'agent:output': {
     fields: {
       agentId: idSpec,

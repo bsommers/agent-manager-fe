@@ -23,6 +23,10 @@ export type FieldSpec = Optionality &
     | { kind: 'stringArray'; minItems: number; maxItems: number; item: FieldSpec }
     | { kind: 'objectArray'; maxItems: number; fields: ObjectSpec }
     | { kind: 'object'; fields: ObjectSpec }
+    /** Plain-object map: bounded entry count and key length, every value checked by `value`. */
+    | { kind: 'map'; maxEntries: number; keyMax: number; value: FieldSpec }
+    /** Array of strings filtered to a known list (order kept, duplicates and unknowns dropped). */
+    | { kind: 'enumList'; values: readonly string[]; maxItems: number }
   );
 
 export type ObjectSpec = Readonly<Record<string, FieldSpec>>;
@@ -38,6 +42,8 @@ export type Rule = { kind: 'exactlyOne' | 'atLeastOne'; fields: readonly string[
 export type FieldResult = { ok: true; value: unknown } | { ok: false; field: string; detail: string };
 
 const fail = (field: string, detail: string): FieldResult => ({ ok: false, field, detail });
+
+const RESERVED_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
 
 export const hasOwn = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 
@@ -143,6 +149,31 @@ function validateValue(spec: FieldSpec, value: unknown, path: string): FieldResu
     }
     case 'object':
       return validateObject(spec.fields, value, path);
+    case 'map': {
+      if (!isPlainObjectLike(value)) return fail(path, 'must be an object');
+      const keys = Object.keys(value);
+      if (keys.length > spec.maxEntries) return fail(path, `must have at most ${spec.maxEntries} entries`);
+      const out: Record<string, unknown> = {};
+      for (const key of keys) {
+        if (RESERVED_KEYS.has(key)) return fail(path, 'must not contain a reserved key');
+        if (key.length < 1 || key.length > spec.keyMax) {
+          return fail(path, `keys must be 1 to ${spec.keyMax} characters`);
+        }
+        const r = validateValue(spec.value, value[key], `${path}.${key}`);
+        if (!r.ok) return r;
+        out[key] = r.value;
+      }
+      return { ok: true, value: out };
+    }
+    case 'enumList': {
+      if (!Array.isArray(value)) return fail(path, 'must be an array');
+      if (value.length > spec.maxItems) return fail(path, `must have at most ${spec.maxItems} items`);
+      const out: string[] = [];
+      for (const item of value) {
+        if (typeof item === 'string' && spec.values.includes(item) && !out.includes(item)) out.push(item);
+      }
+      return { ok: true, value: out };
+    }
   }
 }
 
