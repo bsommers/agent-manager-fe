@@ -1,16 +1,27 @@
 import express from 'express';
 import { createServer, Server } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { CONFIG } from './config.js';
+import { CONFIG, assertLoopbackBind } from './config.js';
 import { SessionManager } from './services/SessionManager.js';
 import { WSMessageClient } from './protocol/wsProtocol.js';
 
-export async function bootstrap(port: number = CONFIG.PORT): Promise<{
+export interface BootstrapOptions {
+  allowedOrigins?: string[];
+  heartbeatMs?: number;
+}
+
+export async function bootstrap(
+  port: number = CONFIG.PORT,
+  host: string = CONFIG.HOST,
+  options: BootstrapOptions = {}
+): Promise<{
   app: express.Application;
   server: Server;
   wss: WebSocketServer;
   sessionManager: SessionManager;
 }> {
+  assertLoopbackBind(host);
+  void options; // consumed by later hardening steps
   const app = express();
   const server = createServer(app);
   const wss = new WebSocketServer({ server, path: CONFIG.WS_PATH });
@@ -48,11 +59,13 @@ export async function bootstrap(port: number = CONFIG.PORT): Promise<{
     });
   });
 
-  await new Promise<void>((resolve) => {
-    server.listen(port, () => {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, host, () => {
+      server.removeListener('error', reject);
       if (process.env.NODE_ENV !== 'test') {
-        console.log(`⚡ AI Agent Manager Server listening on http://localhost:${port}`);
-        console.log(`🔌 WebSocket Endpoint: ws://localhost:${port}${CONFIG.WS_PATH}`);
+        console.log(`⚡ AI Agent Manager Server listening on http://${host}:${port}`);
+        console.log(`🔌 WebSocket Endpoint: ws://${host}:${port}${CONFIG.WS_PATH}`);
       }
       resolve();
     });

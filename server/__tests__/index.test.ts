@@ -21,7 +21,7 @@ describe('Server & WebSocket Integration (server/src/index.ts)', () => {
 
   beforeEach(async () => {
     testPort = Math.floor(Math.random() * 1000) + 18000;
-    serverHandle = await bootstrap(testPort);
+    serverHandle = await bootstrap(testPort, '127.0.0.1');
   });
 
   afterEach(async () => {
@@ -33,7 +33,7 @@ describe('Server & WebSocket Integration (server/src/index.ts)', () => {
 
   it('should respond with health metrics on GET /health', async () => {
     const data = await new Promise<any>((resolve, reject) => {
-      http.get(`http://localhost:${testPort}/health`, (res) => {
+      http.get(`http://127.0.0.1:${testPort}/health`, (res) => {
         let body = '';
         res.on('data', (chunk) => (body += chunk));
         res.on('end', () => resolve(JSON.parse(body)));
@@ -47,7 +47,7 @@ describe('Server & WebSocket Integration (server/src/index.ts)', () => {
   });
 
   it('should handle WebSocket connection and initial agent list', async () => {
-    const ws = new WebSocket(`ws://localhost:${testPort}/ws`);
+    const ws = new WebSocket(`ws://127.0.0.1:${testPort}/ws`);
 
     const msg = await new Promise<any>((resolve) => {
       ws.on('message', (raw) => resolve(JSON.parse(raw.toString())));
@@ -60,7 +60,7 @@ describe('Server & WebSocket Integration (server/src/index.ts)', () => {
   });
 
   it('should handle WebSocket client messages (create, input, resize, kill)', async () => {
-    const ws = new WebSocket(`ws://localhost:${testPort}/ws`);
+    const ws = new WebSocket(`ws://127.0.0.1:${testPort}/ws`);
 
     await new Promise<void>((resolve) => ws.on('open', resolve));
 
@@ -116,7 +116,7 @@ describe('Server & WebSocket Integration (server/src/index.ts)', () => {
 
   it('should handle invalid JSON WebSocket payload gracefully without crashing', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const ws = new WebSocket(`ws://localhost:${testPort}/ws`);
+    const ws = new WebSocket(`ws://127.0.0.1:${testPort}/ws`);
 
     await new Promise<void>((resolve) => ws.on('open', resolve));
 
@@ -132,7 +132,7 @@ describe('Server & WebSocket Integration (server/src/index.ts)', () => {
 
   it('should handle socket error and close events cleanly', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const ws = new WebSocket(`ws://localhost:${testPort}/ws`);
+    const ws = new WebSocket(`ws://127.0.0.1:${testPort}/ws`);
     ws.on('error', () => {}); // Catch client side error
 
     await new Promise<void>((resolve) => ws.on('open', resolve));
