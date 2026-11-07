@@ -1,5 +1,6 @@
 import type { WSMessageClient, WSMessageServer } from '../wsProtocol';
-import { Transport, type WebSocketCtor } from '../transport/Transport';
+import { Transport, type HeartbeatConfig, type WebSocketCtor } from '../transport/Transport';
+import type { BackoffConfig } from '../transport/backoff';
 import {
   INITIAL_SNAPSHOT,
   type BackendAdapter,
@@ -12,6 +13,10 @@ export interface WsAdapterOptions {
   WebSocketImpl?: WebSocketCtor;
   /** When set, connect() does nothing and the snapshot is closed with this reason. */
   disabledReason?: string | null;
+  backoff?: BackoffConfig;
+  heartbeat?: HeartbeatConfig | false;
+  maxRetries?: number;
+  random?: () => number;
 }
 
 export class WsAdapter implements BackendAdapter {
@@ -28,6 +33,10 @@ export class WsAdapter implements BackendAdapter {
     this.transport = new Transport({
       url,
       WebSocketImpl: opts.WebSocketImpl,
+      backoff: opts.backoff,
+      heartbeat: opts.heartbeat,
+      maxRetries: opts.maxRetries,
+      random: opts.random,
       onState: (patch) => this.patch(patch),
       onFrame: (text) => this.handleFrame(text),
     });
@@ -48,7 +57,7 @@ export class WsAdapter implements BackendAdapter {
 
   reconnectNow(): void {
     if (this.disabledReason) return;
-    this.transport.connect();
+    this.transport.reconnectNow();
   }
 
   getSnapshot(): ConnSnapshot {
@@ -101,6 +110,8 @@ export class WsAdapter implements BackendAdapter {
       this.patch({ malformedFrames: this.snapshot.malformedFrames + 1 });
       return;
     }
+    // Heartbeat reply: already counted as liveness by the transport.
+    if ((parsed as { type: string }).type === 'pong') return;
     const msg = parsed as WSMessageServer;
     this.messageListeners.forEach((fn) => {
       try {

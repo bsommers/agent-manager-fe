@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WsAdapter } from '../WsAdapter';
 import type { WebSocketLike } from '../../transport/Transport';
 
@@ -107,5 +107,46 @@ describe('WsAdapter (basic)', () => {
     off();
     ws.simulateMessage('{"type":"agent:output","agentId":"1","data":"x"}');
     expect(l).not.toHaveBeenCalled();
+  });
+});
+
+describe('WsAdapter (reconnect)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('consumes pong frames without forwarding or counting them malformed', () => {
+    const { adapter, ws } = setup();
+    const l = vi.fn();
+    adapter.onMessage(l);
+    ws.simulateMessage('{"type":"pong","t":1}');
+    expect(l).not.toHaveBeenCalled();
+    expect(adapter.getSnapshot().malformedFrames).toBe(0);
+    adapter.disconnect();
+  });
+
+  it('forwards reconnectNow and disconnect and keeps malformedFrames across reconnects', () => {
+    FakeWebSocket.instances = [];
+    const adapter = new WsAdapter('ws://x/ws', {
+      WebSocketImpl: FakeWebSocket,
+      random: () => 1,
+      heartbeat: false,
+    });
+    adapter.connect();
+    const first = FakeWebSocket.instances[0];
+    first.simulateOpen();
+    first.simulateMessage('{bad');
+    first.onclose?.({ code: 1006 });
+    expect(adapter.getSnapshot()).toMatchObject({ state: 'reconnecting', malformedFrames: 1 });
+    adapter.reconnectNow();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(adapter.getSnapshot()).toMatchObject({ state: 'connecting', malformedFrames: 1 });
+    FakeWebSocket.instances[1].simulateOpen();
+    adapter.disconnect();
+    expect(adapter.getSnapshot().state).toBe('closed');
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
