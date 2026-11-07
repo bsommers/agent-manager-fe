@@ -1,24 +1,37 @@
 # State
 
 ## Current Position
-Milestone: v1.1 Fan-out Close-out (active); v2.0 Live-Connected Command Center and v2.1 Multi-Backend and Fleet defined in ROADMAP.md
-Phase: 1-4 planned (wave 1); phases 5-26 defined but not yet planned
-Status: Wave 1 plans written and ready for `/gsd-execute-phase` (parallel worktrees)
-Last activity: 2026-11-07 - reconciled FE/BE contract, roadmap and requirements; wave-1 plans created
+Milestone: v1.1 Fan-out Close-out (active, open only for a human QA checkpoint); v2.0 Live-Connected Command Center and v2.1 Multi-Backend and Fleet defined in ROADMAP.md
+Phase: wave 1 (plans 01-01, 02-01, 03-01, 04-01) executed and merged at master 3beb488; wave 2 planned (02-02, 03-02, 05-01); remaining plans of phases 2 and 3 and the rest of phase 5 are scheduled in ROADMAP.md
+Status: Wave 2 plans written, re-verified against the merged code and ready for `/gsd-execute-phase` (3 parallel worktrees, created from current master). Phase 1 stays open for the human QA checkpoint only.
+Last activity: 2026-11-07 - wave 1 recorded complete; wave 2 defined (plans 02-02/03-02 re-verified and fixed, 02-03/02-04/05-01 written, collision check added)
 
-## Wave 1 plan set (execute in parallel worktrees; file ownership is disjoint)
+## Wave 1 results (merged, green)
 
-| Plan | Phase | Wave | Depends on | Owns (summary) |
-|------|-------|------|------------|----------------|
-| 01-01 | 1 Verify and reconcile fan-out and search | 1 | - | `.planning/phases/01-*/01-EVIDENCE.md`, fan-out plan doc, `README.md`, `docs/ARCHITECTURE.md`, `docs/qa-test-plan.md` |
-| 02-01 | 2 Shared Protocol Package | 1 | - | `packages/protocol/**` (skeleton, validators), `vite.config.ts`, `tsconfig.json`, `package.json`, `server/package.json`, `server/package-lock.json`, `server/vitest.config.ts`, `server/src/protocol/wsProtocol.ts`, `src/services/wsProtocol.ts`, `src/types/agent.ts` |
-| 03-01 | 3 Transport Reconnect and Connection State | 1 | - | `src/services/{agentSocket,backend}.ts`, `src/services/{transport,adapters}/**`, `src/store/connectionStore.ts`, `src/setupTests.ts`, `src/vite-env.d.ts` + their tests |
-| 04-01 | 4 Gateway Baseline Hardening | 1 | - | `server/src/{index,config}.ts`, `server/__tests__/{index,hardening}.test.ts`, `server/README.md` |
-| 02-02 | 2 | 2 | 02-01 | `packages/protocol/**` (full v2 message set, fixtures) |
-| 03-02 | 3 | 2 | 03-01 | `ConnectionStatusChip`, `ConnectionBanner`, `Header.tsx`, `App.tsx`, `docs/RUNNING.md`, `docs/RATIONALE_AND_DESIGN_DECISIONS.md` |
-| 02-03 | 2 | 3 | 02-01, 02-02 | `packages/protocol/**` (surface snapshot, contract check), root `package.json`, `.github/workflows/ci.yml` |
+| Plan | Result | Summary |
+|------|--------|---------|
+| 01-01 | Partial: VER-01 PASS, DOC-01 docs reconciled; manual tmux/browser QA PENDING-HUMAN | `.planning/phases/01-*/01-01-SUMMARY.md`, `01-EVIDENCE.md` |
+| 02-01 | Complete: `packages/protocol` (`@agent-manager/protocol`) with hand-written table-driven validators for the 8 existing messages; FE (alias) and server (`file:` link to built dist) consume it | `02-01-SUMMARY.md` |
+| 03-01 | Complete: Transport (500 ms x2 / 15 s full-jitter reconnect, 15 s ping / 10 s timeout heartbeat, 4401 auth_failed), WsAdapter, MockAdapter (explicit Demo mode), `connectionStore`, truthful `agentSocket` shim | `03-01-SUMMARY.md` |
+| 04-01 | Complete: loopback-only bind (non-loopback HOST refused), Origin allowlist (403), 1 MiB frame cap (1009), app `pong`, hostile-frame guard, liveness reaping, `server/README.md` | `04-01-SUMMARY.md` |
 
-Merge gate after wave 1: run `npm run build:protocol && npm test && npx tsc --noEmit && npm run build && npm --prefix server test && npm --prefix server run build`. The FE heartbeat (03-01) expects the gateway `pong` (04-01); they are only verified together after merge.
+Merged baseline (master 3beb488): root `npm test` 32 files / 311 tests, `npm --prefix server test` 8 files / 98 tests, `npx tsc --noEmit` clean, `npm run build` and `npm --prefix server run build` pass.
+
+Not verified end to end: the FE heartbeat (03-01) and the gateway `pong` (04-01) are each covered by unit tests but have never run against each other; the first real check is manual QA or the Phase 7 e2e suite.
+
+## Wave 2 plan set (execute in parallel worktrees; file ownership is disjoint, checked by `node .planning/tools/check-wave-collisions.mjs --pending`)
+
+| Plan | Phase | Wave | Depends on | Owns |
+|------|-------|------|------------|------|
+| 02-02 | 2 Shared Protocol Package | 2 | 02-01 (done) | `packages/protocol/src/{fieldspec,validate,capabilities,errors,messages,index}.ts`, `packages/protocol/src/__tests__/{conformance,validate-v2,errors}.test.ts`, `packages/protocol/fixtures/{client,server,invalid}.json`, the contract spec doc (corrections only) |
+| 03-02 | 3 Transport and Connection State | 2 | 03-01 (done) | `ConnectionStatusChip.tsx`, `ConnectionBanner.tsx` (+ tests), `Header.tsx`, `Header.test.tsx`, `App.tsx`, `App.test.tsx`, `docs/RUNNING.md`, `docs/RATIONALE_AND_DESIGN_DECISIONS.md`, `docs/ARCHITECTURE.md`, `README.md` |
+| 05-01 | 5 Keyboard-First and Accessibility | 2 | - (no functional dependency; shares no file with 03-02 or the package.json owners) | `src/hooks/useModalFocus.ts` (+ test), `DestructiveSafetyModal.tsx`, `AddAgentModal.tsx`, `GlobalSearchModal.tsx` and their tests |
+
+Owned by nobody in wave 2 (do not touch): `package.json`, lockfiles, `vite.config.ts`, `tsconfig.json`, `src/setupTests.ts`, `server/**`, `.github/**`, `Toolbar.tsx`.
+
+Later plans already written (not wave 2): 02-03 (wave 3, needs 02-02: gateway-to-client messages, Agent fields, HTTP shapes, limits, drift guards), 02-04 (wave 4, needs 02-03: surface snapshot, `contract:check`, CI, owns root `package.json`). To plan after wave 2 merges: 05-02 and 05-03 (wave 3), Phase 6 (wave 4), 05-04 and Phase 8 (wave 5), Phase 7 (wave 6); see ROADMAP.md "Plan-level schedule".
+
+Merge gate after each wave (run from the repo root after `npm ci` in the root and in `server/`): `npm run build:protocol && npm test && npx tsc --noEmit && npm run build && npm --prefix server test && npm --prefix server run build`, plus the collision script for the next wave. Expected counts only grow from 311 (root) and 98 (server).
 
 ## Decisions
 - Contract: `docs/superpowers/specs/2026-11-07-fe-be-contract.md` reconciles the backend integration plan and the UI/integration milestones (log in its section 15).
@@ -26,9 +39,17 @@ Merge gate after wave 1: run `npm run build:protocol && npm test && npx tsc --no
 - Shared schema lives in `packages/protocol` (`@agent-manager/protocol`); FE resolves it by Vite alias + tsconfig paths, server by `file:` dependency to the built `dist`.
 - Auth is first-message `hello` (token never in a URL). Non-loopback bind is refused until Phase 8.
 - Requirement keys: `UX-nn` for UI milestones (the UI plan's `UI-nn` collides with shipped `UI-01`), `INT-nn`, `GW-nn`, `ADP-nn`.
-- UI-8 (a11y) moved to wave 2 (shares `Header.tsx`/`App.tsx` with Phase 3 and `package.json` with Phase 2); INT-10 follows INT-7; connection chip/banner delivered in Phase 3, pane states/error boundary in Phase 9.
-- No registry packages are added in wave 1 (validators are hand-written); Phases 5 and 7 add devDependencies and need a Package Legitimacy Audit in their RESEARCH.md.
+- Plans are scheduled with one global wave counter (ROADMAP "Plan-level schedule"), not per phase, so later plans of a phase can overlap other phases' plans when files are disjoint.
+- Phase 2 re-cut (2026-11-07): the unreviewed original 02-02 held ~25 messages, HTTP shapes and limits in 3 tasks of 8+ files, so it was split into 02-02 (engine, hello tracer, errors, client messages), 02-03 (server messages, Agent fields, HTTP, limits, drift guards) and 02-04 (the original 02-03: surface snapshot, `contract:check`, CI). Fixes made while re-verifying: the original had `agent:error` using an error list that was only created in a later task (reordered), omitted `BackendInfo.agentSpecs`, applied `reqId` to messages the spec does not give it, assumed the field-spec vocabulary (map, enum list, literal, JSON, tag-dispatched variants, cross-field rules) existed when it does not, and listed stale baselines.
+- Phase 3 plan 03-02 gained README.md and docs/ARCHITECTURE.md updates (both still described the removed automatic mock fallback) and a precondition; CI in 02-04 uses Node 22 (Node 20 is past end of life).
+- Phase 5 is split by file ownership: 05-01 (modal focus and labels) is the only part that shares nothing with Header.tsx, App.tsx or package.json, so it runs in wave 2; the palette, pane chrome and axe/theme work follow once 03-02 and 02-04 own those files.
+- No registry packages are added in waves 1-2 (validators and the focus trap are hand-written); 05-04 and Phase 7 add devDependencies and need a Package Legitimacy Audit in their RESEARCH.md.
+- Drift guards: 02-03 adds tests pinning `DEFAULT_BACKOFF`/`DEFAULT_HEARTBEAT` (FE) and `MAX_PAYLOAD_BYTES` (gateway) to the package's `LIMITS`.
 - External repos (cvm, climah, mads, mad) are read-only inputs; adapters use recorded fixtures committed here.
+
+## Open items for a human
+1. Run the manual QA in `docs/qa-test-plan.md` section 5 (live tmux + browser) and record the per-step result in `.planning/phases/01-*/01-EVIDENCE.md`; this closes Phase 1.
+2. When creating worktrees for wave 2, base them on current master: wave-1 executors started from the pre-planning commit 95521d0 and had to fast-forward before they could read their plans.
 
 ## Open questions (from the backend plan, to resolve in Phases 24-26)
 1. Does climah expose an approve/deny command for gates, or must one be added upstream?
@@ -38,8 +59,9 @@ Merge gate after wave 1: run `npm run build:protocol && npm test && npx tsc --no
 
 ## Interim behavior to remember
 - After Phase 3 and before Phase 10, live mode still starts with the seed agents in the roster and their panes stay empty; Demo mode (`VITE_DEMO_MODE=1`) keeps the old demo experience.
+- Until 03-02 merges there is no visible connection indicator in the UI (the state exists in `connectionStore` only).
 
 ## Notes
-- Onboarded 2026-11-07. Fan-out/search code merged on master; docs plan checkboxes unticked (closed by plan 01-01).
+- Onboarded 2026-11-07. Fan-out/search code merged on master; docs plan checkboxes ticked by plan 01-01.
 - Other agents write new files in docs/superpowers/plans/; do not commit them from GSD.
-- Baseline at 05b3782: root 23 files / 132 tests, server 7 files / 51 tests, tsc and build green.
+- Original baseline at 05b3782: root 23 files / 132 tests, server 7 files / 51 tests.

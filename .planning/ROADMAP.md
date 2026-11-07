@@ -14,8 +14,8 @@ Frontend, backend, test-suite enhancement, codebase improvements, and fan-out/se
 2. Docs plan checkboxes/status reflect shipped work
 3. Manual QA per `docs/qa-test-plan.md` for broadcast, search, toasts
 
-Plans: 1 plan
-- [ ] 01-01-PLAN.md - Record baseline evidence, reconcile docs with shipped code, run manual QA checkpoint (wave 1)
+Plans: 1 plan (executed; phase stays open for the human QA checkpoint only)
+- [ ] 01-01-PLAN.md - Record baseline evidence, reconcile docs with shipped code, run manual QA checkpoint (wave 1). Executed and merged 2026-11-07: VER-01 PASS, docs reconciled (DOC-01); criterion 3 (manual QA per `docs/qa-test-plan.md` section 5) is PENDING-HUMAN and must be recorded in `01-EVIDENCE.md` to close the phase.
 
 ---
 
@@ -25,12 +25,12 @@ Authoritative contract: `docs/superpowers/specs/2026-11-07-fe-be-contract.md` (r
 
 Phase numbers continue after v1.1 (no restart). Source milestone mapping: M-INT-n -> INT-nn, M-UI-n -> UX-nn (the UI plan's `UI-nn` keys collide with the shipped v1 `UI-01`), plus GW-xx (gateway) and ADP-xx (adapters) from the backend plan.
 
-**Waves** (derived from `Depends on`; a wave may start when every dependency of its phases is complete; GSD plan waves inside a phase are separate):
+**Phase-level waves** (derived from `Depends on`; unchanged for phases 9-26; phases 1-8 are superseded by the plan-level schedule below):
 
 | Wave | Phases | Notes |
 |------|--------|-------|
-| 1 | 1, 2, 3, 4 | Disjoint file ownership; run in parallel worktrees. Planned. |
-| 2 | 5, 6, 7, 8 | 6 and 8 both edit `server/src/index.ts`: sequence 6 before 8 or split ownership at plan time. 5 and 7 add devDependencies: require a Package Legitimacy Audit in their RESEARCH.md. |
+| 1 | 1, 2, 3, 4 | Done (merged 2026-11-07). |
+| 2 | 5, 6, 7, 8 | Re-cut at plan level, see below. 6 and 8 both edit `server/src/index.ts`: sequence 6 before 8. 5 and 7 add devDependencies: require a Package Legitimacy Audit in their RESEARCH.md. |
 | 3 | 9, 10, 11, 12 | |
 | 4 | 13, 14, 15, 16, 17 | |
 | 5 | 18 | |
@@ -38,7 +38,18 @@ Phase numbers continue after v1.1 (no restart). Source milestone mapping: M-INT-
 | 7 | 20, 21, 22, 23 | |
 | 8 | 24, 25, 26 | Adapters treat external repos as read-only (fixtures in this repo only). |
 
-Deviations from the UI plan's ordering: UI-8 (a11y) moves from wave 1 to wave 2 because it shares `Header.tsx`/`App.tsx` with Phase 3; INT-10 follows INT-7 (it depends on INT-1..7); the connection chip/banner of UI-1 is delivered in Phase 3 with the transport (needs no later dependency), leaving pane states, error boundary and failure toasts to Phase 9.
+**Plan-level schedule** (authoritative from 2026-11-07; one global wave counter; plans in the same wave have disjoint file ownership, verified by `node .planning/tools/check-wave-collisions.mjs --pending`):
+
+| Wave | Plans | Status |
+|------|-------|--------|
+| 1 | 01-01, 02-01, 03-01, 04-01 | Complete. 01-01 manual QA pending-human. |
+| 2 | 02-02, 03-02, 05-01 | Planned. 05-01 touches only modals, so it needs none of the files 03-02 (Header, App) and 02-0x (package.json) own. |
+| 3 | 02-03 (planned); 05-02, 05-03 (to plan after wave 2 merges) | 02-03 needs 02-02 (same package files). 05-02 edits Header.tsx, App.tsx, Toolbar.tsx and needs 03-02 and 05-01 merged; 05-03 (pane chrome) is disjoint from 05-02. |
+| 4 | 02-04 (planned); Phase 6 plans (to plan; needs 02-03 merged) | 02-04 owns package.json, CI and the surface snapshot; Phase 6 owns `server/src` dispatch and FE lifecycle, so they are disjoint. |
+| 5 | 05-04 (devDependency for the axe audit, so after 02-04 owns package.json); Phase 8 plans (after Phase 6: both edit `server/src/index.ts`) | |
+| 6 | Phase 7 plans (adds devDependencies, so after 05-04) | |
+
+Deviations from the UI plan's ordering: UI-8 (a11y, Phase 5) moves from wave 1 to the wave-2 to wave-5 range because parts share `Header.tsx`/`App.tsx` with Phase 3 and `package.json` with Phase 2 (the modal-focus part, 05-01, shares neither and runs in wave 2); INT-10 follows INT-7; the connection chip/banner of UI-1 is delivered in Phase 3 with the transport (needs no later dependency), leaving pane states, error boundary and failure toasts to Phase 9.
 
 ## Milestone v2.0 - Live-Connected Command Center (planned)
 
@@ -54,10 +65,11 @@ Objective: the UI truthfully reflects a real, hardened gateway: server-authorita
 3. `npm run contract:check` exits non-zero on a breaking schema change and CI runs it
 4. `npm test`, `npm run build`, server tests and server build stay green
 
-Plans: 3 plans
-- [ ] 02-01-PLAN.md - Package skeleton, consumer wiring, validators for existing messages (wave 1)
-- [ ] 02-02-PLAN.md - hello tracer, full v2 message set, errors, capabilities, HTTP types, fixtures (wave 2)
-- [ ] 02-03-PLAN.md - Surface snapshot, `contract:check`, CI workflow, package README (wave 3)
+Plans: 4 plans (re-cut 2026-11-07: the original 02-02 was split because it exceeded one executor context; the original 02-03 is now 02-04)
+- [x] 02-01-PLAN.md - Package skeleton, consumer wiring, validators for existing messages (wave 1, done)
+- [ ] 02-02-PLAN.md - Field-spec engine extraction, hello/hello_ack tracer, error vocabulary, client-to-gateway messages and fixtures (wave 2)
+- [ ] 02-03-PLAN.md - Gateway-to-client messages, additive Agent fields, per-scope meta, HTTP shapes, limits, FE/gateway drift guards (wave 3)
+- [ ] 02-04-PLAN.md - Surface snapshot, `contract:check`, CI workflow, package README (wave 4)
 
 ### Phase 3: Transport Reconnect and Connection State
 **Goal:** The UI always shows the true connection state, recovers by itself, and never fabricates live data.
@@ -70,8 +82,8 @@ Plans: 3 plans
 4. `VITE_BACKEND_URL` (default `http://localhost:8088`) configures the backend and `docs/RUNNING.md` documents it
 
 Plans: 2 plans
-- [ ] 03-01-PLAN.md - Transport, adapters, connection store, truthful agentSocket shim (wave 1)
-- [ ] 03-02-PLAN.md - Connection chip, banner, docs and ADR (wave 2)
+- [x] 03-01-PLAN.md - Transport, adapters, connection store, truthful agentSocket shim (wave 1, done)
+- [ ] 03-02-PLAN.md - Connection chip, banner, docs (RUNNING, README, ARCHITECTURE) and ADR-007 (wave 2)
 
 ### Phase 4: Gateway Baseline Hardening
 **Goal:** The gateway is safe by default on a developer machine: loopback only, origin-checked, size-capped, liveness-aware.
@@ -83,8 +95,8 @@ Plans: 2 plans
 3. Frames over 1 MiB close with 1009; non-object and unknown-type frames are ignored; `ping` is answered with `pong`; unresponsive sockets are terminated
 4. `server/README.md` documents `PORT`, `HOST`, `ALLOWED_ORIGINS`
 
-Plans: 1 plan
-- [ ] 04-01-PLAN.md - Loopback bind, origin allowlist, frame cap, pong, liveness, hostile-input tests (wave 1)
+Plans: 1 plan (complete)
+- [x] 04-01-PLAN.md - Loopback bind, origin allowlist, frame cap, pong, liveness, hostile-input tests (wave 1, done)
 
 ### Phase 5: Keyboard-First Operation and Accessibility
 **Goal:** Everything is operable without a mouse and the chrome meets WCAG 2.1 AA.
@@ -95,6 +107,12 @@ Plans: 1 plan
 2. Every modal traps and restores focus (component tests)
 3. An axe run reports zero serious or critical issues on the main views
 4. Reduced-motion, high-contrast and light/dark themes work
+
+Plans: 1 of 4 planned (split by file ownership so the unblocked part runs in wave 2)
+- [ ] 05-01-PLAN.md - Shared modal focus hook; dialog semantics, labels, focus trap and restoration for the three modals (wave 2; criterion 2)
+- [ ] 05-02 (to plan after wave 2 merges) - Shortcut registry, Ctrl+K command palette, shortcut help overlay, shared UI store; edits Header.tsx, App.tsx, Toolbar.tsx (wave 3; criterion 1)
+- [ ] 05-03 (to plan) - Pane chrome keyboard operation: keyboard move/resize of floating panes, accessible names for pane controls, status not by colour alone (wave 3; part of criterion 3)
+- [ ] 05-04 (to plan) - Light/dark/high-contrast themes, reduced motion, axe audit on the main views; adds a devDependency, so RESEARCH.md needs a Package Legitimacy Audit (wave 5; criteria 3 and 4)
 
 ### Phase 6: Agent Lifecycle API
 **Goal:** Create, list, kill and rename are server-confirmed with typed errors, and the gateway validates every client frame.
@@ -295,9 +313,10 @@ Objective: one UI over several backends (cvm sandboxes, climah pipelines, option
 
 | Phase | Milestone | Plans Complete | Status |
 |-------|-----------|----------------|--------|
-| 1. Verify and reconcile fan-out and search | v1.1 | 0/1 | Planned |
-| 2. Shared Protocol Package and Contract Fixtures | v2.0 | 0/3 | Planned |
-| 3. Transport Reconnect and Connection State | v2.0 | 0/2 | Planned |
-| 4. Gateway Baseline Hardening | v2.0 | 0/1 | Planned |
-| 5-18 | v2.0 | 0/TBD | Not planned |
+| 1. Verify and reconcile fan-out and search | v1.1 | 1/1 | Executed; open for manual QA (pending-human) |
+| 2. Shared Protocol Package and Contract Fixtures | v2.0 | 1/4 | In progress (02-02..02-04 planned) |
+| 3. Transport Reconnect and Connection State | v2.0 | 1/2 | In progress (03-02 planned) |
+| 4. Gateway Baseline Hardening | v2.0 | 1/1 | Complete |
+| 5. Keyboard-First Operation and Accessibility | v2.0 | 0/4 | In progress (05-01 planned) |
+| 6-18 | v2.0 | 0/TBD | Not planned |
 | 19-26 | v2.1 | 0/TBD | Not planned |

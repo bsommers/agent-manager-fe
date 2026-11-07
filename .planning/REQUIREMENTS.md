@@ -13,23 +13,23 @@ ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides 
 - [x] NOTI-01: Toast/browser alerts on agent error or disconnect
 
 ## v1.1 (active)
-- [ ] VER-01: Full suite (`npm test`, `tsc`, server tests) verified green for fan-out/search work
-- [ ] DOC-01: Reconcile docs/plans checkboxes and docs with shipped code
+- [x] VER-01: Full suite (`npm test`, `tsc`, server tests) verified green for fan-out/search work (evidence in `.planning/phases/01-*/01-EVIDENCE.md`; re-verified green at master 3beb488)
+- [x] DOC-01: Reconcile docs/plans checkboxes and docs with shipped code (done in 01-01; the phase's manual QA checkpoint is still PENDING-HUMAN and keeps Phase 1 open)
 
 ## v2.0 Live-Connected Command Center (planned)
 
 ### Integration
-- [ ] INT-01: Transport layer with reconnect (jittered backoff, heartbeat), visible connection state, no silent mock fallback, explicit Demo mode, single `VITE_BACKEND_URL`
+- [ ] INT-01: Transport layer with reconnect (jittered backoff, heartbeat), visible connection state, no silent mock fallback, explicit Demo mode, single `VITE_BACKEND_URL` (in progress: transport done in 03-01; visible state and docs in 03-02)
 - [ ] INT-02: Token auth and secure transport (`hello` handshake, `auth_failed`, wss for non-local, logout clears state)
 - [ ] INT-03: Server-confirmed agent lifecycle (`reqId`, `agent:ack`/`agent:error`, added/removed/updated, `/api/agents`)
 - [ ] INT-04: Lossless ordered output (`seq`, `epoch`, resume, gap markers, LogStore, history, logs endpoint)
 - [ ] INT-05: Acked broadcast and input API (per-target results, idempotency, size and rate limits)
 - [ ] INT-06: Server-side history search (`/api/search`, cursor pagination, cancellation, local merge)
-- [ ] INT-08: Shared protocol package, golden fixtures and breaking-change check; FE never imports from `server/src`
+- [ ] INT-08: Shared protocol package, golden fixtures and breaking-change check; FE never imports from `server/src` (in progress: 02-01 done; 02-02, 02-03, 02-04 planned)
 - [ ] INT-09: Offline mock server with seeded scenarios and Playwright e2e
 
 ### Gateway
-- [ ] GW-01: Gateway baseline hardening (loopback default bind, Origin allowlist, frame cap, ping/pong, liveness)
+- [x] GW-01: Gateway baseline hardening (loopback default bind, Origin allowlist, frame cap, ping/pong, liveness) (Phase 4, plan 04-01)
 
 ### UX
 - [ ] UX-01: Resilient shell (pane states, error boundary, failure toasts)
@@ -39,7 +39,7 @@ ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides 
 - [ ] UX-05: Broadcast v2 (targeting, per-target results, snippets, dry run)
 - [ ] UX-06: Search v2 (regex/case/word toggles, filters, context, virtualization)
 - [ ] UX-07: Alerts and notification center (rules, history, desktop permission flow)
-- [ ] UX-08: Keyboard-first operation and accessibility (command palette, focus management, axe-clean)
+- [ ] UX-08: Keyboard-first operation and accessibility (command palette, focus management, axe-clean) (in progress: 05-01 planned; 05-02..05-04 to plan)
 
 ## v2.1 Multi-Backend and Fleet (planned)
 
