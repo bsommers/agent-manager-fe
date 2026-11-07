@@ -26,6 +26,8 @@ export const AgentPane: React.FC<AgentPaneProps> = ({ agent }) => {
 
   return (
     <div
+      role="group"
+      aria-label={`Agent ${agent.name}`}
       onClick={() => setActiveAgentId(agent.id)}
       className={`h-full w-full flex flex-col bg-[#0d1322] border rounded-lg overflow-hidden transition-all duration-150 ${
         isActive
@@ -35,13 +37,23 @@ export const AgentPane: React.FC<AgentPaneProps> = ({ agent }) => {
     >
       {/* Header bar */}
       <div className="flex items-center px-3 py-2 bg-[#131b2e] border-b border-slate-800/80 select-none">
-        <span className={`w-2 h-2 rounded-full mr-2.5 shadow-sm ${dotClass}`} />
+        <span aria-hidden="true" className={`w-2 h-2 rounded-full mr-2.5 shadow-sm ${dotClass}`} />
         <span className="font-semibold text-xs text-slate-200 truncate mr-2">
           {agent.name}
         </span>
         <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 uppercase">
           {agent.mode}
         </span>
+        {!isPending && (
+          <span
+            data-testid="pane-status"
+            data-status={agent.status}
+            className="ml-1.5 text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-800 uppercase"
+          >
+            <span className="sr-only">Status: </span>
+            {agent.status}
+          </span>
+        )}
         {isPending && (
           <span
             data-testid="pane-state-starting"
@@ -97,7 +109,11 @@ export const AgentPane: React.FC<AgentPaneProps> = ({ agent }) => {
           </div>
 
           {/* Quick Action Footer */}
-          <AgentControls agentId={agent.id} isFloating={agent.layout.isFloating} />
+          <AgentControls
+            agentId={agent.id}
+            agentName={agent.name}
+            isFloating={agent.layout.isFloating}
+          />
         </>
       )}
     </div>
