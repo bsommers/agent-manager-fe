@@ -3,6 +3,7 @@ import { Search, X, Terminal, Server, ExternalLink, AlertCircle, Clock } from 'l
 import { useAgentStore } from '../../store/agentStore';
 import { useLogBufferStore, LogSearchResult } from '../../store/logBufferStore';
 import { Agent } from '../../types/agent';
+import { useModalFocus } from '../../hooks/useModalFocus';
 
 export interface GlobalSearchModalProps {
   isOpen: boolean;
@@ -20,25 +21,9 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
 
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Focus search input when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 50);
-    }
-  }, [isOpen]);
-
-  // Keyboard shortcut listener for Escape to close
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  // Focus trap, Escape to close, initial focus on the search input, focus restoration
+  const dialogRef = useModalFocus<HTMLDivElement>({ isOpen, onClose, initialFocusRef: inputRef });
+  const titleId = React.useId();
 
   // Validate regex syntax
   useEffect(() => {
@@ -112,6 +97,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
       className="fixed inset-0 z-[500] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-3xl bg-[#0d1322] border border-slate-800 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150"
       >
@@ -122,7 +111,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
               <Search className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
+              <h3 id={titleId} className="font-bold text-sm text-slate-100 flex items-center gap-2">
                 Global Output Search
                 {query.trim() && !regexError && (
                   <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800/60 font-mono">
@@ -134,6 +123,8 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
           </div>
           <button
             data-testid="close-search-modal"
+            type="button"
+            aria-label="Close"
             onClick={onClose}
             className="text-slate-400 hover:text-slate-200 transition p-1 rounded-md hover:bg-slate-800/60"
             title="Close (Esc)"
@@ -150,6 +141,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
               <input
                 ref={inputRef}
                 type="text"
+                aria-label="Search terminal logs"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search terminal logs across all agents..."
@@ -158,6 +150,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
               {query && (
                 <button
                   type="button"
+                  aria-label="Clear search"
                   onClick={() => setQuery('')}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
                 >
@@ -169,6 +162,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
             {/* Regex Toggle */}
             <button
               type="button"
+              aria-pressed={isRegex}
               onClick={() => setIsRegex(!isRegex)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-mono font-medium transition ${
                 isRegex
@@ -183,6 +177,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
 
             {/* Agent Filter Selector */}
             <select
+              aria-label="Filter by agent"
               value={selectedAgentId}
               onChange={(e) => setSelectedAgentId(e.target.value)}
               className="bg-[#0d1322] border border-slate-700/60 rounded-lg px-2.5 py-2 text-xs text-slate-300 focus:outline-none focus:border-cyan-500 font-mono"
@@ -198,7 +193,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
 
           {/* Regex Error Alert */}
           {regexError && (
-            <div className="flex items-center gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-800/60 px-3 py-1.5 rounded-md">
+            <div role="alert" className="flex items-center gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-800/60 px-3 py-1.5 rounded-md">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
               <span>Invalid regular expression: {regexError}</span>
             </div>
