@@ -11,4 +11,10 @@ describe('App Integration Test', () => {
     expect(screen.getByPlaceholderText(/Search agents by name or host/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /New Agent/i })).toBeInTheDocument();
   });
+
+  it('shows the Demo mode banner under the test setup stub', () => {
+    render(<App />);
+
+    expect(screen.getByText('Demo mode')).toBeInTheDocument();
+  });
 });
