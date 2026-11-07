@@ -20,7 +20,10 @@
   - **Grid**: Automatically snaps all active agent windows into a balanced tiling grid layout.
   - **Cascade**: Staggers windows diagonally across the workspace canvas.
   - **Focus**: Expands the selected agent to primary viewport height while docking secondary agents in a right sidebar strip.
-- **🔌 Dual-Mode Socket Service**: Seamless live WebSocket connection (`ws://localhost:8088/ws`) with an offline mock terminal stream generator for standalone frontend development.
+- **🔌 Dual-Mode Socket Service**: The app connects to the backend at `ws://localhost:8088/ws`, and an offline mock terminal stream is available for standalone frontend development. See [`docs/RUNNING.md`](docs/RUNNING.md) for connection configuration.
+- **📡 Multi-Agent Command Broadcast**: Send one command to all, filtered, or selected agents at once from the broadcast bar. Commands matching destructive patterns (e.g. `rm`, `sudo`, `kill`, `shutdown`) require explicit confirmation in a safety modal before they are sent.
+- **🔎 Global Log Search**: Search ANSI-stripped terminal output buffered across all agents, with a plain-text or regular-expression toggle (`Ctrl+Shift+F`), and jump straight to the matching agent pane.
+- **🔔 Status Toast Alerts**: An in-app toast appears when an agent enters an error or disconnected state; click it to jump to that agent.
 - **🔍 Agent Roster Search & Quick Actions**: Search agents by name or host, clear terminal outputs, send interrupt signals (`Ctrl+C`), and manage agent lifecycles.
 
 ---

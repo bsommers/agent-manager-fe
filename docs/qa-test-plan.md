@@ -44,3 +44,35 @@ While the application compiles cleanly (`vite build`) and initial test runs show
    - **`src/components/__tests__/Toolbar.test.tsx`**: Test search input triggers and layout mode button clicks.
    - **`src/components/__tests__/AddAgentModal.test.tsx`**: Test form input, validation, mode toggling, submission, and cancel actions.
    - **`src/App.test.tsx`**: Full DOM integration test rendering the complete application layout.
+
+---
+
+## 5. Manual QA: Fan-out, Search, Toasts
+
+Covers multi-agent broadcast, the destructive-command gate, global log search, and status toasts against a live stack. Use only throwaway sessions created by this procedure.
+
+**Environment:** run `npm run start:all` and open http://localhost:3000.
+
+### Setup
+1. Create two tmux agents with "Add Agent": `qa-a` with target host `localhost:qa_a`, and `qa-b` with target host `localhost:qa_b`. Expected: both panes appear and show a shell prompt.
+
+### Broadcast
+2. In the broadcast bar select both `qa-a` and `qa-b` (target mode "Selected"). Expected: the bar shows 2 targets.
+3. Send `echo qa-broadcast-ok`. Expected: `qa-broadcast-ok` is printed in both panes.
+
+### Destructive gate (Cancel path only)
+4. Type a command matching a destructive pattern (for example one beginning with `sudo `, without pressing any key that confirms) in the broadcast bar and send it. Expected: the safety modal appears.
+5. Choose Cancel. Expected: the modal closes and nothing is sent to either pane. Never confirm a destructive command.
+
+### Search
+6. Press Ctrl+Shift+F. Expected: the global search modal opens.
+7. Search `qa-broadcast-ok`. Expected: hits from both `qa-a` and `qa-b` (two hits expected, one per agent; if the shell echo of the typed command is also buffered, a pane may show an additional hit for it).
+8. Enable the Regex toggle and search `qa-broadcast-.+`. Expected: results are shown.
+9. With Regex still enabled, search the invalid pattern `qa-(`. Expected: an invalid-expression message and an empty result list, no crash.
+10. Disable Regex, search `qa-broadcast-ok`, and choose a hit. Expected: the modal closes and the matching agent pane is focused.
+
+### Toasts
+11. In the `qa-b` pane type `exit` to end its shell. Expected: within a few seconds a disconnected or error toast naming `qa-b` appears.
+
+### Cleanup
+12. Remove only the `qa-a` and `qa-b` agents from the UI. Do not kill any tmux session other than `qa_a` and `qa_b`.

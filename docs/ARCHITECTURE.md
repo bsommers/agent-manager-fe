@@ -113,7 +113,11 @@ sequenceDiagram
 - `src/components/layout/FloatingPane.tsx`: Absolute-positioned window container providing header drag handles, bottom-right resize handles, and z-index elevation.
 - `src/components/layout/Workspace.tsx`: Workspace canvas rendering active panes with auto-arrange layout algorithms.
 - `src/store/agentStore.ts`: Zustand application store handling state mutations, layout calculations, and subscriber notifications.
-- `src/services/agentSocket.ts`: Dual-mode WebSocket client offering live connection with graceful failover to offline mock stream generator.
+- `src/services/agentSocket.ts`: A WebSocket client singleton exposing `subscribe` and `send`, backed by the live backend, with an offline mock stream generator for demo and test use.
+- `src/components/layout/BroadcastBar.tsx`: Toolbar command bar that fans one command out to all, filtered, or selected agents via `agent:broadcast`, gating destructive patterns behind a confirmation modal.
+- `src/components/layout/GlobalSearchModal.tsx`: Cross-agent log search (plain text or regex, `Ctrl+Shift+F`) over the buffered output, with jump-to-pane navigation.
+- `src/components/layout/NotificationToastManager.tsx`: Subscribes to `agent:status_change` and shows toasts when an agent becomes `error` or `disconnected`.
+- `src/store/logBufferStore.ts`: Zustand store holding a bounded per-agent ring buffer of ANSI-stripped output lines (10,000 lines per agent) used by global search.
 
 ### 3.2 Layout Algorithms
 The frontend store implements three layout auto-arrange functions:
@@ -206,6 +210,16 @@ Terminates an agent session.
 }
 ```
 
+#### `agent:broadcast`
+Fans a single input payload out to several agents. The server writes `data` to the driver of each agent listed in `targetAgentIds`.
+```json
+{
+  "type": "agent:broadcast",
+  "targetAgentIds": ["tmux-dev_session", "tmux-qa_a"],
+  "data": "echo hello\r"
+}
+```
+
 ---
 
 ### 5.2 Server to Client Messages (`WSMessageServer`)
@@ -250,3 +264,5 @@ Notifies client of agent status transition (`idle` | `running` | `thinking` | `e
   "status": "disconnected"
 }
 ```
+
+Planned protocol additions are specified in `docs/superpowers/specs/2026-11-07-fe-be-contract.md`, which is the contract for them.
