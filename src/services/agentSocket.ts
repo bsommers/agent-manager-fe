@@ -35,12 +35,14 @@ export class AgentSocketService {
     this.listeners.forEach((fn) => fn(msg));
   }
 
-  send(msg: WSMessageClient): void {
+  /** Returns true only when the adapter wrote the message to an open connection. */
+  send(msg: WSMessageClient): boolean {
     const delivered = this.adapter.send(msg);
     if (!delivered && !this.warned) {
       this.warned = true;
       console.warn(`agentSocket: message "${msg.type}" not sent, connection is not open`);
     }
+    return delivered;
   }
 
   startMockStream(agentId: string, name: string, mode: string, targetHost: string) {

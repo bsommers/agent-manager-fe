@@ -28,7 +28,7 @@ describe('AgentControls Component', () => {
   });
 
   it('should send SIGINT (\\x03) on Ctrl+C button click', () => {
-    const sendSpy = vi.spyOn(agentSocket, 'send').mockImplementation(() => {});
+    const sendSpy = vi.spyOn(agentSocket, 'send').mockImplementation(() => true);
     const { getByTitle } = render(<AgentControls agentId={agentId} isFloating={false} />);
 
     const ctrlCButton = getByTitle('Send SIGINT (Ctrl+C)');
@@ -44,7 +44,7 @@ describe('AgentControls Component', () => {
   });
 
   it('should send clear command on Clear button click', () => {
-    const sendSpy = vi.spyOn(agentSocket, 'send').mockImplementation(() => {});
+    const sendSpy = vi.spyOn(agentSocket, 'send').mockImplementation(() => true);
     const { getByText } = render(<AgentControls agentId={agentId} isFloating={false} />);
 
     const clearButton = getByText('Clear');

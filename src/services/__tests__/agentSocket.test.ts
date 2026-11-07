@@ -128,7 +128,7 @@ describe('AgentSocketService over a live adapter', () => {
     svc.subscribe(l);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const msg: WSMessageClient = { type: 'agent:input', agentId: '1', data: 'help' };
-    expect(svc.send(msg)).toBeUndefined();
+    expect(svc.send(msg)).toBe(false);
     svc.send(msg);
     svc.send(msg);
     expect(warn).toHaveBeenCalledTimes(1);
@@ -137,6 +137,13 @@ describe('AgentSocketService over a live adapter', () => {
     svc.send(msg);
     expect(warn).toHaveBeenCalledTimes(2);
     warn.mockRestore();
+  });
+
+  it('send returns true when the adapter delivered the message', () => {
+    const a = new FakeLiveAdapter();
+    a.deliver = true;
+    const svc = new AgentSocketService(a);
+    expect(svc.send({ type: 'agent:input', agentId: '1', data: 'x' })).toBe(true);
   });
 
   it('start/stopMockStream are no-ops for an adapter lacking them', () => {

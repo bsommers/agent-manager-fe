@@ -30,7 +30,14 @@ export const Workspace: React.FC = () => {
 
   return (
     <div ref={containerRef} className="flex-1 relative overflow-hidden bg-[#090d16] p-3">
-      {filteredAgents.length === 0 ? (
+      {agents.length === 0 ? (
+        <div
+          data-testid="empty-roster"
+          className="h-full flex flex-col items-center justify-center text-slate-500 gap-2"
+        >
+          <p className="text-sm font-mono">No agents yet. Use Add Agent to start one.</p>
+        </div>
+      ) : filteredAgents.length === 0 ? (
         <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-2">
           <p className="text-sm font-mono">No agents found matching "{searchQuery}"</p>
         </div>
