@@ -127,6 +127,119 @@ describe('parseAllowedOrigins', () => {
   });
 });
 
+function nextMessage(ws: WebSocket): Promise<any> {
+  return new Promise((resolve) => ws.once('message', (raw) => resolve(JSON.parse(raw.toString()))));
+}
+
+describe('application ping/pong and hostile frames', () => {
+  it('replies to a ping with a pong carrying the same t', async () => {
+    const h = await start();
+    const ws = new WebSocket(wsUrl(h));
+    await firstMessage(ws);
+    const reply = nextMessage(ws);
+    ws.send(JSON.stringify({ type: 'ping', t: 42 }));
+    expect(await reply).toEqual({ type: 'pong', t: 42 });
+    ws.close();
+  });
+
+  it('ignores a ping with a non-number t without crashing', async () => {
+    const h = await start();
+    const ws = new WebSocket(wsUrl(h));
+    await firstMessage(ws);
+    ws.send(JSON.stringify({ type: 'ping', t: 'nope' }));
+    const reply = nextMessage(ws);
+    ws.send(JSON.stringify({ type: 'ping', t: 7 }));
+    // The first reply must be the pong for t=7: the bad ping produced none.
+    expect(await reply).toEqual({ type: 'pong', t: 7 });
+    ws.close();
+  });
+
+  it.each([
+    ['null', 'null'],
+    ['a number', '42'],
+    ['a string', '"hello"'],
+    ['an array', '[1,2]'],
+    ['a non-string type', '{"type":5}'],
+    ['no type', '{"foo":"bar"}'],
+  ])('ignores a non-object frame (%s), logs once, and stays usable', async (_n, payload) => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const h = await start();
+    const ws = new WebSocket(wsUrl(h));
+    await firstMessage(ws);
+    ws.send(payload);
+    const reply = nextMessage(ws);
+    ws.send(JSON.stringify({ type: 'ping', t: 1 }));
+    expect(await reply).toEqual({ type: 'pong', t: 1 });
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
+    expect(consoleSpy).toHaveBeenCalledWith('Invalid WebSocket message received:', expect.any(Error));
+    ws.close();
+    consoleSpy.mockRestore();
+  });
+
+  it('ignores an unknown type without error output', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const h = await start();
+    const ws = new WebSocket(wsUrl(h));
+    await firstMessage(ws);
+    ws.send(JSON.stringify({ type: 'totally:unknown' }));
+    const reply = nextMessage(ws);
+    ws.send(JSON.stringify({ type: 'ping', t: 2 }));
+    expect(await reply).toEqual({ type: 'pong', t: 2 });
+    expect(consoleSpy).not.toHaveBeenCalled();
+    ws.close();
+    consoleSpy.mockRestore();
+  });
+
+  it('keeps today\'s behavior for invalid JSON (logged, connection stays open)', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const h = await start();
+    const ws = new WebSocket(wsUrl(h));
+    await firstMessage(ws);
+    ws.send('{not json');
+    const reply = nextMessage(ws);
+    ws.send(JSON.stringify({ type: 'ping', t: 3 }));
+    expect(await reply).toEqual({ type: 'pong', t: 3 });
+    expect(consoleSpy).toHaveBeenCalledWith('Invalid WebSocket message received:', expect.any(Error));
+    ws.close();
+    consoleSpy.mockRestore();
+  });
+});
+
+describe('liveness', () => {
+  it('terminates a socket that never answers protocol pings', async () => {
+    const h = await start('127.0.0.1', { heartbeatMs: 40 });
+    const ws = new WebSocket(wsUrl(h));
+    await firstMessage(ws);
+    const serverSocket = Array.from(h.wss.clients)[0] as WebSocket;
+    serverSocket.ping = () => {}; // never actually pings, so no pong ever comes back
+    const closed = new Promise<void>((resolve) => ws.on('close', () => resolve()));
+    const started = Date.now();
+    await closed;
+    expect(Date.now() - started).toBeLessThan(40 * 3 + 500);
+  });
+
+  it('never terminates a responsive client', async () => {
+    const h = await start('127.0.0.1', { heartbeatMs: 30 });
+    const ws = new WebSocket(wsUrl(h));
+    await firstMessage(ws);
+    let closed = false;
+    ws.on('close', () => (closed = true));
+    await new Promise((r) => setTimeout(r, 30 * 8));
+    expect(closed).toBe(false);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    ws.close();
+  });
+
+  it('clears the liveness interval when the websocket server closes', async () => {
+    const spy = vi.spyOn(globalThis, 'clearInterval');
+    const h = await start('127.0.0.1', { heartbeatMs: 1000 });
+    const before = spy.mock.calls.length;
+    await new Promise<void>((resolve) => h.wss.close(() => resolve()));
+    expect(spy.mock.calls.length).toBeGreaterThan(before);
+    spy.mockRestore();
+  });
+});
+
 describe('origin allowlist and frame size cap', () => {
   it('rejects a disallowed Origin with 403 and sends no init list', async () => {
     const h = await start();

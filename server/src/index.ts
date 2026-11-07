@@ -52,13 +52,45 @@ export async function bootstrap(
     });
   });
 
+  // Liveness: terminate sockets that stop answering protocol pings.
+  const alive = new WeakMap<WebSocket, boolean>();
+  const heartbeat = setInterval(() => {
+    for (const client of wss.clients) {
+      if (alive.get(client) === false) {
+        client.terminate();
+        continue;
+      }
+      alive.set(client, false);
+      client.ping();
+    }
+  }, options.heartbeatMs ?? CONFIG.HEARTBEAT_MS);
+  heartbeat.unref();
+  wss.on('close', () => clearInterval(heartbeat));
+
   wss.on('connection', (ws: WebSocket) => {
+    alive.set(ws, true);
+    ws.on('pong', () => alive.set(ws, true));
     sessionManager.addClient(ws);
 
     ws.on('message', (data: string) => {
       try {
-        const msg = JSON.parse(data.toString()) as WSMessageClient;
-        sessionManager.handleClientMessage(msg);
+        const parsed: unknown = JSON.parse(data.toString());
+        if (
+          typeof parsed !== 'object' ||
+          parsed === null ||
+          Array.isArray(parsed) ||
+          typeof (parsed as { type?: unknown }).type !== 'string'
+        ) {
+          throw new Error('Client frame must be a JSON object with a string "type"');
+        }
+        const frame = parsed as { type: string; t?: unknown };
+        if (frame.type === 'ping') {
+          if (typeof frame.t === 'number' && Number.isFinite(frame.t)) {
+            ws.send(JSON.stringify({ type: 'pong', t: frame.t }));
+          }
+          return;
+        }
+        sessionManager.handleClientMessage(parsed as WSMessageClient);
       } catch (err) {
         console.error('Invalid WebSocket message received:', err);
       }

@@ -64,6 +64,7 @@ export const CONFIG = {
   HOST: rawHost ? rawHost : '127.0.0.1',
   ALLOWED_ORIGINS: parseAllowedOrigins(process.env.ALLOWED_ORIGINS),
   MAX_PAYLOAD_BYTES: 1048576,
+  HEARTBEAT_MS: 30000,
   WS_PATH: '/ws',
   DEFAULT_SHELL: process.env.SHELL || '/bin/bash',
   SSH_KEY_PATHS: [
