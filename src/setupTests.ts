@@ -1,4 +1,8 @@
 import '@testing-library/jest-dom';
+import { vi } from 'vitest';
+
+// Tests run against the explicit Demo adapter (simulated output).
+vi.stubEnv('VITE_DEMO_MODE', '1');
 
 // Global ResizeObserver mock for xterm and workspace layout testing
 if (typeof global.ResizeObserver === 'undefined') {

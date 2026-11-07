@@ -1,44 +1,29 @@
-import { MockStreamGenerator } from './mockStreamGenerator';
 import { WSMessageClient, WSMessageServer } from './wsProtocol';
+import type { BackendAdapter } from './adapters/types';
+import { createBackend, resolveBackendConfig } from './backend';
+import { useConnectionStore } from '../store/connectionStore';
 
 type Listener = (msg: WSMessageServer) => void;
 
 export class AgentSocketService {
   private listeners: Set<Listener> = new Set();
-  private isMockMode: boolean = true;
-  private ws: WebSocket | null = null;
-  private mockIntervals: Map<string, ReturnType<typeof setInterval>> = new Map();
+  private readonly adapter: BackendAdapter;
+  private unsubs: Array<() => void> = [];
+  private warned = false;
 
-  constructor() {
-    if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
-      this.isMockMode = true;
-      return;
-    }
-    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8088/ws';
-    this.connectLive(wsUrl);
-  }
-
-  private connectLive(url: string) {
-    try {
-      this.ws = new WebSocket(url);
-      this.isMockMode = false;
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data) as WSMessageServer;
-        this.notify(msg);
-      };
-      this.ws.onerror = (err) => {
-        console.warn('Live WS error, switching to mock mode', err);
-        this.isMockMode = true;
-      };
-      this.ws.onclose = () => {
-        console.info('Live WS closed, switching to mock mode');
-        this.isMockMode = true;
-        this.ws = null;
-      };
-    } catch (e) {
-      console.warn('Live WS failed, falling back to mock driver', e);
-      this.isMockMode = true;
-    }
+  constructor(adapter?: BackendAdapter) {
+    this.adapter = adapter ?? createBackend(resolveBackendConfig());
+    this.unsubs.push(this.adapter.onMessage((msg) => this.notify(msg)));
+    this.unsubs.push(
+      this.adapter.onState((snapshot) => {
+        if (snapshot.state === 'open') this.warned = false;
+        useConnectionStore.getState().applySnapshot(snapshot);
+      }),
+    );
+    const store = useConnectionStore.getState();
+    store.setMode(this.adapter.mode);
+    store.applySnapshot(this.adapter.getSnapshot());
+    this.adapter.connect();
   }
 
   subscribe(listener: Listener): () => void {
@@ -50,61 +35,39 @@ export class AgentSocketService {
     this.listeners.forEach((fn) => fn(msg));
   }
 
-  send(msg: WSMessageClient) {
-    if (!this.isMockMode && this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(msg));
-      return;
-    }
-
-    // Mock mode handling
-    if (msg.type === 'agent:input') {
-      const output = MockStreamGenerator.processInput(msg.agentId, msg.data, msg.agentId);
-      this.notify({
-        type: 'agent:output',
-        agentId: msg.agentId,
-        data: output,
-      });
-    }
-
-    if (msg.type === 'agent:broadcast') {
-      msg.targetAgentIds.forEach((agentId) => {
-        const output = MockStreamGenerator.processInput(agentId, msg.data, agentId);
-        this.notify({
-          type: 'agent:output',
-          agentId,
-          data: output,
-        });
-      });
+  send(msg: WSMessageClient): void {
+    const delivered = this.adapter.send(msg);
+    if (!delivered && !this.warned) {
+      this.warned = true;
+      console.warn(`agentSocket: message "${msg.type}" not sent, connection is not open`);
     }
   }
 
   startMockStream(agentId: string, name: string, mode: string, targetHost: string) {
-    this.stopMockStream(agentId);
-
-    // Send initial banner
-    const banner = MockStreamGenerator.getInitialBanner(name, mode, targetHost);
-    this.notify({ type: 'agent:output', agentId, data: banner });
-
-    // Periodic heartbeat log simulation
-    const intervalId = setInterval(() => {
-      const logs = [
-        `\x1b[36m[info]\x1b[0m agent heartbeat ok (${new Date().toLocaleTimeString()})\r\n`,
-        `\x1b[32m[task]\x1b[0m context sync completed.\r\n`,
-      ];
-      const randomLog = logs[Math.floor(Math.random() * logs.length)];
-      this.notify({ type: 'agent:output', agentId, data: randomLog });
-    }, 15000);
-
-    this.mockIntervals.set(agentId, intervalId);
+    this.adapter.startMockStream?.(agentId, name, mode, targetHost);
   }
 
   stopMockStream(agentId: string) {
-    const id = this.mockIntervals.get(agentId);
-    if (id) {
-      clearInterval(id);
-      this.mockIntervals.delete(agentId);
-    }
+    this.adapter.stopMockStream?.(agentId);
+  }
+
+  reconnect(): void {
+    this.adapter.reconnectNow();
+  }
+
+  dispose(): void {
+    this.unsubs.forEach((fn) => fn());
+    this.unsubs = [];
+    this.adapter.disconnect();
+  }
+
+  getAdapter(): BackendAdapter {
+    return this.adapter;
   }
 }
 
 export const agentSocket = new AgentSocketService();
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => agentSocket.dispose());
+}
