@@ -2,9 +2,9 @@
 
 ## Current Position
 Milestone: v1.1 Fan-out Close-out (active, open only for a human QA checkpoint); v2.0 Live-Connected Command Center and v2.1 Multi-Backend and Fleet defined in ROADMAP.md
-Phase: wave 1 (plans 01-01, 02-01, 03-01, 04-01) executed and merged at master 3beb488; wave 2 planned (02-02, 03-02, 05-01); remaining plans of phases 2 and 3 and the rest of phase 5 are scheduled in ROADMAP.md
-Status: Wave 2 plans written, re-verified against the merged code and ready for `/gsd-execute-phase` (3 parallel worktrees, created from current master). Phase 1 stays open for the human QA checkpoint only.
-Last activity: 2026-11-07 - wave 1 recorded complete; wave 2 defined (plans 02-02/03-02 re-verified and fixed, 02-03/02-04/05-01 written, collision check added)
+Phase: waves 1 and 2 executed and merged (wave 2 at master d17af86: 02-02, 03-02, 05-01); next is wave 3 (02-03, plus 05-02/05-03 still to be planned)
+Status: Wave 2 merged and green. Phase 3 (transport + connection UI) is complete pending manual QA. Phase 1 stays open for the human QA checkpoint only.
+Last activity: 2026-11-07 - wave 2 executed in parallel worktrees, merged, merge gate passed
 
 ## Wave 1 results (merged, green)
 
@@ -18,6 +18,16 @@ Last activity: 2026-11-07 - wave 1 recorded complete; wave 2 defined (plans 02-0
 Merged baseline (master 3beb488): root `npm test` 32 files / 311 tests, `npm --prefix server test` 8 files / 98 tests, `npx tsc --noEmit` clean, `npm run build` and `npm --prefix server run build` pass.
 
 Not verified end to end: the FE heartbeat (03-01) and the gateway `pong` (04-01) are each covered by unit tests but have never run against each other; the first real check is manual QA or the Phase 7 e2e suite.
+
+## Wave 2 results (merged, green)
+
+| Plan | Result |
+|------|--------|
+| 02-02 | Complete: hello/hello_ack, capabilities, error codes, ping/update/history/approve client messages, reqId; protocol tests 70 -> 145; fixtures incl. 16 invalid cases |
+| 03-02 | Complete: ConnectionStatusChip in Header, ConnectionBanner in App, RUNNING/ADR-007/ARCHITECTURE/README updated |
+| 05-01 | Complete: `useModalFocus` focus trap/restore; DestructiveSafetyModal as alertdialog (initial focus Cancel), AddAgentModal and GlobalSearchModal dialog semantics |
+
+Merged gate (master d17af86): root 39 files / 439 tests, server 8 files / 98 tests, tsc clean, build:protocol, root build and server build pass.
 
 ## Wave 2 plan set (execute in parallel worktrees; file ownership is disjoint, checked by `node .planning/tools/check-wave-collisions.mjs --pending`)
 
