@@ -19,11 +19,51 @@ export function assertLoopbackBind(host: string): void {
   }
 }
 
+const DEFAULT_ALLOWED_ORIGINS = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
+];
+
+/**
+ * Parse a comma-separated ALLOWED_ORIGINS value. Blank/undefined yields the dev defaults.
+ * Wildcards and anything that is not a bare http(s) origin are rejected (fail fast).
+ */
+export function parseAllowedOrigins(value: string | undefined): string[] {
+  if (value === undefined || value.trim() === '') return [...DEFAULT_ALLOWED_ORIGINS];
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '')
+    .map((entry) => {
+      const bad = (why: string) =>
+        new Error(`Invalid ALLOWED_ORIGINS entry "${entry}": ${why}`);
+      if (entry === '*' || entry.includes('*')) throw bad('wildcards are not allowed');
+      let url: URL;
+      try {
+        url = new URL(entry);
+      } catch {
+        throw bad('not a valid origin');
+      }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw bad('must be an http or https origin');
+      }
+      if (url.username || url.password) throw bad('credentials are not allowed');
+      if (url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) {
+        throw bad('must not contain a path, query or fragment');
+      }
+      return entry.replace(/\/+$/, '');
+    });
+}
+
 const rawHost = process.env.HOST?.trim();
 
 export const CONFIG = {
   PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 8088,
   HOST: rawHost ? rawHost : '127.0.0.1',
+  ALLOWED_ORIGINS: parseAllowedOrigins(process.env.ALLOWED_ORIGINS),
+  MAX_PAYLOAD_BYTES: 1048576,
   WS_PATH: '/ws',
   DEFAULT_SHELL: process.env.SHELL || '/bin/bash',
   SSH_KEY_PATHS: [

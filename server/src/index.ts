@@ -21,10 +21,25 @@ export async function bootstrap(
   sessionManager: SessionManager;
 }> {
   assertLoopbackBind(host);
-  void options; // consumed by later hardening steps
+  const allowedOrigins = new Set(
+    (options.allowedOrigins ?? CONFIG.ALLOWED_ORIGINS).map((o) => o.replace(/\/+$/, ''))
+  );
   const app = express();
   const server = createServer(app);
-  const wss = new WebSocketServer({ server, path: CONFIG.WS_PATH });
+  const wss = new WebSocketServer({
+    server,
+    path: CONFIG.WS_PATH,
+    maxPayload: CONFIG.MAX_PAYLOAD_BYTES,
+    verifyClient: (info, cb) => {
+      const origin = info.origin;
+      // Browsers always send Origin; non-browser local tools do not.
+      if (!origin || allowedOrigins.has(origin.replace(/\/+$/, ''))) {
+        cb(true);
+      } else {
+        cb(false, 403, 'Origin not allowed');
+      }
+    },
+  });
 
   const sessionManager = new SessionManager();
   await sessionManager.initialize();
