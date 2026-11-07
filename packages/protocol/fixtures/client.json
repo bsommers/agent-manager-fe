@@ -1,0 +1,180 @@
+[
+  {
+    "name": "input",
+    "message": {
+      "type": "agent:input",
+      "agentId": "a1",
+      "data": "ls\n"
+    }
+  },
+  {
+    "name": "resize",
+    "message": {
+      "type": "agent:resize",
+      "agentId": "a1",
+      "cols": 80,
+      "rows": 24
+    }
+  },
+  {
+    "name": "create-with-initial-cmd",
+    "message": {
+      "type": "agent:create",
+      "name": "one",
+      "mode": "ssh",
+      "targetHost": "host",
+      "initialCmd": "top"
+    }
+  },
+  {
+    "name": "create-minimal",
+    "message": {
+      "type": "agent:create",
+      "name": "two",
+      "mode": "tmux",
+      "targetHost": "host"
+    }
+  },
+  {
+    "name": "kill",
+    "message": {
+      "type": "agent:kill",
+      "agentId": "a1"
+    }
+  },
+  {
+    "name": "broadcast",
+    "message": {
+      "type": "agent:broadcast",
+      "targetAgentIds": [
+        "a1",
+        "a2"
+      ],
+      "data": "echo hi"
+    }
+  },
+  {
+    "name": "hello-minimal",
+    "message": {
+      "type": "hello",
+      "contract": 1
+    }
+  },
+  {
+    "name": "hello-full",
+    "message": {
+      "type": "hello",
+      "contract": 1,
+      "token": "test-token-not-a-secret",
+      "epoch": "ep-2026-11-07",
+      "resumeFrom": {
+        "a1": 42,
+        "a2": 0
+      },
+      "client": {
+        "name": "agent-manager-fe",
+        "version": "2.0.0"
+      }
+    }
+  },
+  {
+    "name": "ping",
+    "message": {
+      "type": "ping",
+      "t": 1731000000000
+    }
+  },
+  {
+    "name": "update-name",
+    "message": {
+      "type": "agent:update",
+      "agentId": "a1",
+      "name": "renamed",
+      "reqId": "11111111-1111-4111-8111-111111111111"
+    }
+  },
+  {
+    "name": "update-tags-group",
+    "message": {
+      "type": "agent:update",
+      "agentId": "a1",
+      "tags": [
+        "prod",
+        "db"
+      ],
+      "group": "infra"
+    }
+  },
+  {
+    "name": "history-before",
+    "message": {
+      "type": "agent:history",
+      "agentId": "a1",
+      "beforeSeq": 100,
+      "limit": 200,
+      "reqId": "22222222-2222-4222-8222-222222222222"
+    }
+  },
+  {
+    "name": "history-after",
+    "message": {
+      "type": "agent:history",
+      "agentId": "a1",
+      "afterSeq": 0
+    }
+  },
+  {
+    "name": "approve",
+    "message": {
+      "type": "agent:approve",
+      "agentId": "a1",
+      "gateId": "g1",
+      "decision": "approve",
+      "reqId": "33333333-3333-4333-8333-333333333333"
+    }
+  },
+  {
+    "name": "approve-deny",
+    "message": {
+      "type": "agent:approve",
+      "agentId": "a1",
+      "gateId": "g1",
+      "decision": "deny"
+    }
+  },
+  {
+    "name": "create-with-backend-params",
+    "message": {
+      "type": "agent:create",
+      "name": "sbx",
+      "mode": "ssh",
+      "targetHost": "host",
+      "backend": "cvm",
+      "params": {
+        "image": "ubuntu",
+        "cpus": 4,
+        "gpu": false
+      },
+      "reqId": "44444444-4444-4444-8444-444444444444"
+    }
+  },
+  {
+    "name": "kill-with-reqid",
+    "message": {
+      "type": "agent:kill",
+      "agentId": "a1",
+      "reqId": "55555555-5555-4555-8555-555555555555"
+    }
+  },
+  {
+    "name": "broadcast-with-reqid",
+    "message": {
+      "type": "agent:broadcast",
+      "targetAgentIds": [
+        "a1"
+      ],
+      "data": "echo hi",
+      "reqId": "66666666-6666-4666-8666-666666666666"
+    }
+  }
+]
