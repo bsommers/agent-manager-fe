@@ -74,9 +74,11 @@ sequenceDiagram
 
     Session->>WS: broadcast({ type: 'agent:init_list', agents })
     WS->>Socket: agent:init_list
-    Socket->>Store: updates agentsState
-    Store-->>User: UI renders new AgentPane in Workspace
+    Socket->>Store: validates the snapshot and reconciles the pending pane to the server agent
+    Store-->>User: UI renders the reconciled AgentPane in Workspace
 ```
+
+**Roster reconciliation.** The gateway assigns agent ids and announces creates, kills and new connections as a full `agent:init_list` snapshot. The frontend replaces its roster by id while keeping each pane's layout, and matches a pending create to the new agent by name, mode and targetHost. Phase 6 replaces this with `reqId` acks and `agent:added/removed` messages.
 
 ### 2.2 Terminal Stream IO Flow (Input & Output)
 
@@ -231,6 +233,7 @@ Fans a single input payload out to several agents. The server writes `data` to t
 
 #### `agent:init_list`
 Initial or updated agent roster sent upon connection or agent creation/removal.
+Clients treat it as an idempotent full snapshot.
 ```json
 {
   "type": "agent:init_list",

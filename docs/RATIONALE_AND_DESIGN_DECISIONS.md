@@ -146,4 +146,25 @@ ADR-005 silently fell back to the mock generator whenever the WebSocket failed. 
 
 ### Consequences
 - **Pros**: The UI is truthful about the connection, and the connection heals itself without a page reload.
-- **Cons**: Seed agents in live mode stay empty until Phase 10, and tests rely on the `VITE_DEMO_MODE` stub in `src/setupTests.ts`.
+- **Cons**: The empty live-mode start is resolved by [ADR-008](#adr-008-server-authoritative-roster-in-live-mode-phase-10-slice), and tests rely on the `VITE_DEMO_MODE` stub in `src/setupTests.ts`.
+
+---
+
+## ADR-008: Server-Authoritative Roster in Live Mode (Phase 10 slice)
+
+### Status
+Accepted, delivered ahead of Phases 6 and 8 on 2026-11-07, completed by their typed-lifecycle work.
+
+### Context
+Add Agent only built a local agent and never sent `agent:create`, so QA step 1 showed panes with no shell prompt.
+
+### Decision
+- The live roster starts empty and is replaced by `agent:init_list` snapshots from the gateway.
+- Add Agent sends `agent:create` and shows a Starting pane, reconciled to the server agent by name, mode and targetHost.
+- Create and kill roll back (create) or stay listed with an error notice (kill) after 10 seconds without gateway confirmation.
+- Status events update the badge in the store.
+- Demo mode is unchanged.
+
+### Consequences
+- **Pros**: The roster is truthful and QA step 1 passes.
+- **Cons**: Key-based matching can attach a pane to an identical agent created by another client; there are no typed errors; a failed driver spawn can leave a ghost agent in a later snapshot; there are no stale markers, rename, tags or group. All of these are addressed by Phase 6.
