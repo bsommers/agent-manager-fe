@@ -1,28 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { Cpu, Activity, Search } from 'lucide-react';
 import { useAgentStore } from '../../store/agentStore';
 import { GlobalSearchModal } from './GlobalSearchModal';
 import { ConnectionStatusChip } from './ConnectionStatusChip';
+import { useUiStore } from '../../store/uiStore';
+import { useGlobalShortcuts } from '../../keyboard/hooks';
 
 export const Header: React.FC = () => {
   const { agents } = useAgentStore();
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const isSearchOpen = useUiStore((s) => s.overlay === 'search');
+  const openOverlay = useUiStore((s) => s.openOverlay);
+  const closeOverlay = useUiStore((s) => s.closeOverlay);
 
   const activeCount = agents.filter((a) => a.status === 'running').length;
   const thinkingCount = agents.filter((a) => a.status === 'thinking').length;
   const sshCount = agents.filter((a) => a.mode === 'ssh').length;
   const tmuxCount = agents.filter((a) => a.mode === 'tmux').length;
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'F' || e.key === 'f' || e.code === 'KeyF')) {
-        e.preventDefault();
-        setIsSearchOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  useGlobalShortcuts();
+
+  // Do not leak an open search overlay across mounts.
+  useEffect(() => () => useUiStore.getState().closeOverlay('search'), []);
 
   return (
     <>
@@ -49,7 +47,7 @@ export const Header: React.FC = () => {
           {/* Global Search Button */}
           <button
             type="button"
-            onClick={() => setIsSearchOpen(true)}
+            onClick={() => openOverlay('search')}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#090d16] hover:bg-slate-900 border border-slate-800 hover:border-cyan-500/50 text-slate-300 hover:text-cyan-300 transition text-xs shadow-sm group"
             title="Search across all agent output logs (Ctrl+Shift+F)"
           >
@@ -87,7 +85,7 @@ export const Header: React.FC = () => {
         </div>
       </header>
 
-      <GlobalSearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+      <GlobalSearchModal isOpen={isSearchOpen} onClose={() => closeOverlay('search')} />
     </>
   );
 };
