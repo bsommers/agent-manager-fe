@@ -1,0 +1,48 @@
+[
+  {
+    "name": "hello-missing-contract",
+    "direction": "client",
+    "input": {
+      "type": "hello"
+    },
+    "reason": "invalid_field",
+    "field": "contract"
+  },
+  {
+    "name": "hello-negative-resume-seq",
+    "direction": "client",
+    "input": {
+      "type": "hello",
+      "contract": 1,
+      "resumeFrom": {
+        "a1": -1
+      }
+    },
+    "reason": "invalid_field",
+    "field": "resumeFrom.a1"
+  },
+  {
+    "name": "hello-ack-auth-required-string",
+    "direction": "server",
+    "input": {
+      "type": "hello_ack",
+      "contract": 1,
+      "epoch": "e",
+      "server": {
+        "name": "gw",
+        "version": "1"
+      },
+      "auth": {
+        "required": "yes"
+      },
+      "limits": {
+        "maxFrameBytes": 1,
+        "maxInputBytes": 1,
+        "maxBroadcastTargets": 1
+      },
+      "backends": []
+    },
+    "reason": "invalid_field",
+    "field": "auth.required"
+  }
+]

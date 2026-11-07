@@ -1,0 +1,98 @@
+[
+  {
+    "name": "output",
+    "message": {
+      "type": "agent:output",
+      "agentId": "a1",
+      "data": "hello"
+    }
+  },
+  {
+    "name": "status-change",
+    "message": {
+      "type": "agent:status_change",
+      "agentId": "a1",
+      "status": "running"
+    }
+  },
+  {
+    "name": "init-list",
+    "message": {
+      "type": "agent:init_list",
+      "agents": [
+        {
+          "id": "a1",
+          "name": "one",
+          "mode": "tmux",
+          "targetHost": "localhost",
+          "status": "idle",
+          "unreadOutput": false,
+          "layout": {
+            "isFloating": false
+          },
+          "createdAt": 1,
+          "lastActivity": 2
+        }
+      ]
+    }
+  },
+  {
+    "name": "init-list-empty",
+    "message": {
+      "type": "agent:init_list",
+      "agents": []
+    }
+  },
+  {
+    "name": "hello-ack-full",
+    "message": {
+      "type": "hello_ack",
+      "contract": 1,
+      "epoch": "ep-2026-11-07",
+      "server": {
+        "name": "agent-manager-gateway",
+        "version": "2.0.0"
+      },
+      "auth": {
+        "required": true
+      },
+      "limits": {
+        "maxFrameBytes": 1048576,
+        "maxInputBytes": 65536,
+        "maxBroadcastTargets": 64
+      },
+      "backends": [
+        {
+          "id": "local",
+          "label": "Local tmux/ssh",
+          "up": true,
+          "capabilities": [
+            "terminal",
+            "broadcast"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "hello-ack-no-backends",
+    "message": {
+      "type": "hello_ack",
+      "contract": 1,
+      "epoch": "e",
+      "server": {
+        "name": "gw",
+        "version": "1"
+      },
+      "auth": {
+        "required": false
+      },
+      "limits": {
+        "maxFrameBytes": 1048576,
+        "maxInputBytes": 65536,
+        "maxBroadcastTargets": 64
+      },
+      "backends": []
+    }
+  }
+]

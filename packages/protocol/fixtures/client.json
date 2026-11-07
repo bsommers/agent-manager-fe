@@ -1,0 +1,80 @@
+[
+  {
+    "name": "input",
+    "message": {
+      "type": "agent:input",
+      "agentId": "a1",
+      "data": "ls\n"
+    }
+  },
+  {
+    "name": "resize",
+    "message": {
+      "type": "agent:resize",
+      "agentId": "a1",
+      "cols": 80,
+      "rows": 24
+    }
+  },
+  {
+    "name": "create-with-initial-cmd",
+    "message": {
+      "type": "agent:create",
+      "name": "one",
+      "mode": "ssh",
+      "targetHost": "host",
+      "initialCmd": "top"
+    }
+  },
+  {
+    "name": "create-minimal",
+    "message": {
+      "type": "agent:create",
+      "name": "two",
+      "mode": "tmux",
+      "targetHost": "host"
+    }
+  },
+  {
+    "name": "kill",
+    "message": {
+      "type": "agent:kill",
+      "agentId": "a1"
+    }
+  },
+  {
+    "name": "broadcast",
+    "message": {
+      "type": "agent:broadcast",
+      "targetAgentIds": [
+        "a1",
+        "a2"
+      ],
+      "data": "echo hi"
+    }
+  },
+  {
+    "name": "hello-minimal",
+    "message": {
+      "type": "hello",
+      "contract": 1
+    }
+  },
+  {
+    "name": "hello-full",
+    "message": {
+      "type": "hello",
+      "contract": 1,
+      "token": "test-token-not-a-secret",
+      "epoch": "ep-2026-11-07",
+      "resumeFrom": {
+        "a1": 42,
+        "a2": 0
+      },
+      "client": {
+        "name": "agent-manager-fe",
+        "version": "2.0.0"
+      }
+    }
+  }
+]
