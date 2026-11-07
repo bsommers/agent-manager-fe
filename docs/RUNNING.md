@@ -131,6 +131,10 @@ The header chip and the banner below it always show the true connection state:
 | **Auth failed** | "Authentication failed" | The backend rejected the connection; no retry is offered |
 | **DEMO** | "Demo mode" | Explicit Demo mode: output is simulated and no backend is connected |
 
+### Agent roster
+
+In live mode the pane list starts empty and always equals the gateway's latest agent list, including tmux sessions the gateway rediscovered at startup. Add Agent shows a pane in a Starting state at once, and it becomes the real terminal when the gateway confirms. If the app is not connected, or the gateway does not confirm within 10 seconds, the pane disappears and an error notice says why. Closing an agent stays pending until the gateway confirms; if the close is not confirmed within 10 seconds, the pane stays in place and an error notice is shown. After a reconnect the list refreshes from the gateway without duplicates. Demo mode keeps its seed agents and simulated behavior. Rename, tags, group and stale markers are not available yet (Phase 6 and 11).
+
 ---
 
 ## 5. Running Tests & Verifying Builds

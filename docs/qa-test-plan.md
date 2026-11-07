@@ -54,7 +54,11 @@ Covers multi-agent broadcast, the destructive-command gate, global log search, a
 **Environment:** run `npm run start:all` and open http://localhost:3000.
 
 ### Setup
-1. Create two tmux agents with "Add Agent": `qa-a` with target host `localhost:qa_a`, and `qa-b` with target host `localhost:qa_b`. Expected: both panes appear and show a shell prompt.
+1. Create two tmux agents with "Add Agent": `qa-a` with target host `localhost:qa_a`, and `qa-b` with target host `localhost:qa_b`. Expected: each pane first shows Starting and then the shell prompt once the gateway confirms.
+   - 1a. Stop the gateway, then click Add Agent for a throwaway name. Expected: no pane appears and an error notice says the backend is not connected. Restart the gateway afterwards.
+   - 1b. Reload the page while `qa-a` and `qa-b` exist. Expected: both panes are back without clicking Add Agent, and there are no duplicates.
+   - 1c. Restart only the gateway with the page open. Expected: after the reconnect the pane list equals the gateway's list (agents whose tmux session still exists come back under the discovered name `Tmux: <session>`), with no duplicate panes.
+   - Note: if you cancel a pending create after the gateway has already received it, the agent reappears as an ordinary pane. The create timeout starts at send time, so a create sent just before a disconnect may roll back and then appear later.
 
 ### Broadcast
 2. In the broadcast bar select both `qa-a` and `qa-b` (target mode "Selected"). Expected: the bar shows 2 targets.
@@ -75,4 +79,4 @@ Covers multi-agent broadcast, the destructive-command gate, global log search, a
 11. In the `qa-b` pane type `exit` to end its shell. Expected: within a few seconds a disconnected or error toast naming `qa-b` appears.
 
 ### Cleanup
-12. Remove only the `qa-a` and `qa-b` agents from the UI. Do not kill any tmux session other than `qa_a` and `qa_b`.
+12. Remove only the `qa-a` and `qa-b` agents from the UI. Do not kill any tmux session other than `qa_a` and `qa_b`. A pane disappears only after the gateway confirms the close.
