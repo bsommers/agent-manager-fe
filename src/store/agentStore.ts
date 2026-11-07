@@ -1,8 +1,12 @@
 import { create } from 'zustand';
 import { Agent, LayoutMode } from '../types/agent';
 import { agentSocket } from '../services/agentSocket';
+import { parseAgent, type WSMessageClient } from '../services/wsProtocol';
+import type { BackendMode } from '../services/adapters/types';
+import { useConnectionStore } from './connectionStore';
+import { reconcileSnapshot, type PendingMap } from './rosterReconcile';
 
-const INITIAL_AGENTS: Agent[] = [
+const SEED_AGENTS = (): Agent[] => [
   {
     id: 'agent-1',
     name: 'Code Refactor Agent',
@@ -38,8 +42,17 @@ const INITIAL_AGENTS: Agent[] = [
   },
 ];
 
+/** Demo shows the three seed agents; live starts empty and follows the gateway. */
+export function initialAgentsFor(mode: BackendMode): Agent[] {
+  return mode === 'demo' ? SEED_AGENTS() : [];
+}
+
+let pendingCounter = 0;
+const isLive = () => useConnectionStore.getState().mode === 'live';
+
 export interface AgentStoreState {
   agents: Agent[];
+  pending: PendingMap;
   activeAgentId: string | null;
   layoutMode: LayoutMode;
   searchQuery: string;
@@ -47,8 +60,9 @@ export interface AgentStoreState {
   setActiveAgentId: (id: string | null) => void;
   setLayoutMode: (mode: LayoutMode) => void;
   setSearchQuery: (query: string) => void;
-  addAgent: (name: string, mode: 'tmux' | 'ssh', targetHost: string) => void;
+  addAgent: (name: string, mode: 'tmux' | 'ssh', targetHost: string, initialCmd?: string) => void;
   removeAgent: (id: string) => void;
+  applyRosterSnapshot: (agents: unknown) => void;
   toggleUndock: (id: string) => void;
   updateFloatingPosition: (id: string, x: number, y: number) => void;
   updateFloatingBounds: (id: string, x: number, y: number, width: number, height: number) => void;
@@ -60,8 +74,9 @@ export interface AgentStoreState {
 }
 
 export const useAgentStore = create<AgentStoreState>((set, get) => ({
-  agents: INITIAL_AGENTS,
-  activeAgentId: 'agent-1',
+  agents: initialAgentsFor(useConnectionStore.getState().mode),
+  pending: {},
+  activeAgentId: useConnectionStore.getState().mode === 'demo' ? 'agent-1' : null,
   layoutMode: 'grid',
   searchQuery: '',
 
@@ -70,7 +85,31 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   setSearchQuery: (query) => set({ searchQuery: query }),
   setAgents: (agents) => set({ agents }),
 
-  addAgent: (name, mode, targetHost) => {
+  addAgent: (name, mode, targetHost, initialCmd) => {
+    if (isLive()) {
+      const msg: WSMessageClient = { type: 'agent:create', name, mode, targetHost };
+      if (typeof initialCmd === 'string' && initialCmd.length > 0) msg.initialCmd = initialCmd;
+      if (!agentSocket.send(msg)) return;
+      const now = Date.now();
+      const id = `pending-${++pendingCounter}`;
+      const pendingAgent: Agent = {
+        id,
+        name,
+        mode,
+        targetHost,
+        status: 'idle',
+        unreadOutput: false,
+        layout: { isFloating: false },
+        createdAt: now,
+        lastActivity: now,
+      };
+      set((state) => ({
+        agents: [...state.agents, pendingAgent],
+        activeAgentId: id,
+        pending: { ...state.pending, [id]: { name, mode, targetHost, startedAt: now } },
+      }));
+      return;
+    }
     const newAgent: Agent = {
       id: `agent-${Date.now()}`,
       name,
@@ -97,6 +136,34 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
       agents: nextAgents,
       activeAgentId: currentActive === id ? nextAgents[0]?.id || null : currentActive,
     });
+  },
+
+  applyRosterSnapshot: (raw) => {
+    if (!isLive()) return;
+    if (!Array.isArray(raw)) {
+      console.warn('agentStore: ignoring agent:init_list with a non-array agents field');
+      return;
+    }
+    const valid: Agent[] = [];
+    for (const entry of raw) {
+      const parsed = parseAgent(entry);
+      if (parsed.ok) valid.push(parsed.msg);
+    }
+    const dropped = raw.length - valid.length;
+    if (dropped > 0) console.warn(`agentStore: dropped ${dropped} invalid agent entries from snapshot`);
+
+    const state = get();
+    const result = reconcileSnapshot(state.agents, state.pending, valid);
+    const currentActive = state.activeAgentId;
+    let nextActive: string | null;
+    if (currentActive !== null && result.claimed[currentActive] !== undefined) {
+      nextActive = result.claimed[currentActive];
+    } else if (currentActive !== null && result.agents.some((a) => a.id === currentActive)) {
+      nextActive = currentActive;
+    } else {
+      nextActive = result.agents[0]?.id ?? null;
+    }
+    set({ agents: result.agents, pending: result.pending, activeAgentId: nextActive });
   },
 
   toggleUndock: (id) => {
@@ -278,4 +345,10 @@ export const agentStore = new Proxy({} as AgentStoreState & { subscribe: (listen
     }
     return undefined;
   },
+});
+
+agentSocket.subscribe((msg) => {
+  if (msg.type === 'agent:init_list') {
+    useAgentStore.getState().applyRosterSnapshot(msg.agents);
+  }
 });

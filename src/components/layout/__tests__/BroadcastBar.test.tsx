@@ -51,7 +51,7 @@ describe('BroadcastBar Component', () => {
       activeAgentId: 'agent-1',
       searchQuery: '',
     });
-    sendSpy = vi.spyOn(agentSocket, 'send').mockImplementation(() => {});
+    sendSpy = vi.spyOn(agentSocket, 'send').mockImplementation(() => true);
   });
 
   afterEach(() => {
