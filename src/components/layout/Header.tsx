@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Cpu, Activity, Search } from 'lucide-react';
 import { useAgentStore } from '../../store/agentStore';
 import { GlobalSearchModal } from './GlobalSearchModal';
+import { ConnectionStatusChip } from './ConnectionStatusChip';
 
 export const Header: React.FC = () => {
   const { agents } = useAgentStore();
@@ -43,6 +44,8 @@ export const Header: React.FC = () => {
 
         {/* Header Right Actions & Metrics */}
         <div className="flex items-center gap-4">
+          <ConnectionStatusChip />
+
           {/* Global Search Button */}
           <button
             type="button"
