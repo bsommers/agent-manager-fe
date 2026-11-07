@@ -17,7 +17,8 @@
     "noImplicitReturns": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@agent-manager/protocol": ["packages/protocol/src/index.ts"]
     }
   },
   "include": ["src"]

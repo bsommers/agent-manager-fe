@@ -1,2 +1,1 @@
-export * from '../../server/src/protocol/wsProtocol.js';
-
+export * from '@agent-manager/protocol';

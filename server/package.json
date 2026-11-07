@@ -4,12 +4,17 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "build:protocol": "npm --prefix .. run build:protocol",
+    "predev": "npm run build:protocol",
     "dev": "tsx watch src/index.ts",
+    "prebuild": "npm run build:protocol",
     "build": "tsc",
+    "prestart": "npm run build:protocol",
     "start": "node dist/index.js",
     "test": "vitest run"
   },
   "dependencies": {
+    "@agent-manager/protocol": "file:../packages/protocol",
     "express": "^4.19.2",
     "node-pty": "^1.0.0",
     "ssh2": "^1.15.0",
