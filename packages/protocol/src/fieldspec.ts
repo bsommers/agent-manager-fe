@@ -25,6 +25,8 @@ export type FieldSpec = Optionality &
     | { kind: 'object'; fields: ObjectSpec }
     /** Plain-object map: bounded entry count and key length, every value checked by `value`. */
     | { kind: 'map'; maxEntries: number; keyMax: number; value: FieldSpec }
+    /** String (bounded), finite number or boolean. */
+    | { kind: 'scalar'; maxString: number }
     /** Array of strings filtered to a known list (order kept, duplicates and unknowns dropped). */
     | { kind: 'enumList'; values: readonly string[]; maxItems: number }
   );
@@ -164,6 +166,15 @@ function validateValue(spec: FieldSpec, value: unknown, path: string): FieldResu
         out[key] = r.value;
       }
       return { ok: true, value: out };
+    }
+    case 'scalar': {
+      if (typeof value === 'string') {
+        if (value.length > spec.maxString) return fail(path, `must be at most ${spec.maxString} characters`);
+        return { ok: true, value };
+      }
+      if (typeof value === 'number' && Number.isFinite(value)) return { ok: true, value };
+      if (typeof value === 'boolean') return { ok: true, value };
+      return fail(path, 'must be a string, finite number or boolean');
     }
     case 'enumList': {
       if (!Array.isArray(value)) return fail(path, 'must be an array');

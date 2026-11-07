@@ -161,6 +161,13 @@ Rules:
 
 - Unknown `type` values and unknown fields MUST be ignored without error by both sides (logged at debug level). A validator returns a copy containing only known fields.
 - A request without `reqId` behaves exactly as today: no `agent:ack` is sent, failures produce an `agent:error` without `reqId`.
+- Validator-level rules (the package enforces these; the tables above do not spell them out):
+  - `hello.contract` and `hello_ack.contract` are any positive integer (a different-major gateway must still be reportable). `hello.token` is at most 512 characters without control characters and is never echoed in failure details. `hello.resumeFrom` has at most 1000 entries, keys of 1..128 characters, integer values of at least 0, and rejects the keys `__proto__`, `constructor`, `prototype`.
+  - `hello_ack.backends` has at most 16 entries; capability strings outside the section 9.1 list are dropped from the validated copy (not fatal) and duplicates removed.
+  - `agent:update` requires at least one of `name`, `tags`, `group`; `tags` has at most 32 entries of 1..64 characters, `group` is 1..64 characters, `name` follows the `agent:create` rules.
+  - `agent:history` requires exactly one of `beforeSeq`/`afterSeq` (integers of at least 0); `limit` is 1..1000.
+  - `agent:create.backend` is a lowercase token of at most 64 characters; `params` has at most 32 entries, keys of at most 64 characters, values that are strings of at most 1024 characters, finite numbers or booleans. Consumers still validate `params` against the backend `AgentSpec`.
+  - `reqId` is 1..128 characters wherever it appears.
 - Responses go only to the requesting connection (`agent:ack`, `agent:history_chunk`); state changes (`agent:added`, `agent:removed`, `agent:updated`, `agent:status_change`, `agent:output`) go to every connection.
 
 ---

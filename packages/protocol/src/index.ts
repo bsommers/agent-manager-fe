@@ -3,6 +3,7 @@ export * from './messages.js';
 export * from './limits.js';
 export * from './validate.js';
 export * from './capabilities.js';
+export * from './errors.js';
 export type {
   FieldSpec,
   FieldResult,

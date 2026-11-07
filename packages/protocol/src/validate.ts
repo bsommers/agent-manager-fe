@@ -58,6 +58,9 @@ const inputData: FieldSpec = {
 
 const nameSpec: FieldSpec = { kind: 'string', min: 1, max: 64 };
 const versionSpec: FieldSpec = { kind: 'string', min: 1, max: 32 };
+const reqIdSpec: FieldSpec = { kind: 'string', min: 1, max: LIMITS.MAX_ID_LENGTH, optional: true };
+const seqSpec: FieldSpec = { kind: 'integer', min: 0, max: Number.MAX_SAFE_INTEGER, optional: true };
+
 const positiveInt: FieldSpec = { kind: 'integer', min: 1, max: Number.MAX_SAFE_INTEGER };
 
 export const CLIENT_TABLE = {
@@ -80,6 +83,7 @@ export const CLIENT_TABLE = {
       },
     },
   },
+  ping: { fields: { t: { kind: 'number' } } },
   'agent:input': { fields: { agentId: idSpec, data: inputData } },
   'agent:resize': {
     fields: {
@@ -99,9 +103,59 @@ export const CLIENT_TABLE = {
         noControl: true,
       },
       initialCmd: { kind: 'string', min: 0, max: LIMITS.MAX_INITIAL_CMD_LENGTH, optional: true },
+      backend: { kind: 'token', max: 64, optional: true },
+      params: {
+        kind: 'map',
+        maxEntries: 32,
+        keyMax: 64,
+        value: { kind: 'scalar', maxString: 1024 },
+        optional: true,
+      },
+      reqId: reqIdSpec,
     },
   },
-  'agent:kill': { fields: { agentId: idSpec } },
+  'agent:kill': { fields: { agentId: idSpec, reqId: reqIdSpec } },
+  'agent:update': {
+    fields: {
+      agentId: idSpec,
+      name: {
+        kind: 'string',
+        min: 1,
+        max: LIMITS.MAX_NAME_LENGTH,
+        trim: true,
+        noControl: true,
+        optional: true,
+      },
+      tags: {
+        kind: 'stringArray',
+        minItems: 0,
+        maxItems: 32,
+        item: { kind: 'string', min: 1, max: 64, noControl: true },
+        optional: true,
+      },
+      group: { kind: 'string', min: 1, max: 64, noControl: true, optional: true },
+      reqId: reqIdSpec,
+    },
+    rules: [{ kind: 'atLeastOne', fields: ['name', 'tags', 'group'] }],
+  },
+  'agent:history': {
+    fields: {
+      agentId: idSpec,
+      beforeSeq: seqSpec,
+      afterSeq: seqSpec,
+      limit: { kind: 'integer', min: 1, max: 1000, optional: true },
+      reqId: reqIdSpec,
+    },
+    rules: [{ kind: 'exactlyOne', fields: ['beforeSeq', 'afterSeq'] }],
+  },
+  'agent:approve': {
+    fields: {
+      agentId: idSpec,
+      gateId: idSpec,
+      decision: { kind: 'enum', values: ['approve', 'deny'] },
+      reqId: reqIdSpec,
+    },
+  },
   'agent:broadcast': {
     fields: {
       targetAgentIds: {
@@ -111,6 +165,7 @@ export const CLIENT_TABLE = {
         item: idSpec,
       },
       data: inputData,
+      reqId: reqIdSpec,
     },
   },
 } as const satisfies Record<WSMessageClient['type'], MessageSpec>;
