@@ -44,5 +44,154 @@
     },
     "reason": "invalid_field",
     "field": "auth.required"
+  },
+  {
+    "name": "history-both-seqs",
+    "direction": "client",
+    "input": {
+      "type": "agent:history",
+      "agentId": "a1",
+      "beforeSeq": 1,
+      "afterSeq": 2
+    },
+    "reason": "invalid_field",
+    "field": "beforeSeq"
+  },
+  {
+    "name": "history-neither-seq",
+    "direction": "client",
+    "input": {
+      "type": "agent:history",
+      "agentId": "a1"
+    },
+    "reason": "invalid_field",
+    "field": "beforeSeq"
+  },
+  {
+    "name": "history-limit-too-big",
+    "direction": "client",
+    "input": {
+      "type": "agent:history",
+      "agentId": "a1",
+      "beforeSeq": 1,
+      "limit": 1001
+    },
+    "reason": "invalid_field",
+    "field": "limit"
+  },
+  {
+    "name": "history-negative-seq",
+    "direction": "client",
+    "input": {
+      "type": "agent:history",
+      "agentId": "a1",
+      "afterSeq": -1
+    },
+    "reason": "invalid_field",
+    "field": "afterSeq"
+  },
+  {
+    "name": "update-no-changes",
+    "direction": "client",
+    "input": {
+      "type": "agent:update",
+      "agentId": "a1"
+    },
+    "reason": "invalid_field",
+    "field": "name"
+  },
+  {
+    "name": "update-empty-name",
+    "direction": "client",
+    "input": {
+      "type": "agent:update",
+      "agentId": "a1",
+      "name": "   "
+    },
+    "reason": "invalid_field",
+    "field": "name"
+  },
+  {
+    "name": "approve-bad-decision",
+    "direction": "client",
+    "input": {
+      "type": "agent:approve",
+      "agentId": "a1",
+      "gateId": "g1",
+      "decision": "maybe"
+    },
+    "reason": "invalid_field",
+    "field": "decision"
+  },
+  {
+    "name": "approve-missing-gate",
+    "direction": "client",
+    "input": {
+      "type": "agent:approve",
+      "agentId": "a1",
+      "decision": "deny"
+    },
+    "reason": "invalid_field",
+    "field": "gateId"
+  },
+  {
+    "name": "ping-string-t",
+    "direction": "client",
+    "input": {
+      "type": "ping",
+      "t": "now"
+    },
+    "reason": "invalid_field",
+    "field": "t"
+  },
+  {
+    "name": "create-params-object-value",
+    "direction": "client",
+    "input": {
+      "type": "agent:create",
+      "name": "n",
+      "mode": "tmux",
+      "targetHost": "h",
+      "params": {
+        "k": {
+          "nested": 1
+        }
+      }
+    },
+    "reason": "invalid_field",
+    "field": "params.k"
+  },
+  {
+    "name": "create-uppercase-backend",
+    "direction": "client",
+    "input": {
+      "type": "agent:create",
+      "name": "n",
+      "mode": "tmux",
+      "targetHost": "h",
+      "backend": "CVM"
+    },
+    "reason": "invalid_field",
+    "field": "backend"
+  },
+  {
+    "name": "kill-reqid-too-long",
+    "direction": "client",
+    "input": {
+      "type": "agent:kill",
+      "agentId": "a1",
+      "reqId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+    },
+    "reason": "invalid_field",
+    "field": "reqId"
+  },
+  {
+    "name": "unknown-client-type",
+    "direction": "client",
+    "input": {
+      "type": "agent:nope"
+    },
+    "reason": "unknown_type",
+    "field": "type"
   }
 ]

@@ -180,3 +180,76 @@ describe('enumList kind', () => {
     expect(validateObject(spec, { l: ['q', 'q', 'q', 'q', 'q', 'q'] }, '').ok).toBe(false);
   });
 });
+
+describe('scalar kind', () => {
+  const spec = { v: { kind: 'scalar', maxString: 3 } } as const;
+
+  it('accepts bounded strings, finite numbers and booleans', () => {
+    for (const v of ['abc', 1.5, 0, true, false]) {
+      expect(validateObject(spec, { v }, '')).toEqual({ ok: true, value: { v } });
+    }
+  });
+
+  it('rejects long strings, non-finite numbers, objects, arrays and null', () => {
+    for (const v of ['abcd', NaN, Infinity, {}, [], null]) {
+      expect(validateObject(spec, { v }, '').ok).toBe(false);
+    }
+  });
+});
+
+describe('client messages v2 edge cases', () => {
+  it('reports the first field of a failed exactlyOne / atLeastOne rule', () => {
+    const both = parseClientMessage({ type: 'agent:history', agentId: 'a', beforeSeq: 1, afterSeq: 2 });
+    expect(both.ok === false && both.field).toBe('beforeSeq');
+    const none = parseClientMessage({ type: 'agent:update', agentId: 'a' });
+    expect(none.ok === false && none.field).toBe('name');
+  });
+
+  it('accepts history limit 1 and 1000 and rejects 0', () => {
+    for (const limit of [1, 1000]) {
+      expect(parseClientMessage({ type: 'agent:history', agentId: 'a', afterSeq: 0, limit }).ok).toBe(true);
+    }
+    expect(parseClientMessage({ type: 'agent:history', agentId: 'a', afterSeq: 0, limit: 0 }).ok).toBe(false);
+  });
+
+  it('caps tags at 32 entries of 1..64 characters and group at 64', () => {
+    const tags = (n: number) => Array.from({ length: n }, (_, i) => `t${i}`);
+    const upd = (extra: Record<string, unknown>) =>
+      parseClientMessage({ type: 'agent:update', agentId: 'a', ...extra }).ok;
+    expect(upd({ tags: tags(32) })).toBe(true);
+    expect(upd({ tags: tags(33) })).toBe(false);
+    expect(upd({ tags: ['x'.repeat(65)] })).toBe(false);
+    expect(upd({ tags: [''] })).toBe(false);
+    expect(upd({ group: 'g'.repeat(64) })).toBe(true);
+    expect(upd({ group: 'g'.repeat(65) })).toBe(false);
+    expect(upd({ group: 'bad\u0000group' })).toBe(false);
+  });
+
+  it('trims the update name like agent:create', () => {
+    const r = parseClientMessage({ type: 'agent:update', agentId: 'a', name: '  new  ' });
+    expect(r.ok && r.msg).toEqual({ type: 'agent:update', agentId: 'a', name: 'new' });
+  });
+
+  it('caps create params at 32 entries, 64-char keys and 1024-char string values', () => {
+    const base = { type: 'agent:create', name: 'n', mode: 'tmux', targetHost: 'h' };
+    const mk = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${i}`, i]));
+    expect(parseClientMessage({ ...base, params: mk(32) }).ok).toBe(true);
+    expect(parseClientMessage({ ...base, params: mk(33) }).ok).toBe(false);
+    expect(parseClientMessage({ ...base, params: { ['k'.repeat(65)]: 1 } }).ok).toBe(false);
+    expect(parseClientMessage({ ...base, params: { k: 'v'.repeat(1024) } }).ok).toBe(true);
+    expect(parseClientMessage({ ...base, params: { k: 'v'.repeat(1025) } }).ok).toBe(false);
+    expect(parseClientMessage({ ...base, params: { k: Infinity } }).ok).toBe(false);
+    expect(parseClientMessage({ ...base, params: JSON.parse('{"__proto__":1}') }).ok).toBe(false);
+  });
+
+  it('keeps agent:input and agent:resize free of reqId', () => {
+    const r = parseClientMessage({ type: 'agent:input', agentId: 'a', data: 'x', reqId: 'r' });
+    expect(r.ok && Object.keys(r.msg)).toEqual(['type', 'agentId', 'data']);
+  });
+
+  it('samples without the new optional fields still parse unchanged', () => {
+    const msg = { type: 'agent:create', name: 'n', mode: 'tmux', targetHost: 'h' };
+    const r = parseClientMessage(msg);
+    expect(r.ok && r.msg).toEqual(msg);
+  });
+});
