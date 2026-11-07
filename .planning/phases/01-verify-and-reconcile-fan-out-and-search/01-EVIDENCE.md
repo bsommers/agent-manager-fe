@@ -18,3 +18,13 @@ Counts equal the planning baseline (root 23 files / 132 tests, server 7 files / 
 ## VER-01 status
 
 PASS
+
+## DOC-01 status
+
+Docs reconciled (commit 340be4b). All deliverables verified present on disk before ticking: SessionManager `agent:broadcast` case, logBufferStore, BroadcastBar, DestructiveSafetyModal, GlobalSearchModal, NotificationToastManager (mounted in App.tsx), and matching tests. 27 steps ticked (planning baseline said 28; the 28th match was the checkbox-syntax example in the document header, not a step). No "DOC-01 gaps".
+
+Source check found two plan wording claims not matching code, so README states what the code does: global search has a regex toggle but no case-sensitivity option (`caseSensitive: false` is fixed), and toasts are in-app only (no browser Notification API use).
+
+## Manual QA
+
+PENDING-HUMAN. Procedure: docs/qa-test-plan.md section 5 (broadcast, destructive gate Cancel path, search, regex toggle, jump to pane, exit toast). Not executable by the automated executor (requires live tmux and browser). Per-step results: not yet recorded.
