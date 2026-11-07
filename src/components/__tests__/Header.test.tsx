@@ -14,4 +14,12 @@ describe('Header Component', () => {
     expect(screen.getByText(/SSH:/i)).toBeInTheDocument();
     expect(screen.getByText(/TMUX:/i)).toBeInTheDocument();
   });
+
+  it('renders the connection status chip (DEMO under the test setup stub)', () => {
+    render(<Header />);
+
+    const chip = screen.getByTestId('connection-chip');
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveTextContent('DEMO');
+  });
 });
