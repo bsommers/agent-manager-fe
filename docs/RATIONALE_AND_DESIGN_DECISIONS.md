@@ -94,7 +94,7 @@ We implemented a **Hybrid Window Manager**:
 ## ADR-005: Dual-Mode Socket Service with Offline Mock Emulator
 
 ### Status
-Accepted
+Accepted, partially superseded by [ADR-007](#adr-007-explicit-demo-mode-replaces-automatic-mock-fallback) (the automatic mock fallback was removed)
 
 ### Context
 Frontend developers and UI test runners need to inspect, build, and verify component behavior without requiring a running backend process or active SSH keys.
@@ -126,3 +126,24 @@ Port `8080` is frequently occupied on developer workstations by existing web ser
 
 ### Consequences
 - **Pros**: Avoids port collisions on standard developer setups while keeping backend port selection fully configurable.
+
+---
+
+## ADR-007: Explicit Demo Mode Replaces Automatic Mock Fallback
+
+### Status
+Accepted (partially supersedes ADR-005)
+
+### Context
+ADR-005 silently fell back to the mock generator whenever the WebSocket failed. A dropped connection therefore looked live while the user was typing into a simulation, and the client never tried to reconnect.
+
+### Decision
+- Live mode never simulates output.
+- Demo mode is chosen explicitly by configuration (`VITE_DEMO_MODE=1` or `?demo=1`).
+- The `Transport` reconnects with capped, jittered exponential backoff and a heartbeat.
+- Connection state lives in `connectionStore` and is always shown in the header chip and the global banner.
+- A single `VITE_BACKEND_URL` configures the backend; `VITE_WS_URL` remains as a deprecated alias.
+
+### Consequences
+- **Pros**: The UI is truthful about the connection, and the connection heals itself without a page reload.
+- **Cons**: Seed agents in live mode stay empty until Phase 10, and tests rely on the `VITE_DEMO_MODE` stub in `src/setupTests.ts`.

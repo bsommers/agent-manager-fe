@@ -83,6 +83,8 @@ Both backend and frontend can be customized via environment variables:
 | Variable | Default Value | Description |
 | :--- | :--- | :--- |
 | `PORT` | `8088` | HTTP & WebSocket server port |
+| `HOST` | `127.0.0.1` | Interface the gateway binds to. A non-loopback value is refused until token authentication ships (Phase 8) |
+| `ALLOWED_ORIGINS` | Vite dev and preview origins on `localhost` and `127.0.0.1` | Comma-separated browser origins allowed to open the WebSocket; other origins are rejected with HTTP 403 |
 | `SHELL` | `/bin/bash` | Default shell binary used by PTY driver |
 | `SSH_AUTH_SOCK` | System `SSH_AUTH_SOCK` | Path to active SSH agent socket |
 
@@ -95,12 +97,39 @@ PORT=9090 SHELL=/bin/zsh npm run start:backend
 
 | Variable | Default Value | Description |
 | :--- | :--- | :--- |
-| `VITE_WS_URL` | `ws://localhost:8088/ws` | WebSocket backend URL |
+| `VITE_BACKEND_URL` | `http://localhost:8088` | Origin of the backend gateway. The WebSocket URL is derived as `/ws` on this origin |
+| `VITE_WS_URL` | *(unset)* | **Deprecated** alias holding a full `ws://` URL. Used only when `VITE_BACKEND_URL` is unset |
+| `VITE_DEMO_MODE` | *(unset)* | Set to `1` for explicit Demo mode (simulated terminal output, no backend). Adding `?demo=1` to the page URL also works |
 
 Example:
 ```bash
-VITE_WS_URL=ws://192.168.1.50:8088/ws npm run start:frontend
+VITE_BACKEND_URL=http://localhost:9090 npm run start:frontend
 ```
+
+For the gateway's security model and variables see [server/README.md](../server/README.md).
+
+### Remote access
+
+Pointing the frontend at a non-loopback `ws://` address is not supported directly: the gateway binds to loopback only and has no authentication or TLS until Phase 8. Until then, use an SSH local port forward to the loopback-bound gateway:
+
+```bash
+ssh -L 8088:127.0.0.1:8088 user@remote-host
+```
+
+Then open the frontend locally; it keeps talking to `http://localhost:8088`.
+
+### Connection states
+
+The header chip and the banner below it always show the true connection state:
+
+| Chip | Banner | Meaning |
+| :--- | :--- | :--- |
+| **Connecting** | none | First connection attempt in progress |
+| **Connected** | none | Live and healthy |
+| **Reconnecting (attempt N)** | "Connection lost", countdown and a **Retry now** button | The link dropped; the client retries with jittered exponential backoff and a heartbeat |
+| **Disconnected** | "Disconnected from backend" with a **Reconnect** button | Retries stopped; click Reconnect to try again |
+| **Auth failed** | "Authentication failed" | The backend rejected the connection; no retry is offered |
+| **DEMO** | "Demo mode" | Explicit Demo mode: output is simulated and no backend is connected |
 
 ---
 
@@ -145,3 +174,11 @@ npm run build && cd server && npm run build
   1. Ensure your SSH agent is running and keys are added (`ssh-add -l`).
   2. Verify you can connect directly via terminal: `ssh admin@target-host`.
   3. Ensure your public key is in `~/.ssh/authorized_keys` on the remote host.
+
+### Issue 4: Banner stuck on "Reconnecting"
+- **Cause**: The backend is not running, the port or `VITE_BACKEND_URL` is wrong, or the browser origin is not listed in `ALLOWED_ORIGINS` and the WebSocket upgrade is rejected with HTTP 403.
+- **Solution**: Start the backend (`npm run start:backend`), check the URL and port, and add your page origin to `ALLOWED_ORIGINS` if you serve the frontend from a non-default origin.
+
+### Issue 5: Unexpected `DEMO` chip
+- **Cause**: `VITE_DEMO_MODE` is set, or the page URL contains `?demo=1`.
+- **Solution**: Unset `VITE_DEMO_MODE` (check `.env` files and your shell) and remove `?demo=1` from the URL.

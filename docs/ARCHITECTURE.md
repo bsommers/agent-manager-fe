@@ -113,7 +113,12 @@ sequenceDiagram
 - `src/components/layout/FloatingPane.tsx`: Absolute-positioned window container providing header drag handles, bottom-right resize handles, and z-index elevation.
 - `src/components/layout/Workspace.tsx`: Workspace canvas rendering active panes with auto-arrange layout algorithms.
 - `src/store/agentStore.ts`: Zustand application store handling state mutations, layout calculations, and subscriber notifications.
-- `src/services/agentSocket.ts`: A WebSocket client singleton exposing `subscribe` and `send`, backed by the live backend, with an offline mock stream generator for demo and test use.
+- `src/services/agentSocket.ts`: A thin singleton shim exposing `subscribe`, `send` and `reconnect` over a `BackendAdapter`: `WsAdapter` (on top of `Transport`) for the live backend, or `MockAdapter` in explicit Demo mode. There is no automatic mock fallback.
+- `src/services/transport/Transport.ts`: WebSocket transport with capped, jittered exponential-backoff reconnect and a heartbeat.
+- `src/services/adapters/`: `WsAdapter` (live) and `MockAdapter` (Demo mode) implementing the `BackendAdapter` contract.
+- `src/store/connectionStore.ts`: Zustand store holding the backend mode (live or demo) and connection snapshot (state, attempt, next retry, last error).
+- `src/components/layout/ConnectionStatusChip.tsx`: Header chip showing the true connection state or `DEMO`.
+- `src/components/layout/ConnectionBanner.tsx`: Global banner for Demo mode, reconnecting (countdown and Retry now), disconnected (Reconnect) and auth failure. Gateway variables are documented in [server/README.md](../server/README.md).
 - `src/components/layout/BroadcastBar.tsx`: Toolbar command bar that fans one command out to all, filtered, or selected agents via `agent:broadcast`, gating destructive patterns behind a confirmation modal.
 - `src/components/layout/GlobalSearchModal.tsx`: Cross-agent log search (plain text or regex, `Ctrl+Shift+F`) over the buffered output, with jump-to-pane navigation.
 - `src/components/layout/NotificationToastManager.tsx`: Subscribes to `agent:status_change` and shows toasts when an agent becomes `error` or `disconnected`.
