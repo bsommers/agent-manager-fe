@@ -29,8 +29,8 @@ const serverSamples: unknown[] = [
   { type: 'agent:init_list', agents: [] },
 ];
 
-function reason(r: ReturnType<typeof parseClientMessage>) {
-  return r.ok ? 'ok' : r.reason;
+function reason(r: { ok: boolean; reason?: string }) {
+  return r.ok ? 'ok' : (r.reason ?? 'unknown');
 }
 
 describe('valid samples', () => {
