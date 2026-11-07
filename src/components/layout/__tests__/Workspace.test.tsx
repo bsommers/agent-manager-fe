@@ -62,6 +62,16 @@ describe('Workspace Component', () => {
     expect(getByText(/No agents found matching "non-existent-agent-name"/)).toBeInTheDocument();
   });
 
+  it('should say the roster is empty when there are no agents at all', () => {
+    act(() => {
+      useAgentStore.setState({ agents: [], activeAgentId: null, searchQuery: 'anything' });
+    });
+    const { getByTestId, queryByText } = render(<Workspace />);
+
+    expect(getByTestId('empty-roster')).toHaveTextContent('No agents yet. Use Add Agent to start one.');
+    expect(queryByText(/No agents found matching/)).not.toBeInTheDocument();
+  });
+
   it('should trigger layout mode arrangements when layoutMode changes', () => {
     const gridSpy = vi.spyOn(useAgentStore.getState(), 'arrangeGrid');
     const cascadeSpy = vi.spyOn(useAgentStore.getState(), 'arrangeCascade');
