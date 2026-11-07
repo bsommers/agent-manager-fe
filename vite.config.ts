@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@agent-manager/protocol': path.resolve(__dirname, './packages/protocol/src/index.ts'),
     },
   },
   server: {
