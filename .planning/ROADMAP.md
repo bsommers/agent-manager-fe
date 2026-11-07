@@ -44,7 +44,7 @@ Phase numbers continue after v1.1 (no restart). Source milestone mapping: M-INT-
 |------|-------|--------|
 | 1 | 01-01, 02-01, 03-01, 04-01 | Complete. 01-01 manual QA pending-human. |
 | 2 | 02-02, 03-02, 05-01 | Planned. 05-01 touches only modals, so it needs none of the files 03-02 (Header, App) and 02-0x (package.json) own. |
-| 3 | 02-03 (planned); 05-02, 05-03 (to plan after wave 2 merges) | 02-03 needs 02-02 (same package files). 05-02 edits Header.tsx, App.tsx, Toolbar.tsx and needs 03-02 and 05-01 merged; 05-03 (pane chrome) is disjoint from 05-02. |
+| 3 | 02-03, 10-01, 10-02 (planned); 05-02, 05-03 (to plan after wave 2 merges) | 02-03 needs 02-02 (same package files). 10-01 and 10-02 are the Phase 10 roster slice pulled forward on 2026-11-07 (disjoint from 02-03: they touch `src/store`, `agentSocket.ts`, `NotificationToastManager.tsx`, `AgentPane.tsx`, `Workspace.tsx`, `server/__tests__` and four docs). 05-02 edits Header.tsx, App.tsx, Toolbar.tsx and needs 03-02 and 05-01 merged; 05-03 (pane chrome) is disjoint from 05-02 but shares `AgentPane.tsx` with 10-01, so plan it for wave 4 (after 10-01 merges) or exclude that file. Wave 3 now holds three plans, the configured `max_concurrent_agents`, so 05-02/05-03 would run as a second batch or move to wave 4 when planned. |
 | 4 | 02-04 (planned); Phase 6 plans (to plan; needs 02-03 merged) | 02-04 owns package.json, CI and the surface snapshot; Phase 6 owns `server/src` dispatch and FE lifecycle, so they are disjoint. |
 | 5 | 05-04 (devDependency for the axe audit, so after 02-04 owns package.json); Phase 8 plans (after Phase 6: both edit `server/src/index.ts`) | |
 | 6 | Phase 7 plans (adds devDependencies, so after 05-04) | |
@@ -160,6 +160,14 @@ Plans: 1 of 4 planned (split by file ownership so the unblocked part runs in wav
 1. In live mode the store starts empty and equals the gateway's `agent:init_list`; Demo mode keeps its seed agents
 2. Create shows pending then confirmed; a failure rolls back with a toast
 3. Status events update the badge and toasts; stale agents are marked; rename, tags and group go through `agent:update`
+
+**Pulled forward (2026-11-07) as a slice:** Phase 10 runs now, ahead of its declared dependencies Phase 6 and Phase 8, because manual QA step 1 (`docs/qa-test-plan.md` section 5) fails in live mode: Add Agent builds a local agent and never sends `agent:create`. The slice works against what the gateway emits today (a full `agent:init_list` snapshot after every create, kill and new connection; the gateway assigns agent ids) and changes no server source and no `packages/protocol/**`.
+- Covered by the slice: criterion 1 (empty live start, roster equals the last snapshot, Demo mode unchanged); criterion 2 (Starting pane reconciled by name, mode and targetHost, rollback after 10 s or on a failed send with a plain error notice; typed failure toasts stay with Phase 9); criterion 3 for the status badge, plus gateway-confirmed kill.
+- Deferred and still open: stale-agent markers (need new server fields); rename, tags and group via `agent:update` (the gateway has no `agent:update` handler yet; Phase 6 adds it); `reqId` correlation, typed errors, `agent:added/removed/updated` and HTTP `/api/agents` (Phase 6); auth (Phase 8). UX-02 stays unticked in REQUIREMENTS.md until those land. When Phase 6 runs it replaces the key-based pending reconciliation with `reqId` acks.
+
+Plans: 2 plans (slice, both wave 3, disjoint file ownership)
+- [ ] 10-01-PLAN.md - Frontend roster slice: empty live start, `agent:init_list` snapshot reconciliation, `agent:create` with Starting pane and rollback, gateway-confirmed kill, status events in the store, error notices, empty-roster copy (wave 3; criteria 1-3 partly)
+- [ ] 10-02-PLAN.md - Gateway roster contract tests over a real WebSocket (no `server/src` change) and docs: RUNNING, ARCHITECTURE, ADR-008, manual QA sub-steps 1a-1c (wave 3)
 
 ### Phase 11: Output Streaming, Sequencing and Replay
 **Goal:** Lossless, ordered terminal streams across reconnects.
