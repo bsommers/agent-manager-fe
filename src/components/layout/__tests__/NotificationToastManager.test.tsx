@@ -229,4 +229,65 @@ describe('NotificationToastManager Component', () => {
     const updatedAgent = useAgentStore.getState().agents.find((a) => a.id === 'agent-1');
     expect(updatedAgent?.status).toBe('error');
   });
+
+  describe('roster notices', () => {
+    const notice = (id: string, kind: 'create_failed' | 'kill_failed') => ({
+      id,
+      kind,
+      title: kind === 'create_failed' ? 'Could not create "Build"' : 'Could not close "Other"',
+      message: 'The backend did not confirm within 10 s.',
+      createdAt: Date.now(),
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      useAgentStore.setState({ rosterNotices: [] });
+    });
+
+    it('renders each notice as an alert with title, message and a Dismiss button', () => {
+      useAgentStore.setState({
+        rosterNotices: [notice('n1', 'create_failed'), notice('n2', 'kill_failed')],
+      });
+      render(<NotificationToastManager />);
+
+      const create = screen.getByTestId('roster-notice-create_failed');
+      expect(create).toHaveAttribute('role', 'alert');
+      expect(create).toHaveTextContent('Could not create "Build"');
+      expect(create).toHaveTextContent('10 s');
+      expect(screen.getByTestId('roster-notice-kill_failed')).toHaveTextContent('Could not close "Other"');
+
+      const dismiss = screen.getAllByRole('button', { name: /dismiss notification/i });
+      expect(dismiss).toHaveLength(2);
+      fireEvent.click(dismiss[0]);
+      expect(screen.queryByTestId('roster-notice-create_failed')).not.toBeInTheDocument();
+      expect(useAgentStore.getState().rosterNotices.map((n) => n.id)).toEqual(['n2']);
+    });
+
+    it('dismisses a notice by itself after 8000 ms', () => {
+      vi.useFakeTimers();
+      useAgentStore.setState({ rosterNotices: [notice('n1', 'create_failed')] });
+      render(<NotificationToastManager />);
+      expect(screen.getByTestId('roster-notice-create_failed')).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(7999);
+      });
+      expect(screen.getByTestId('roster-notice-create_failed')).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(screen.queryByTestId('roster-notice-create_failed')).not.toBeInTheDocument();
+      expect(useAgentStore.getState().rosterNotices).toEqual([]);
+    });
+
+    it('clears its timers on unmount', () => {
+      vi.useFakeTimers();
+      useAgentStore.setState({ rosterNotices: [notice('n1', 'kill_failed')] });
+      const { unmount } = render(<NotificationToastManager />);
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  });
 });

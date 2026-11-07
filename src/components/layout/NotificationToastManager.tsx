@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { AlertCircle, WifiOff, X } from 'lucide-react';
 import { agentSocket } from '../../services/agentSocket';
 import { useAgentStore } from '../../store/agentStore';
-import { AgentStatus } from '../../types/agent';
 
 export interface StatusToast {
   id: string;
@@ -14,6 +13,7 @@ export interface StatusToast {
 }
 
 const TOAST_DURATION_MS = 5000;
+const ROSTER_NOTICE_DURATION_MS = 8000;
 
 export const NotificationToastManager: React.FC = () => {
   const [toasts, setToasts] = useState<StatusToast[]>([]);
@@ -28,6 +28,41 @@ export const NotificationToastManager: React.FC = () => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
+  const rosterNotices = useAgentStore((s) => s.rosterNotices);
+  const dismissRosterNotice = useAgentStore((s) => s.dismissRosterNotice);
+  const noticeTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // One auto-dismiss timer per notice id; timers are cleared when a notice goes away and on unmount.
+  useEffect(() => {
+    const timers = noticeTimersRef.current;
+    const liveIds = new Set(rosterNotices.map((n) => n.id));
+    rosterNotices.forEach((n) => {
+      if (!timers.has(n.id)) {
+        timers.set(
+          n.id,
+          setTimeout(() => {
+            timers.delete(n.id);
+            useAgentStore.getState().dismissRosterNotice(n.id);
+          }, ROSTER_NOTICE_DURATION_MS),
+        );
+      }
+    });
+    timers.forEach((timer, id) => {
+      if (!liveIds.has(id)) {
+        clearTimeout(timer);
+        timers.delete(id);
+      }
+    });
+  }, [rosterNotices]);
+
+  useEffect(() => {
+    const timers = noticeTimersRef.current;
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+
   const handleToastClick = (agentId: string) => {
     useAgentStore.getState().bringToFront(agentId);
   };
@@ -36,13 +71,6 @@ export const NotificationToastManager: React.FC = () => {
     const unsubscribe = agentSocket.subscribe((msg) => {
       if (msg.type === 'agent:status_change') {
         const { agentId, status } = msg;
-
-        // Sync status in agentStore
-        useAgentStore.setState((state) => ({
-          agents: state.agents.map((a) =>
-            a.id === agentId ? { ...a, status, lastActivity: Date.now() } : a
-          ),
-        }));
 
         // Trigger alert toasts only for error or disconnected
         if (status === 'error' || status === 'disconnected') {
@@ -82,7 +110,7 @@ export const NotificationToastManager: React.FC = () => {
     };
   }, []);
 
-  if (toasts.length === 0) {
+  if (toasts.length === 0 && rosterNotices.length === 0) {
     return null;
   }
 
@@ -91,6 +119,30 @@ export const NotificationToastManager: React.FC = () => {
       aria-live="polite"
       className="fixed top-14 right-4 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none"
     >
+      {rosterNotices.map((notice) => (
+        <div
+          key={notice.id}
+          role="alert"
+          data-testid={`roster-notice-${notice.kind}`}
+          className="pointer-events-auto flex items-start gap-3 p-3.5 rounded-lg border backdrop-blur-md shadow-2xl border-rose-500/40 bg-slate-900/95 text-slate-100 shadow-rose-950/50"
+        >
+          <div className="p-2 rounded-md shrink-0 bg-rose-500/20 text-rose-400 ring-1 ring-rose-500/30">
+            <AlertCircle className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0 pr-1">
+            <div className="font-semibold text-sm text-slate-100 mb-0.5">{notice.title}</div>
+            <p className="text-xs text-slate-400 leading-snug">{notice.message}</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss notification"
+            onClick={() => dismissRosterNotice(notice.id)}
+            className="text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 p-1 rounded transition-colors shrink-0 -mr-1 -mt-1"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      ))}
       {toasts.map((toast) => {
         const isError = toast.status === 'error';
         return (
