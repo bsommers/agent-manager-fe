@@ -1,6 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { GlobalSearchModal } from '../GlobalSearchModal';
 import { Header } from '../Header';
 import { useAgentStore } from '../../../store/agentStore';
@@ -198,5 +199,72 @@ describe('GlobalSearchModal Component', () => {
     // Open via keyboard shortcut Ctrl+Shift+F
     fireEvent.keyDown(window, { key: 'F', code: 'KeyF', ctrlKey: true, shiftKey: true });
     expect(screen.getByText(/Global Output Search/i)).toBeInTheDocument();
+  });
+
+  describe('accessibility', () => {
+    it('is a labelled modal dialog', () => {
+      render(<GlobalSearchModal isOpen={true} onClose={() => {}} />);
+      const dialog = screen.getByRole('dialog', { name: /Global Output Search/i });
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
+    });
+
+    it('gives controls accessible names and state', () => {
+      render(<GlobalSearchModal isOpen={true} onClose={() => {}} />);
+      expect(screen.getByRole('button', { name: 'Close' })).toBe(screen.getByTestId('close-search-modal'));
+      expect(screen.getByRole('textbox', { name: 'Search terminal logs' })).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: 'Filter by agent' })).toBeInTheDocument();
+
+      const regexBtn = screen.getByRole('button', { name: /regex/i });
+      expect(regexBtn).toHaveAttribute('aria-pressed', 'false');
+      fireEvent.click(regexBtn);
+      expect(regexBtn).toHaveAttribute('aria-pressed', 'true');
+
+      const input = screen.getByRole('textbox', { name: 'Search terminal logs' });
+      fireEvent.change(input, { target: { value: 'abc' } });
+      expect(screen.getByRole('button', { name: 'Clear search' })).toBeInTheDocument();
+    });
+
+    it('announces an invalid regex with role alert', () => {
+      render(<GlobalSearchModal isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByRole('button', { name: /regex/i }));
+      fireEvent.change(screen.getByRole('textbox', { name: 'Search terminal logs' }), { target: { value: '[invalid(' } });
+      expect(screen.getByRole('alert')).toHaveTextContent(/Invalid regular expression/i);
+    });
+
+    it('focuses the search input synchronously on open', () => {
+      render(<GlobalSearchModal isOpen={true} onClose={() => {}} />);
+      expect(screen.getByRole('textbox', { name: 'Search terminal logs' })).toHaveFocus();
+    });
+
+    it('calls onClose exactly once per Escape press', () => {
+      const onClose = vi.fn();
+      render(<GlobalSearchModal isOpen={true} onClose={onClose} />);
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('traps Tab and Shift+Tab inside the dialog', async () => {
+      const user = userEvent.setup();
+      render(<GlobalSearchModal isOpen={true} onClose={() => {}} />);
+      const closeBtn = screen.getByRole('button', { name: 'Close' });
+      const select = screen.getByRole('combobox', { name: 'Filter by agent' });
+      select.focus();
+      await user.tab();
+      expect(closeBtn).toHaveFocus();
+      await user.tab({ shift: true });
+      expect(select).toHaveFocus();
+    });
+
+    it('returns focus to the Header Global Search button when closed with Escape', async () => {
+      const user = userEvent.setup();
+      render(<Header />);
+      const searchBtn = screen.getByRole('button', { name: /global search/i });
+      searchBtn.focus();
+      await user.click(searchBtn);
+      expect(screen.getByRole('textbox', { name: 'Search terminal logs' })).toHaveFocus();
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(screen.queryByText(/Global Output Search/i)).not.toBeInTheDocument();
+      expect(searchBtn).toHaveFocus();
+    });
   });
 });
