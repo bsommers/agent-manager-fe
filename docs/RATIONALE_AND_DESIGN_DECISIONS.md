@@ -168,3 +168,25 @@ Add Agent only built a local agent and never sent `agent:create`, so QA step 1 s
 ### Consequences
 - **Pros**: The roster is truthful and QA step 1 passes.
 - **Cons**: Key-based matching can attach a pane to an identical agent created by another client; there are no typed errors; a failed driver spawn can leave a ghost agent in a later snapshot; there are no stale markers, rename, tags or group. All of these are addressed by Phase 6.
+
+---
+
+## ADR-009: One Z-Index Scale, Portalled Overlays, Bounded Pane Stacking (Phase 09.1)
+
+### Status
+Accepted on 2026-11-07 (QA-02, fixes QA step 5).
+
+### Context
+The destructive safety modal was `z-50` while floating panes carried an inline z-index of 100 or more, so panes were painted over its Cancel button. Other dialogs used `z-[500]`, which a pane overtakes after about 400 raises because `bringToFront` computed `max + 1` without bound; the toast stack was `z-50`, always below panes.
+
+### Decision
+- One scale module, `src/styles/zLayers.ts`: panes in [100, 8999], overlays 9000, destructive confirmations 9100, toasts 9200.
+- Every modal, overlay and the toast stack renders through `OverlayPortal` into `document.body`, inside a zero-size fixed wrapper carrying the layer's inline z-index, so no ancestor stacking context can trap it below the panes.
+- `bringToFront` re-ranks panes into the contiguous range starting at 100 (front pane highest, relative order kept) instead of counting up forever.
+- `FloatingPane` clamps the stored z-index to the pane ceiling at render, so externally supplied values cannot exceed the overlays.
+- Class-based z utilities are removed from overlay files; Tailwind cannot read the shared constants.
+
+### Consequences
+- **Pros**: Overlays can never be covered by a pane; the scale has one source of truth; the numeric ordering is asserted in `overlayLayering.test.tsx` after 10 000 raises.
+- **Cons**: One extra wrapper element per overlay; jsdom does no layout, so hit-testing is not unit tested and QA step 5 in `qa/` remains the live check.
+- **Rule for new overlays**: use `OverlayPortal` with a layer from `Z_LAYERS`; never add a z-index class to an overlay.

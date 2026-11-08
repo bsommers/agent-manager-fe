@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { AlertCircle, WifiOff, X } from 'lucide-react';
 import { agentSocket } from '../../services/agentSocket';
 import { useAgentStore } from '../../store/agentStore';
+import { OverlayPortal } from './OverlayPortal';
 
 export interface StatusToast {
   id: string;
@@ -115,9 +116,10 @@ export const NotificationToastManager: React.FC = () => {
   }
 
   return (
+    <OverlayPortal layer="toast">
     <div
       aria-live="polite"
-      className="fixed top-14 right-4 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none"
+      className="fixed top-14 right-4 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none"
     >
       {rosterNotices.map((notice) => (
         <div
@@ -199,5 +201,6 @@ export const NotificationToastManager: React.FC = () => {
         );
       })}
     </div>
+    </OverlayPortal>
   );
 };

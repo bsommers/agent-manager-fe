@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertTriangle, ShieldAlert, X } from 'lucide-react';
 import { Agent } from '../../types/agent';
 import { useModalFocus } from '../../hooks/useModalFocus';
+import { OverlayPortal } from './OverlayPortal';
 
 export interface DestructiveSafetyModalProps {
   isOpen: boolean;
@@ -30,7 +31,8 @@ export const DestructiveSafetyModal: React.FC<DestructiveSafetyModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
+    <OverlayPortal layer="confirm">
+    <div className="fixed inset-0 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
       <div
         ref={dialogRef}
         role="alertdialog"
@@ -125,5 +127,6 @@ export const DestructiveSafetyModal: React.FC<DestructiveSafetyModalProps> = ({
         </div>
       </div>
     </div>
+    </OverlayPortal>
   );
 };
