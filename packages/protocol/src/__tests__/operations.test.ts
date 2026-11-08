@@ -71,7 +71,14 @@ describe('operations catalog: shape', () => {
     expect(kill.confirmParam).toBe('confirm');
     expect(kill.ws).toMatchObject({ type: 'agent:kill', when: { field: 'killSession', is: true } });
     expect('none' in kill.palette).toBe(true);
-    expect('none' in kill.http).toBe(true);
+    expect(kill.http).toEqual({
+      method: 'POST',
+      path: '/api/agents/:id/kill',
+      input: 'body',
+      status: 200,
+      pathParams: { id: 'agentId' },
+      headerParams: { 'Idempotency-Key': 'reqId' },
+    });
     expect(OPERATIONS['agent.close'].destructive).toBe(false);
     expect(OPERATIONS['agent.close'].ws).toMatchObject({ type: 'agent:kill', when: { field: 'killSession', is: false } });
     expect(OPERATIONS['agent.close'].http).toMatchObject({ method: 'DELETE', path: '/api/agents/:id' });
@@ -84,7 +91,6 @@ describe('operations catalog: shape', () => {
         expect(op.params[op.confirmParam as string]?.kind, name).toBe('boolean');
         expect(op.readOnly, name).toBe(false);
         expect('none' in op.palette, name).toBe(true);
-        expect('none' in op.http, name).toBe(true);
       } else {
         expect(op.confirmParam, name).toBeUndefined();
       }
@@ -177,7 +183,14 @@ describe('operations catalog: HTTP routes', () => {
     const ids = routes.map((r) => r.id);
     expect(ids).toEqual([...new Set(ids)].sort());
     expect(ids).toEqual(
-      ['DELETE /api/agents/:id', 'GET /api/agents', 'GET /api/agents/:id/logs', 'GET /api/search', 'POST /api/agents'].sort(),
+      [
+        'DELETE /api/agents/:id',
+        'GET /api/agents',
+        'GET /api/agents/:id/logs',
+        'GET /api/search',
+        'POST /api/agents',
+        'POST /api/agents/:id/kill',
+      ].sort(),
     );
   });
 

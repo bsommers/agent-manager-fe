@@ -1245,7 +1245,18 @@
     "agent.kill": {
       "confirmParam": "confirm",
       "destructive": true,
-      "http": null,
+      "http": {
+        "headerParams": {
+          "Idempotency-Key": "reqId"
+        },
+        "input": "body",
+        "method": "POST",
+        "path": "/api/agents/:id/kill",
+        "pathParams": {
+          "id": "agentId"
+        },
+        "status": 200
+      },
       "mcp": {
         "tool": "agent_kill"
       },

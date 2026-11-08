@@ -31,6 +31,14 @@ vi.mock('../src/services/TmuxDriver.js', () => ({
   }),
 }));
 
+vi.mock('../src/services/SshDriver.js', () => ({
+  SshDriver: vi.fn().mockImplementation(function () {
+    const driver = { write: vi.fn(), resize: vi.fn(), close: vi.fn(), session: 'ssh' };
+    drivers.push(driver);
+    return driver;
+  }),
+}));
+
 vi.mock('../src/services/tmuxKill.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/services/tmuxKill.js')>();
   return { ...actual, killTmuxSession: vi.fn().mockResolvedValue('killed') };
@@ -40,7 +48,9 @@ import { bootstrap } from '../src/index.js';
 import { killTmuxSession } from '../src/services/tmuxKill.js';
 import { listOperations } from '@agent-manager/protocol';
 import type { OperationName, OperationSpec } from '@agent-manager/protocol';
+import { statusFor } from '../src/http/envelope.js';
 import { WebSocket } from 'ws';
+import http from 'node:http';
 
 type Handle = Awaited<ReturnType<typeof bootstrap>>;
 type Frame = { type: string; [key: string]: any };
@@ -240,5 +250,268 @@ describe('catalog walk: destructive operations over WS', () => {
     );
     expect(killMock).not.toHaveBeenCalled();
     expect(capturedDrivers()[0].close).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HTTP surface
+// ---------------------------------------------------------------------------
+
+interface Res {
+  status: number;
+  headers: http.IncomingHttpHeaders;
+  text: string;
+  json: any;
+}
+
+/** One raw HTTP request; adds no headers of its own. */
+function request(
+  method: string,
+  reqPath: string,
+  opts: { headers?: Record<string, string>; body?: string } = {}
+): Promise<Res> {
+  return new Promise((resolve, reject) => {
+    const headers: Record<string, string | number> = { ...(opts.headers ?? {}) };
+    if (opts.body !== undefined) headers['content-length'] = Buffer.byteLength(opts.body);
+    const req = http.request({ host: '127.0.0.1', port, method, path: reqPath, headers, agent: false }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        let json: any;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = undefined;
+        }
+        resolve({ status: res.statusCode ?? 0, headers: res.headers, text, json });
+      });
+    });
+    req.on('error', reject);
+    if (opts.body !== undefined) req.write(opts.body);
+    req.end();
+  });
+}
+
+const JSON_HEADERS = { 'content-type': 'application/json' };
+
+type HttpBound = Exclude<OperationSpec['http'], { none: string }>;
+const httpOf = (op: OperationSpec): HttpBound => {
+  if ('none' in op.http) throw new Error('operation has no HTTP binding');
+  return op.http;
+};
+
+/** The path for an operation's HTTP binding with the agent id substituted. */
+function pathFor(op: OperationSpec, agentId: string, query = ''): string {
+  const b = httpOf(op);
+  let reqPath = b.path;
+  for (const [segment, param] of Object.entries(b.pathParams ?? {})) {
+    if (param !== 'agentId') throw new Error(`unexpected path param ${param}`);
+    reqPath = reqPath.replace(`:${segment}`, encodeURIComponent(agentId));
+  }
+  return reqPath + query;
+}
+
+/** The header name that carries reqId for the binding. */
+function idempotencyHeader(op: OperationSpec): string {
+  const entry = Object.entries(httpOf(op).headerParams ?? {}).find(([, p]) => p === 'reqId');
+  if (!entry) throw new Error('binding has no reqId header');
+  return entry[0];
+}
+
+/** The HTTP request for a destructive operation, built from its catalog binding (no literal path). */
+function httpRequest(
+  op: OperationSpec,
+  agentId: string,
+  body: Record<string, unknown> | string,
+  headers: Record<string, string> = {}
+): Promise<Res> {
+  return request(httpOf(op).method, pathFor(op, agentId), {
+    headers: { ...JSON_HEADERS, ...headers },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+}
+
+function expectUsageEnvelope(res: Res, message?: string): void {
+  expect(res.status).toBe(statusFor('USAGE'));
+  expect(Object.keys(res.json).sort()).toEqual(['error', 'ok']);
+  expect(res.json.ok).toBe(false);
+  expect(res.json.error.code).toBe('USAGE');
+  if (message !== undefined) expect(res.json.error.message).toBe(message);
+}
+
+function expectNothingRan(agentIds: string[]): void {
+  expect(killMock).not.toHaveBeenCalled();
+  for (const d of capturedDrivers()) expect(d.close).not.toHaveBeenCalled();
+  expect(handle.sessionManager.getAgents().map((a) => a.id)).toEqual(agentIds);
+}
+
+describe('catalog walk: destructive operations over HTTP', () => {
+  const withHttp = () => destructive().filter(([, op]) => !('none' in op.http));
+
+  it('at least one destructive operation has an HTTP binding', () => {
+    expect(withHttp().length).toBeGreaterThan(0);
+  });
+
+  for (const [name, op] of withHttp()) {
+    const param = op.confirmParam as string;
+
+    describe(`${name}`, () => {
+      it.each([
+        ['an empty body', {}, 'killSession requires confirm: true'],
+        ['confirm false', { [param]: false }, 'killSession requires confirm: true'],
+        ['confirm the string "true"', { [param]: 'true' }, `invalid field: ${param}`],
+        ['confirm the number 1', { [param]: 1 }, `invalid field: ${param}`],
+      ])('refuses %s with the USAGE envelope and runs nothing', async (_n, body, message) => {
+        const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
+        spyConsole('warn');
+        const res = await httpRequest(op, a.id, body as Record<string, unknown>);
+        expectUsageEnvelope(res, message);
+        expectNothingRan([a.id]);
+        expect(await rosterIds()).toEqual([a.id]);
+      });
+
+      it('with confirm true answers 200 ok, ends the session once and removes the agent', async () => {
+        const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
+        const b = handle.sessionManager.createAgent('beta', 'tmux', 'qa_b');
+        spyConsole('log');
+        const res = await httpRequest(op, a.id, { [param]: true });
+        expect(res.status).toBe(200);
+        expect(res.json).toEqual({ ok: true });
+        expect(killMock).toHaveBeenCalledTimes(1);
+        expect(killMock).toHaveBeenCalledWith('qa_a');
+        expect(capturedDrivers()[0].close).toHaveBeenCalledTimes(1);
+        expect(capturedDrivers()[1].close).not.toHaveBeenCalled();
+        const list = await request('GET', '/api/agents');
+        expect(list.json.agents.map((x: any) => x.id)).toEqual([b.id]);
+      });
+
+      it('ignores a body killSession false: the route implies the kill', async () => {
+        const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
+        spyConsole('log');
+        const res = await httpRequest(op, a.id, { killSession: false, [param]: true });
+        expect(res.status).toBe(200);
+        expect(killMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('an unknown id with confirm true is 404, and without confirm it is still USAGE', async () => {
+        spyConsole('warn');
+        const ghost = await httpRequest(op, 'agent-ghost', { [param]: true });
+        expect(ghost.status).toBe(404);
+        expect(ghost.json.error.code).toBe('NOT_FOUND');
+        expectUsageEnvelope(await httpRequest(op, 'agent-ghost', {}));
+        expect(killMock).not.toHaveBeenCalled();
+      });
+
+      it('an ssh agent with confirm true is 422 UNSUPPORTED and stays', async () => {
+        const a = handle.sessionManager.createAgent('remote', 'ssh', 'user@host');
+        spyConsole('warn');
+        const res = await httpRequest(op, a.id, { [param]: true });
+        expect(res.status).toBe(statusFor('UNSUPPORTED'));
+        expect(res.json.error.code).toBe('UNSUPPORTED');
+        expectNothingRan([a.id]);
+      });
+
+      it('a tmux failure is 500 INTERNAL with the fixed message and the agent stays', async () => {
+        const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
+        spyConsole('error');
+        killMock.mockRejectedValueOnce(new Error('tmux exploded: secret-detail'));
+        const res = await httpRequest(op, a.id, { [param]: true });
+        expect(res.status).toBe(500);
+        expect(res.json.error.code).toBe('INTERNAL');
+        expect(res.text).not.toContain('secret-detail');
+        expect(handle.sessionManager.getAgents().map((x) => x.id)).toEqual([a.id]);
+        expect(capturedDrivers()[0].close).not.toHaveBeenCalled();
+      });
+
+      it('replays the 200 body for a repeated Idempotency-Key without a second tmux call', async () => {
+        const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
+        spyConsole('log');
+        const h = { [idempotencyHeader(op)]: 'key-kill-1' };
+        const first = await httpRequest(op, a.id, { [param]: true }, h);
+        const second = await httpRequest(op, a.id, { [param]: true }, h);
+        expect(first.status).toBe(200);
+        expect(second.status).toBe(200);
+        expect(second.json).toEqual({ ok: true });
+        expect(killMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not cache a refusal under an Idempotency-Key', async () => {
+        const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
+        spyConsole('warn');
+        spyConsole('log');
+        const h = { [idempotencyHeader(op)]: 'key-kill-2' };
+        expectUsageEnvelope(await httpRequest(op, a.id, {}, h));
+        const ok = await httpRequest(op, a.id, { [param]: true }, h);
+        expect(ok.status).toBe(200);
+        expect(killMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('refuses a foreign Origin with 403 before the body is read', async () => {
+        const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
+        const res = await httpRequest(op, a.id, '{not json', { origin: 'http://evil.example' });
+        expect(res.status).toBe(403);
+        expect(res.json.error.code).toBe('FORBIDDEN');
+        expectNothingRan([a.id]);
+      });
+
+      it('refuses a text/plain body with USAGE', async () => {
+        const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
+        const res = await request(httpOf(op).method, pathFor(op, a.id), {
+          headers: { 'content-type': 'text/plain' },
+          body: JSON.stringify({ [param]: true }),
+        });
+        expectUsageEnvelope(res);
+        expectNothingRan([a.id]);
+      });
+
+      it('refuses a non-object JSON body with USAGE', async () => {
+        const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
+        expectUsageEnvelope(await httpRequest(op, a.id, '[true]'));
+        expectNothingRan([a.id]);
+      });
+
+      it('does not take the confirmation from the query string', async () => {
+        const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
+        spyConsole('warn');
+        const res = await request(httpOf(op).method, pathFor(op, a.id, `?${param}=true`), {
+          headers: JSON_HEADERS,
+          body: '{}',
+        });
+        expectUsageEnvelope(res);
+        expectNothingRan([a.id]);
+      });
+    });
+  }
+
+  it('agent.close over DELETE is unchanged: no confirm needed and tmux is not touched', async () => {
+    const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
+    const res = await request('DELETE', `/api/agents/${a.id}`);
+    expect(res.status).toBe(200);
+    expect(killMock).not.toHaveBeenCalled();
+    expect(capturedDrivers()[0].close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('pending surfaces', () => {
+  /** Surfaces the gateway does not implement yet, each owned by a later phase. */
+  const PENDING_SURFACES: Record<string, string> = { mcp: 'Phase 21.1' };
+  const WALKED_SURFACES = ['ws', 'http'];
+
+  it('every surface a destructive operation is bound to is walked or listed as pending', () => {
+    for (const [name, op] of destructive()) {
+      for (const surface of ['ws', 'http', 'mcp'] as const) {
+        if ('none' in op[surface]) continue;
+        const accounted = WALKED_SURFACES.includes(surface) || surface in PENDING_SURFACES;
+        expect(accounted, `${name} is bound to ${surface} but it is neither walked nor pending`).toBe(true);
+      }
+    }
+  });
+
+  it('the pending record names an owner phase and does not overlap the walked list', () => {
+    for (const [surface, owner] of Object.entries(PENDING_SURFACES)) {
+      expect(owner).toMatch(/^Phase \d/);
+      expect(WALKED_SURFACES).not.toContain(surface);
+    }
   });
 });
