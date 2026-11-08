@@ -464,6 +464,115 @@ describe('close and session kill are announced as agent:removed', () => {
   });
 });
 
-// Task 3 cases are appended below.
-void view;
-void reduce;
+describe('resync, ordering and exit persistence', () => {
+  it('a long-lived client sees added, added, updated, removed in order; a fresh snapshot equals the registry', async () => {
+    const old = await connect();
+
+    send(old, create('A'));
+    await vi.waitFor(() => expect(ofType(old, 0, 'agent:added')).toHaveLength(1));
+    send(old, create('B'));
+    await vi.waitFor(() => expect(ofType(old, 0, 'agent:added')).toHaveLength(2));
+    const [idA, idB] = ofType(old, 0, 'agent:added').map((f) => f.agent.id);
+    send(old, { type: 'agent:update', agentId: idA, name: 'A2', tags: ['t'] });
+    await vi.waitFor(() => expect(ofType(old, 0, 'agent:updated')).toHaveLength(1));
+    send(old, { type: 'agent:kill', agentId: idB });
+    await vi.waitFor(() => expect(ofType(old, 0, 'agent:removed')).toHaveLength(1));
+
+    const kinds = old.frames.map((f) => f.type).filter((t) => t.startsWith('agent:') && t !== 'agent:init_list');
+    expect(kinds).toEqual(['agent:added', 'agent:added', 'agent:updated', 'agent:removed']);
+
+    const fresh = await connect();
+    const snap = fresh.frames[0];
+    expect(snap.type).toBe('agent:init_list');
+    expect(snap.agents.map((x: any) => x.id)).toEqual([idA]);
+    expect(snap.agents[0]).toMatchObject({ name: 'A2', tags: ['t'] });
+    expect(new Set(snap.agents.map((x: any) => x.id)).size).toBe(snap.agents.length);
+    // The old connection's event-built view equals the fresh snapshot.
+    expect(view(reduce([], old.frames))).toEqual(view(snap.agents));
+  });
+
+  it('a client that drops during the sequence reconnects to the snapshot only: no replay, no duplicates', async () => {
+    const stay = await connect();
+    const gone = await connect();
+    send(stay, create('A'));
+    await vi.waitFor(() => expect(ofType(gone, 0, 'agent:added')).toHaveLength(1));
+    gone.ws.close();
+    await vi.waitFor(() => expect(gone.ws.readyState).toBe(WebSocket.CLOSED));
+    send(stay, create('B'));
+    await vi.waitFor(() => expect(ofType(stay, 0, 'agent:added')).toHaveLength(2));
+    const idA = ofType(stay, 0, 'agent:added')[0].agent.id;
+    send(stay, { type: 'agent:kill', agentId: idA });
+    await vi.waitFor(() => expect(ofType(stay, 0, 'agent:removed')).toHaveLength(1));
+
+    const back = await connect();
+    await pong(back);
+
+    expect(back.frames[0].type).toBe('agent:init_list');
+    expect(back.frames[0].agents.map((x: any) => x.name)).toEqual(['B']);
+    expect(back.frames.filter((f) => f.type !== 'agent:init_list' && f.type !== 'pong')).toEqual([]);
+    expect(view(reduce([], stay.frames))).toEqual(view(back.frames[0].agents));
+  });
+
+  it('a driver exit leaves the agent listed as disconnected, announced by status_change only', async () => {
+    const [x] = [handle.sessionManager.createAgent('mortal', 'tmux', 'qa_mortal')];
+    const a = await connect();
+    const base = a.frames.length;
+
+    capturedDrivers()[0].onExit(0);
+
+    await vi.waitFor(() => expect(ofType(a, base, 'agent:status_change')).toHaveLength(1));
+    await pong(a);
+    expect(ofType(a, base, 'agent:status_change')[0]).toMatchObject({ agentId: x.id, status: 'disconnected' });
+    expect(ofType(a, base, 'agent:removed')).toHaveLength(0);
+    expect(ofType(a, base, 'agent:init_list')).toHaveLength(0);
+    const late = await connect();
+    expect(late.frames[0].agents.find((z: any) => z.id === x.id)).toMatchObject({ status: 'disconnected' });
+  });
+
+  it('agent:updated carries only the supplied keys; an update of an unknown id announces nothing', async () => {
+    const x = handle.sessionManager.createAgent('x', 'tmux', 'qa_x');
+    const a = await connect();
+    const b = await connect();
+    const baseA = a.frames.length;
+    const baseB = b.frames.length;
+
+    send(a, { type: 'agent:update', agentId: x.id, group: 'g1' });
+    await vi.waitFor(() => expect(ofType(b, baseB, 'agent:updated')).toHaveLength(1));
+    send(a, { type: 'agent:update', agentId: 'ghost', name: 'nope' });
+    await vi.waitFor(() => expect(ofType(a, baseA, 'agent:error')).toHaveLength(1));
+    await pong(a, b);
+
+    expect(ofType(b, baseB, 'agent:updated')[0]).toEqual({
+      type: 'agent:updated',
+      agentId: x.id,
+      patch: { group: 'g1' },
+    });
+    expect(ofType(a, baseA, 'agent:error')[0]).toMatchObject({ code: 'NOT_FOUND', agentId: 'ghost' });
+    expect(ofType(a, baseA, 'agent:updated')).toHaveLength(1);
+    expect(ofType(b, baseB, 'agent:updated')).toHaveLength(1);
+  });
+
+  it('20 creates and 20 closes leave an empty registry and a consistent view for every client', async () => {
+    const a = await connect();
+    const b = await connect();
+
+    for (let i = 0; i < 20; i++) send(a, create(`n${i}`));
+    await vi.waitFor(() => expect(ofType(b, 0, 'agent:added')).toHaveLength(20), { timeout: 5000 });
+    const mid = await connect();
+    expect(view(reduce([], b.frames))).toEqual(view(mid.frames[0].agents));
+    expect(mid.frames[0].agents).toHaveLength(20);
+
+    const ids = ofType(a, 0, 'agent:added').map((f) => f.agent.id);
+    expect(new Set(ids).size).toBe(20);
+    for (const id of ids) send(a, { type: 'agent:kill', agentId: id });
+    await vi.waitFor(() => expect(ofType(b, 0, 'agent:removed')).toHaveLength(20), { timeout: 5000 });
+    await pong(a, b);
+
+    const fin = await connect();
+    expect(fin.frames[0].agents).toEqual([]);
+    expect(reduce([], a.frames)).toEqual([]);
+    expect(reduce([], b.frames)).toEqual([]);
+    expect(handle.sessionManager.getAgentCount()).toBe(0);
+    expect(capturedDrivers().every((d) => d.close.mock.calls.length === 1)).toBe(true);
+  });
+});
