@@ -61,3 +61,11 @@ Result: 12 PASS, 4 FAIL, 2 FIXME (16 executed steps + 2 fixme). All 4 failures a
 - Step 2 note: the bar preselects the active agent (e.g. qa-agent-1); the driver unchecks every agent except ours so
   broadcasts never reach `qa-agent-*`. (An earlier iteration of the driver, before this was fixed, sent one harmless `echo` to qa-agent-1.)
 - Root `npm test` after the run: 58 files / 753 tests passed, none from `qa/` (root HEAD has moved since the 44-file baseline; `vitest list` shows zero `qa/` files).
+
+## Update 2026-11-07
+
+- Bug 3 was reclassified by the user as expected behaviour: closing an agent must not kill its tmux session.
+- The explicit "Kill tmux session..." control and the driver steps 12b (the session survives closing) and 13 (kill through the control) were added by plans 09.1-03 and 09.1-04.
+- Bugs 1 and 2 are addressed by plans 09.1-01 and 09.1-02.
+- Step 1e is now step 1d.
+- The live re-run is pending.
