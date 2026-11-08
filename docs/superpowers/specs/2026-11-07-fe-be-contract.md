@@ -138,7 +138,7 @@ Identifiers: `agentId` and `reqId` are opaque strings of at most 128 characters.
 | `agent:history` | `agentId`, exactly one of `beforeSeq`/`afterSeq`, `limit?`, `reqId?` | 11 |
 | `agent:approve` | `agentId`, `gateId`, `decision: 'approve'\|'deny'`, `reqId?` | 25 |
 
-**`agent:kill` and `killSession`.** Without `killSession` (absent or false), `agent:kill` closes the agent: the gateway detaches it and removes it from the roster, and the backend session (for tmux, the session itself) keeps running. With `killSession: true` the gateway also ends the backend's persistent session. This is supported for tmux agents only, and the session name is derived server-side from the registry entry, never taken from the client. It is honoured only when `confirm` is exactly `true`: otherwise the gateway refuses with `agent:error` (`USAGE`) sent to the requesting client only, and runs nothing (no lookup side effect, no process, no driver close, no roster change). The destructive-action modal in the UI is only the UX that sets `confirm`; the gateway is the safety check. `confirm` is an explicit-intent gate against accidental callers, not authentication (see section on auth). A session that is already gone counts as success. Other refusals are typed `agent:error` replies to the requester: `UNSUPPORTED` for non-tmux agents, `USAGE` for an unkillable session name, `INTERNAL` for a tmux failure (fixed message text). An unknown agent id is refused with `agent:error` `NOT_FOUND` (carrying the `agentId`, and the `reqId` when sent) to the requester only; no roster snapshot is broadcast. A `killSession` request without `confirm: true` is still refused with `USAGE` first, even for an unknown id. The fields are additive, so `CONTRACT_VERSION` does not change.
+**`agent:kill` and `killSession`.** Without `killSession` (absent or false), `agent:kill` closes the agent: the gateway detaches it and removes it from the roster, and the backend session (for tmux, the session itself) keeps running. With `killSession: true` the gateway also ends the backend's persistent session. This is supported for tmux agents only, and the session name is derived server-side from the registry entry, never taken from the client. It is honoured only when `confirm` is exactly `true`: otherwise the gateway refuses with `agent:error` (`USAGE`) sent to the requesting client only, and runs nothing (no lookup side effect, no process, no driver close, no roster change). The destructive-action modal in the UI is only the UX that sets `confirm`; the gateway is the safety check. `confirm` is an explicit-intent gate against accidental callers, not authentication (see section on auth). A session that is already gone counts as success. Other refusals are typed `agent:error` replies to the requester: `UNSUPPORTED` for non-tmux agents, `USAGE` for an unkillable session name, `INTERNAL` for a tmux failure (fixed message text). An unknown agent id is refused with `agent:error` `NOT_FOUND` (carrying the `agentId`, and the `reqId` when sent) to the requester only; no roster snapshot is broadcast. A `killSession` request without `confirm: true` is still refused with `USAGE` first, even for an unknown id. The fields are additive, so `CONTRACT_VERSION` does not change. The HTTP form is `POST /api/agents/:id/kill` with body `{ "confirm": true }` (section 7): the route implies `killSession`, a body `killSession` is ignored, and the same refusals apply.
 
 ### 4.2 Gateway -> client
 
@@ -183,7 +183,7 @@ Every thing a client can ask the gateway to do is one entry of `OPERATIONS` in `
 | `agent.list` | none | `GET /api/agents` | `agent_list` | none | - | read-only |
 | `agent.create` | `agent:create` | `POST /api/agents` | `agent_create` | `agent.new` | - | - |
 | `agent.close` | `agent:kill` (`killSession` not true) | `DELETE /api/agents/:id` | `agent_close` | none | agent:kill | - |
-| `agent.kill` | `agent:kill` (`killSession` = true) | none | `agent_kill` | none | agent:kill | destructive |
+| `agent.kill` | `agent:kill` (`killSession` = true) | `POST /api/agents/:id/kill` | `agent_kill` | none | agent:kill | destructive |
 | `agent.update` | `agent:update` | none | `agent_update` | none | - | - |
 | `agent.input` | `agent:input` | none | `agent_input` | none | gateway:terminal, agent:input | - |
 | `agent.resize` | `agent:resize` | none | none | none | gateway:terminal, agent:resize | - |
@@ -196,7 +196,7 @@ Every thing a client can ask the gateway to do is one entry of `OPERATIONS` in `
 Rules:
 
 - Each message type, HTTP route, MCP tool and palette command belongs to exactly one operation, except `agent:kill`, which carries two (`agent.close` and `agent.kill`, selected by `killSession`). No operation requires a reason to exist outside this table; every "none" carries one in the catalog.
-- `destructive` plus `confirmParam` is the gateway-enforced policy (the gateway refuses a destructive operation unless the confirm parameter is exactly `true`); the enforcement is Phase 6. A destructive operation never has a palette binding.
+- `destructive` plus `confirmParam` is the gateway-enforced policy (the gateway refuses a destructive operation unless the confirm parameter is exactly `true`); the gateway enforces it for every implemented surface (WS and HTTP now, MCP when it lands) through one policy stage derived from this catalog, and a refusal is `USAGE` (section 6.5). A destructive operation never has a palette binding.
 - MCP tool annotations (`readOnlyHint`, `destructiveHint`) derive from the `read-only` and `destructive` flags.
 - The palette binding is the command id only. Titles, keywords and hints are FE-owned and live in `src/keyboard/commands.ts`.
 - Connection handshake and heartbeat messages (`hello`, `ping`) and the liveness probes (`GET /health`, `GET /api/health`) are not operations and are exempt from coverage.
@@ -278,6 +278,17 @@ The first seven BE-plan codes are kept (aligned with the `mads.contract/1` vocab
 
 The BE plan's `agent:progress` is folded into `agent:meta` (`pipeline`/`cost` scopes). Approvals stay separate (`agent:gate`/`agent:approve`) because they need an answer. Payloads are validated at the FE boundary; unknown scopes are logged and dropped.
 
+### 6.5 Destructive operations
+
+An operation flagged `destructive` in the catalog names a `confirmParam`. The gateway runs it only when that parameter is exactly the boolean `true`, on every surface:
+
+- A refusal is `agent:error` `USAGE` to the requester only on WS and a `400` `USAGE` error envelope on HTTP. The message form is `<field> requires <confirmParam>: true` (for `agent.kill`: `killSession requires confirm: true`). Nothing runs on a refusal: no registry lookup, no process, no driver close, no roster change, and nothing is stored for idempotency, so the same `reqId` or `Idempotency-Key` can be retried with a valid confirmation.
+- The check precedes every lookup, so an unknown agent id without confirmation is `USAGE`, and with confirmation `NOT_FOUND`.
+- The rule set is derived from the catalog at startup. A destructive operation with no `confirmParam` stops the gateway from starting; a new destructive operation needs only the flag and the parameter.
+- `confirm` is an explicit-intent gate against accidental callers (scripts, devtools, a UI regression). It is not authentication: any client that can reach the gateway can set it. Authentication is Phase 8.
+- The UI confirmation modal only sets the parameter; the gateway is the check. The service layer repeats the gate (defense in depth) so a direct call cannot skip it.
+- HTTP form: `POST /api/agents/:id/kill` with body `{ "confirm": true }` and an optional `Idempotency-Key`. The route implies `killSession`; a body `killSession` is ignored; the confirmation is never read from the path or the query. `DELETE /api/agents/:id` stays `agent.close` and never touches tmux.
+
 ---
 
 ## 7. HTTP API
@@ -291,6 +302,7 @@ All routes except `GET /health` and the minimal form of `GET /api/health` requir
 | `GET /api/agents` | - | `{ok, agents: Agent[]}` | 6 |
 | `POST /api/agents` | same fields as `agent:create`; `Idempotency-Key` header = `reqId` | 201 `{ok, agent}` | 6 |
 | `DELETE /api/agents/:id` | - | `{ok}` | 6 |
+| `POST /api/agents/:id/kill` | body `{ confirm: true }`; `Idempotency-Key` header = `reqId` | `{ok}` | 6 |
 | `GET /api/agents/:id/logs` | `beforeSeq?`, `afterSeq?`, `limit?` (default 500, max 2000) | `{ok, lines: LogLine[], hasMore}` | 11 |
 | `GET /api/search` | `q`, `regex?`, `caseSensitive?`, `wholeWord?`, `agentId?` (repeatable), `from?`, `to?`, `context?` (0-5), `limit?` (default 100, max 1000), `cursor?` | `{ok, results: SearchHit[], nextCursor?, truncated?}` | 16 |
 
@@ -457,4 +469,5 @@ packages/protocol/            @agent-manager/protocol
 | 16 | - | requirement keys `UI-01..10` | `UI-01` already exists (v1 windows); v2 UI keys are `UX-01..10`. |
 | 17 | - | Closing an agent must not kill its tmux session; an explicit kill control is needed | `agent:kill` gains optional `killSession` and `confirm` instead of a new `tmux:kill_session` message: the session name stays server-side (only sessions the gateway knows), one atomic roster operation, backend-agnostic (other adapters answer `UNSUPPORTED`), and additive (no `CONTRACT_VERSION` bump). The gateway, not the browser, enforces `confirm: true`. |
 | 18 | - | - | `agent:kill` carries two catalogued operations, `agent.close` (killSession absent or false) and `agent.kill` (killSession true, destructive, requires `confirm`). The HTTP kill form is left to Phase 6, which adds it additively. |
+| 20 | - | A destructive operation's policy was a check inside one handler, with no HTTP form | Phase 6 derives the policy from the catalog's `destructive` flag and `confirmParam` in one gateway stage shared by WS and HTTP (section 6.5), and adds `POST /api/agents/:id/kill` with body `{ confirm: true }` (additive, a binding added; no `CONTRACT_VERSION` bump). `confirm` is explicit intent, not authentication. |
 | 19 | Full `agent:init_list` snapshot after every mutation | Contract defines `agent:added/removed/updated` for Phase 6 | Events replace post-mutation snapshots; `agent:init_list` on connect only. A snapshot per change costs O(roster) per client and invites treating it as an acknowledgement; the events are idempotent by agent id and a reconnect resyncs from the one snapshot. A pre-Phase-6 FE (snapshots only) keeps a stale roster until it reconnects; FE and gateway of this repository ship together. |

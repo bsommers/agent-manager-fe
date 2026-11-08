@@ -66,6 +66,10 @@ replies to the requesting client only: `UNSUPPORTED` for non-tmux agents, `USAGE
 unkillable session name, `INTERNAL` when tmux fails. A session that is already gone counts as success. To kill a
 session the gateway refuses, run `tmux kill-session -t <name>` by hand.
 
+Destructive operations are enforced by one policy stage in the dispatch path, derived from the `destructive` and
+`confirmParam` flags of the operations catalog (`agent.kill` today): a request without the confirm parameter exactly
+`true` is refused with `USAGE` before any lookup, cache entry or process, on WebSocket and HTTP alike.
+
 ## HTTP API
 
 The same operations are reachable over HTTP under `/api`. Each handler parses its input into the validated client
@@ -78,10 +82,13 @@ no handler touches the registry, a driver or tmux. The legacy `GET /health` is u
 | `GET /api/agents`        | none                                      | `200 { ok: true, agents: Agent[] }`      | The current roster. |
 | `POST /api/agents`       | JSON body: `name`, `mode`, `targetHost`, optional `initialCmd`; optional `Idempotency-Key` header | `201 { ok: true, agent }` | Same validation as `agent:create`. |
 | `DELETE /api/agents/:id` | none                                      | `200 { ok: true }`                       | Closes the agent and leaves its tmux session running. |
+| `POST /api/agents/:id/kill` | JSON body `{ "confirm": true }`; optional `Idempotency-Key` header | `200 { ok: true }` | Ends the agent's tmux session and removes the agent. Without `confirm: true` exactly: `400 USAGE`, nothing runs. |
 | `GET /api/agents/:id/logs`, `GET /api/search` | none                         | `422` `UNSUPPORTED`                      | Catalogued for a later phase; answered with a fixed message so a client can tell "not in this build" from "no such path". |
 
-Any other `/api` path or method answers `404 NOT_FOUND`. There is no HTTP form of `agent.kill` (ending a tmux
-session) yet, so nothing destructive is reachable over HTTP.
+Any other `/api` path or method answers `404 NOT_FOUND`. `DELETE /api/agents/:id` only closes the agent and never
+touches tmux; only the explicit `POST /api/agents/:id/kill` ends a session. The route implies `killSession`, reads
+`confirm` from the JSON body only (never the path or query) and is refused by the same gateway policy as the
+WebSocket. `confirm` is an explicit-intent gate against accidents, not authentication (Phase 8).
 
 Failures use one envelope, `{ "ok": false, "error": { "code", "message", "retryable" } }`, with the status taken from
 the contract: `USAGE` 400, `UNAUTHENTICATED` 401, `FORBIDDEN` 403, `NOT_FOUND` 404, `CONFLICT` 409,
@@ -108,10 +115,12 @@ curl -s http://127.0.0.1:$PORT/api/health
 curl -s http://127.0.0.1:$PORT/api/agents
 curl -s -X POST -H 'Content-Type: application/json' -H 'Idempotency-Key: demo-1' \
   -d '{"name":"demo","mode":"tmux","targetHost":"demo"}' http://127.0.0.1:$PORT/api/agents   # run twice: same agent id
-curl -s -X DELETE http://127.0.0.1:$PORT/api/agents/<agent-id>
+curl -s -X DELETE http://127.0.0.1:$PORT/api/agents/<agent-id>   # closes; tmux keeps running
+curl -s -X POST -H 'Content-Type: application/json' -d '{"confirm":true}' \
+  http://127.0.0.1:$PORT/api/agents/<agent-id>/kill                # ends the tmux session
 ```
 
-Not yet: logs and search (Phases 11 and 16), ending a tmux session over HTTP, authentication and Host-header
+Not yet: logs and search (Phases 11 and 16), authentication and Host-header
 checks (Phase 8; until then the API has the same trust model as the WebSocket, loopback plus the Origin gate, and
 a DNS-rebinding page could read the roster), rate limits (Phase 12), CORS (Phase 16).
 

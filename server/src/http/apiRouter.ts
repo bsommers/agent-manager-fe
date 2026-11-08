@@ -25,7 +25,12 @@ export const MAX_BODY_BYTES = 64 * 1024;
 const IDEMPOTENCY_KEY = /^[\x21-\x7e]{1,128}$/;
 
 /** The routes this router implements; every other catalog route answers UNSUPPORTED. */
-const IMPLEMENTED_CATALOG_ROUTES: readonly string[] = ['DELETE /api/agents/:id', 'GET /api/agents', 'POST /api/agents'];
+const IMPLEMENTED_CATALOG_ROUTES: readonly string[] = [
+  'DELETE /api/agents/:id',
+  'GET /api/agents',
+  'POST /api/agents',
+  'POST /api/agents/:id/kill',
+];
 
 /** The exempt liveness probe (not in the catalog). */
 const HEALTH_ROUTE = 'GET /api/health';
@@ -58,6 +63,26 @@ function validated(candidate: Record<string, unknown>, res: Response): WSMessage
   if (frame) sendError(res, frame.code, frame.message, frame.retryable);
   else sendError(res, 'USAGE', sanitizeField(parsed.field), false);
   return null;
+}
+
+/** Refuses a request whose content type is not JSON, before the body is read. */
+const requireJson: RequestHandler = (req, res, next) => {
+  if (!req.is('application/json')) {
+    sendError(res, 'USAGE', 'content type must be application/json', false);
+    return;
+  }
+  next();
+};
+
+/** The Idempotency-Key header as a reqId: undefined when absent, null (after replying USAGE) when invalid. */
+function readReqId(req: Request, res: Response): string | undefined | null {
+  const key = req.headers['idempotency-key'];
+  if (key === undefined) return undefined;
+  if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) {
+    sendError(res, 'USAGE', 'invalid header: Idempotency-Key', false);
+    return null;
+  }
+  return key;
 }
 
 /** Wraps an async handler so a rejection reaches the error middleware instead of hanging the request. */
@@ -117,13 +142,7 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
 
   router.post(
     '/agents',
-    (req, res, next) => {
-      if (!req.is('application/json')) {
-        sendError(res, 'USAGE', 'content type must be application/json', false);
-        return;
-      }
-      next();
-    },
+    requireJson,
     express.json({ limit: MAX_BODY_BYTES }),
     guarded(async (req, res) => {
       if (!isPlainBody(req.body)) {
@@ -134,14 +153,9 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       const { reqId: _bodyReqId, ...fields } = req.body;
       const candidate: Record<string, unknown> = { ...fields, type: 'agent:create' };
 
-      const key = req.headers['idempotency-key'];
-      if (key !== undefined) {
-        if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) {
-          sendError(res, 'USAGE', 'invalid header: Idempotency-Key', false);
-          return;
-        }
-        candidate.reqId = key;
-      }
+      const reqId = readReqId(req, res);
+      if (reqId === null) return;
+      if (reqId !== undefined) candidate.reqId = reqId;
 
       const msg = validated(candidate, res);
       if (!msg) return;
@@ -159,6 +173,35 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
     '/agents/:id',
     guarded(async (req, res) => {
       const msg = validated({ type: 'agent:kill', agentId: req.params.id }, res);
+      if (!msg) return;
+      const outcome = await api.execute(msg);
+      send(res, outcomeToHttp(outcome, () => ({ status: 200, body: { ok: true } })));
+    })
+  );
+
+  // agent.kill: the destructive form. The route implies killSession; only `confirm` is read from the body,
+  // and the gateway's policy stage (not this handler) refuses a request whose confirm is not exactly true.
+  router.post(
+    '/agents/:id/kill',
+    requireJson,
+    express.json({ limit: MAX_BODY_BYTES }),
+    guarded(async (req, res) => {
+      if (!isPlainBody(req.body)) {
+        sendError(res, 'USAGE', 'request body must be a JSON object', false);
+        return;
+      }
+      const candidate: Record<string, unknown> = {
+        type: 'agent:kill',
+        agentId: req.params.id,
+        killSession: true,
+      };
+      if ('confirm' in req.body) candidate.confirm = req.body.confirm;
+
+      const reqId = readReqId(req, res);
+      if (reqId === null) return;
+      if (reqId !== undefined) candidate.reqId = reqId;
+
+      const msg = validated(candidate, res);
       if (!msg) return;
       const outcome = await api.execute(msg);
       send(res, outcomeToHttp(outcome, () => ({ status: 200, body: { ok: true } })));

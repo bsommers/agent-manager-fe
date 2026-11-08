@@ -166,6 +166,11 @@ Transport-agnostic agent operations (ADR-010). It imports no WebSocket, Express 
 - `create` registers an agent only after its driver was constructed (a failed start answers `BACKEND_DOWN` and announces nothing) and refuses past `LIMITS.MAX_AGENTS` with `CONFLICT`.
 - Implements lazy driver attachment for sessions discovered at startup upon first client input or window resize.
 
+#### Destructive operation policy
+`server/src/gateway/policy.ts` derives the rules from the operations catalog (`destructiveRules`): one per operation whose `destructive` flag is true, carrying its `confirmParam`. A destructive operation without one stops the gateway from starting. `AgentApi.execute` (`dispatch.ts`) resolves the operation of each message and calls `checkDestructivePolicy` first, before the idempotency cache, any registry lookup and any process. A request whose confirm parameter is not exactly `true` is refused with `USAGE` (`agent:error` on WS, the error envelope on HTTP), nothing runs and nothing is cached. WS and HTTP share this single path, so a new surface gets the check by calling `execute`.
+
+`AgentService.destroy` keeps its own identical gate as defense in depth; it is called only from `dispatch.ts` (a static test enforces this). The HTTP form is `POST /api/agents/:id/kill` with body `{ "confirm": true }`; `DELETE /api/agents/:id` is the non-destructive close. `confirm` is explicit intent, not authentication (Phase 8). See ADR-012.
+
 #### `serviceResult.ts`
 `ServiceError { code, message, retryable, agentId? }`, `ServiceResult<T>`, the `ok` and `fail` helpers and `errorFrame`, the single builder of `agent:error` frames. Every service error message is a fixed string; underlying error text goes only to the server log.
 
