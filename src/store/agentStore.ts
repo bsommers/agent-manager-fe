@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Agent, LayoutMode } from '../types/agent';
 import { agentSocket } from '../services/agentSocket';
+import { AgentRequestError, REQUEST_TIMEOUT_MS, type AckResult } from '../services/agentRequests';
 import { parseAgent, type AgentStatus, type WSMessageClient } from '../services/wsProtocol';
 import type { BackendMode } from '../services/adapters/types';
 import { useConnectionStore } from './connectionStore';
@@ -55,7 +56,7 @@ export function initialAgentsFor(mode: BackendMode): Agent[] {
   return mode === 'demo' ? SEED_AGENTS() : [];
 }
 
-export const ROSTER_REQUEST_TIMEOUT_MS = 10000;
+export const ROSTER_REQUEST_TIMEOUT_MS = REQUEST_TIMEOUT_MS;
 
 export interface RosterNotice {
   id: string;
@@ -92,6 +93,21 @@ function armRequestTimer(key: string, fn: () => void) {
   );
 }
 
+interface FailureCopy {
+  notConnected: string;
+  timeout: string;
+}
+
+/** Copy for a failed request: fixed wording for local failures, the gateway's code and text otherwise. */
+function failureMessage(err: unknown, copy: FailureCopy): string {
+  if (err instanceof AgentRequestError) {
+    if (err.code === 'TIMEOUT') return copy.timeout;
+    if (err.code === 'NOT_CONNECTED') return copy.notConnected;
+    return `The backend rejected the request (${err.code}): ${err.message}`;
+  }
+  return 'The request failed unexpectedly.';
+}
+
 export interface AgentStoreState {
   agents: Agent[];
   pending: PendingMap;
@@ -125,6 +141,60 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
     set((state) => ({ rosterNotices: [...state.rosterNotices, notice] }));
   };
 
+  /** A create's ack arrived: the pending pane becomes the server agent (or an ordinary agent when the pane is gone). */
+  const settleCreate = (pendingId: string, ack: AckResult) => {
+    const server = ack.agent;
+    const st = get();
+    const isPending = Object.prototype.hasOwnProperty.call(st.pending, pendingId);
+    if (!server) {
+      if (isPending) {
+        const err = new AgentRequestError('INTERNAL', 'The backend acknowledged the create without an agent.');
+        rollbackCreate(pendingId, null, `Could not create "${st.pending[pendingId].name}"`, err);
+      }
+      return;
+    }
+    if (!isPending) {
+      // Cancelled by the user (or already settled by other means): one ordinary agent, no focus change.
+      if (st.agents.some((a) => a.id === server.id)) return;
+      set({ agents: [...st.agents, server] });
+      return;
+    }
+    const { [pendingId]: _gone, ...restPending } = st.pending;
+    const nextActive = st.activeAgentId === pendingId ? server.id : st.activeAgentId;
+    if (st.agents.some((a) => a.id === server.id)) {
+      // A snapshot already listed the agent: drop the pane, never duplicate.
+      set({ agents: st.agents.filter((a) => a.id !== pendingId), pending: restPending, activeAgentId: nextActive });
+      return;
+    }
+    set({
+      agents: st.agents.map((a) =>
+        a.id === pendingId ? { ...server, layout: a.layout, unreadOutput: false } : a,
+      ),
+      pending: restPending,
+      activeAgentId: nextActive,
+    });
+  };
+
+  /** A create failed or timed out: remove the pending pane, restore focus only if the pane still has it. */
+  const rollbackCreate = (pendingId: string, previousActive: string | null, title: string, err: unknown) => {
+    const st = get();
+    if (!Object.prototype.hasOwnProperty.call(st.pending, pendingId)) return;
+    const nextAgents = st.agents.filter((a) => a.id !== pendingId);
+    const { [pendingId]: _removed, ...restPending } = st.pending;
+    let nextActive = st.activeAgentId;
+    if (nextActive === pendingId) {
+      nextActive =
+        previousActive !== null && nextAgents.some((a) => a.id === previousActive)
+          ? previousActive
+          : nextAgents[0]?.id ?? null;
+    }
+    set({ agents: nextAgents, pending: restPending, activeAgentId: nextActive });
+    pushRosterNotice('create_failed', title, failureMessage(err, {
+      notConnected: 'The backend is not connected, so the agent was not created.',
+      timeout: 'The backend did not confirm within 10 s, so the pending pane was removed.',
+    }));
+  };
+
   return {
     agents: initialAgentsFor(useConnectionStore.getState().mode),
     pending: {},
@@ -141,15 +211,26 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
 
     addAgent: (name, mode, targetHost, initialCmd) => {
       if (isLive()) {
-        const msg: WSMessageClient = { type: 'agent:create', name, mode, targetHost };
-        if (typeof initialCmd === 'string' && initialCmd.length > 0) msg.initialCmd = initialCmd;
-        if (!agentSocket.send(msg)) {
-          pushRosterNotice(
-            'create_failed',
-            `Could not create "${name}"`,
-            'The backend is not connected, so the agent was not created.',
-          );
-          return;
+        const createFailTitle = `Could not create "${name}"`;
+        let handle;
+        try {
+          handle = agentSocket.request((reqId): WSMessageClient => {
+            const msg: Extract<WSMessageClient, { type: 'agent:create' }> = {
+              type: 'agent:create',
+              name,
+              mode,
+              targetHost,
+              reqId,
+            };
+            if (typeof initialCmd === 'string' && initialCmd.length > 0) msg.initialCmd = initialCmd;
+            return msg;
+          });
+        } catch (err) {
+          if (err instanceof AgentRequestError) {
+            pushRosterNotice('create_failed', createFailTitle, 'The backend is not connected, so the agent was not created.');
+            return;
+          }
+          throw err;
         }
         const previousActive = get().activeAgentId;
         const now = Date.now();
@@ -168,27 +249,12 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
         set((state) => ({
           agents: [...state.agents, pendingAgent],
           activeAgentId: id,
-          pending: { ...state.pending, [id]: { name, mode, targetHost, startedAt: now } },
+          pending: { ...state.pending, [id]: { name, mode, targetHost, startedAt: now, reqId: handle.reqId } },
         }));
-        armRequestTimer(`create:${id}`, () => {
-          const st = get();
-          if (!Object.prototype.hasOwnProperty.call(st.pending, id)) return;
-          const nextAgents = st.agents.filter((a) => a.id !== id);
-          const { [id]: _removed, ...restPending } = st.pending;
-          let nextActive = st.activeAgentId;
-          if (nextActive === id) {
-            nextActive =
-              previousActive !== null && nextAgents.some((a) => a.id === previousActive)
-                ? previousActive
-                : nextAgents[0]?.id ?? null;
-          }
-          set({ agents: nextAgents, pending: restPending, activeAgentId: nextActive });
-          pushRosterNotice(
-            'create_failed',
-            `Could not create "${name}"`,
-            'The backend did not confirm within 10 s, so the pending pane was removed.',
-          );
-        });
+        handle.promise.then(
+          (ack) => settleCreate(id, ack),
+          (err: unknown) => rollbackCreate(id, previousActive, createFailTitle, err),
+        );
         return;
       }
       const newAgent: Agent = {
@@ -213,7 +279,6 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       if (isLive()) {
         const st = get();
         if (Object.prototype.hasOwnProperty.call(st.pending, id)) {
-          clearRequestTimer(`create:${id}`);
           const nextAgents = st.agents.filter((a) => a.id !== id);
           const { [id]: _removed, ...restPending } = st.pending;
           set({
@@ -292,15 +357,10 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       const state = get();
       const result = reconcileSnapshot(state.agents, state.pending, valid);
       const currentActive = state.activeAgentId;
-      let nextActive: string | null;
-      if (currentActive !== null && result.claimed[currentActive] !== undefined) {
-        nextActive = result.claimed[currentActive];
-      } else if (currentActive !== null && result.agents.some((a) => a.id === currentActive)) {
-        nextActive = currentActive;
-      } else {
-        nextActive = result.agents[0]?.id ?? null;
-      }
-      for (const pendingId of Object.keys(result.claimed)) clearRequestTimer(`create:${pendingId}`);
+      const nextActive =
+        currentActive !== null && result.agents.some((a) => a.id === currentActive)
+          ? currentActive
+          : result.agents[0]?.id ?? null;
       const nextKilling: Record<string, number> = {};
       for (const [agentId, startedAt] of Object.entries(state.killing)) {
         if (result.agents.some((a) => a.id === agentId)) nextKilling[agentId] = startedAt;

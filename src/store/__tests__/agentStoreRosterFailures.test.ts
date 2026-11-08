@@ -28,6 +28,7 @@ describe('live roster failure paths', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    (agentSocket as any).requests.clear();
     useConnectionStore.setState({ mode: 'live' });
     useAgentStore.setState({
       agents: [EXISTING],
@@ -40,6 +41,7 @@ describe('live roster failure paths', () => {
   });
 
   afterEach(() => {
+    (agentSocket as any).requests.clear();
     vi.useRealTimers();
     vi.restoreAllMocks();
     useConnectionStore.setState({ mode: 'demo' });
@@ -60,12 +62,12 @@ describe('live roster failure paths', () => {
       expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('rolls back after 10 s: pending removed, previous active restored, one notice', () => {
+    it('rolls back after 10 s: pending removed, previous active restored, one notice', async () => {
       useAgentStore.getState().addAgent('Build', 'tmux', 'localhost:build');
       expect(useAgentStore.getState().activeAgentId?.startsWith('pending-')).toBe(true);
       expect(vi.getTimerCount()).toBe(1);
 
-      vi.advanceTimersByTime(ROSTER_REQUEST_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(ROSTER_REQUEST_TIMEOUT_MS);
 
       const s = useAgentStore.getState();
       expect(s.agents.map((a) => a.id)).toEqual(['agent-9']);
@@ -78,19 +80,26 @@ describe('live roster failure paths', () => {
       expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('rollback with no previous agent leaves a null active id', () => {
+    it('rollback with no previous agent leaves a null active id', async () => {
       useAgentStore.setState({ agents: [], activeAgentId: null });
       useAgentStore.getState().addAgent('Build', 'tmux', 'localhost:build');
-      vi.advanceTimersByTime(ROSTER_REQUEST_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(ROSTER_REQUEST_TIMEOUT_MS);
       expect(useAgentStore.getState().agents).toEqual([]);
       expect(useAgentStore.getState().activeAgentId).toBeNull();
     });
 
-    it('a snapshot claiming the create before the timeout clears its timer', () => {
+    it('an ack before the timeout clears the timer and settles the pane', async () => {
       useAgentStore.getState().addAgent('Build', 'tmux', 'localhost:build');
-      snapshot([EXISTING, serverAgent({ id: 'agent-77', name: 'Build', targetHost: 'localhost:build' })]);
+      notify({
+        type: 'agent:ack',
+        reqId: (send.mock.calls[0][0] as any).reqId,
+        op: 'create',
+        ok: true,
+        agent: serverAgent({ id: 'agent-77', name: 'Build', targetHost: 'localhost:build' }),
+      });
+      await vi.advanceTimersByTimeAsync(0);
       expect(vi.getTimerCount()).toBe(0);
-      vi.advanceTimersByTime(ROSTER_REQUEST_TIMEOUT_MS * 2);
+      await vi.advanceTimersByTimeAsync(ROSTER_REQUEST_TIMEOUT_MS * 2);
       const s = useAgentStore.getState();
       expect(s.rosterNotices).toEqual([]);
       expect(s.agents.map((a) => a.id)).toEqual(['agent-9', 'agent-77']);
@@ -108,7 +117,8 @@ describe('live roster failure paths', () => {
       expect(s.agents.map((a) => a.id)).toEqual(['agent-9']);
       expect(s.pending).toEqual({});
       expect(s.rosterNotices).toEqual([]);
-      expect(vi.getTimerCount()).toBe(0);
+      // The request stays in flight in the request layer (its answer may still add the agent).
+      expect(vi.getTimerCount()).toBe(1);
     });
 
     it('cancelled create, then the gateway announces it: exactly one ordinary agent', () => {
@@ -124,13 +134,12 @@ describe('live roster failure paths', () => {
       expect(s.agents[0]).toMatchObject({ id: 'agent-77', name: 'Build' });
       expect(s.pending).toEqual({});
       expect(s.activeAgentId).toBe('agent-77');
-      expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('snapshot arriving after the rollback: no duplicate and no stuck pending entry', () => {
+    it('snapshot arriving after the rollback: no duplicate and no stuck pending entry', async () => {
       useAgentStore.setState({ agents: [], activeAgentId: null });
       useAgentStore.getState().addAgent('Build', 'tmux', 'localhost:build');
-      vi.advanceTimersByTime(ROSTER_REQUEST_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(ROSTER_REQUEST_TIMEOUT_MS);
       expect(useAgentStore.getState().agents).toEqual([]);
       expect(useAgentStore.getState().rosterNotices).toHaveLength(1);
 

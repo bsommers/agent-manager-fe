@@ -160,7 +160,8 @@ describe('removeAgent with session-kill options', () => {
       expect(send).not.toHaveBeenCalled();
       expect(useAgentStore.getState().pending).toEqual({});
       expect(useAgentStore.getState().agents.some((a) => a.id === pendingId)).toBe(false);
-      expect(vi.getTimerCount()).toBe(0);
+      // The cancelled create stays in flight in the request layer (its ack may still add the agent).
+      expect(vi.getTimerCount()).toBe(1);
     });
 
     it('an unknown id does nothing', () => {
