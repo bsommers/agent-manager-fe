@@ -246,7 +246,7 @@ All routes except `GET /health` and the minimal form of `GET /api/health` requir
 | Route | Request | Response | Phase |
 |---|---|---|---|
 | `GET /health` | - | legacy `{status, agents, timestamp}` | exists |
-| `GET /api/health` | - | `{ok, contract, epoch, backends: [{id, up}], agents?}` (`agents` omitted when unauthenticated and auth required) | 6 |
+| `GET /api/health` | - | `{ok, contract, epoch, backends: [{id, up}], agents?}`; `agents` is an integer count (at least 0), like legacy `/health`, and is omitted when unauthenticated and auth required | 6 |
 | `GET /api/agents` | - | `{ok, agents: Agent[]}` | 6 |
 | `POST /api/agents` | same fields as `agent:create`; `Idempotency-Key` header = `reqId` | 201 `{ok, agent}` | 6 |
 | `DELETE /api/agents/:id` | - | `{ok}` | 6 |

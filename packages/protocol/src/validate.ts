@@ -54,7 +54,7 @@ const META_SPEC: FieldSpec = {
   optional: true,
 };
 
-const AGENT_SPEC: ObjectSpec = {
+export const AGENT_SPEC: ObjectSpec = {
   id: idSpec,
   name: { kind: 'string', min: 1, max: LIMITS.MAX_NAME_LENGTH },
   mode: { kind: 'token', max: LIMITS.MAX_MODE_LENGTH },
