@@ -172,7 +172,7 @@ Plans: 3 of 4 planned (split by file ownership; 05-01 ran in wave 2, 05-02 and 0
 ### Phase 9.1: QA Bug Fixes (inserted 2026-11-07)
 **Goal:** The live manual-QA run (`qa/QA-REPORT.md`: 12 PASS, 4 FAIL, 2 FIXME) passes: terminal-query replies never reach the shell, every modal and toast renders above the panes, and a tmux session can be killed deliberately while closing an agent keeps it running.
 **Depends on:** Phase 3 and Phase 5 (merged); coordinates with plan 02-04 (wave 4) on the protocol surface snapshot
-**Requirements:** QA-01 (xterm-generated terminal reports are never forwarded to the shell), QA-02 (one z-index scale, all overlays above all panes), QA-03 (explicit, gateway-confirmed tmux session kill; closing does not kill). These IDs are defined here; they are not yet in `REQUIREMENTS.md`.
+**Requirements:** QA-01 (xterm-generated terminal reports are never forwarded to the shell), QA-02 (one z-index scale, all overlays above all panes), QA-03 (explicit, gateway-confirmed tmux session kill; closing does not kill). Tracked in `REQUIREMENTS.md`.
 **Success criteria:**
 1. After a tmux agent attaches, the prompt is clean and the first command runs unmodified: DA, DSR/CPR, mode, DCS-status and OSC 4/10/11/12 queries produce no `agent:input`, while arrows, Escape, Alt sequences, Shift+F3, paste and application-requested focus reports still reach the shell (unit tests use the exact QA byte sequences; QA steps 1d and 3 pass)
 2. The destructive safety modal's Cancel is clickable; every modal, the palette, the help overlay and the toasts render in a portal above any pane, from one z-index scale, and a test asserts the overlay z-index exceeds every pane z-index after thousands of `bringToFront` calls (QA step 5 passes)
