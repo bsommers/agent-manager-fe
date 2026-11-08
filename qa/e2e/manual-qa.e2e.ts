@@ -113,7 +113,7 @@ test('Manual QA section 5 against the live stack (one continuous session)', asyn
     expect(tmuxSessions()).toEqual(expect.arrayContaining([A, B]));
   });
 
-  await step('1e', 'Terminal prompt is clean: no terminal-query replies (e.g. 1;2c0;276;0c) typed into the shell', async () => {
+  await step('1d', 'Terminal prompt is clean: no terminal-query replies (e.g. 1;2c0;276;0c) typed into the shell', async () => {
     for (const n of [A, B]) {
       expect(await termText(n), `fragment in ${n}`).not.toMatch(/\d+;\d+(;\d+)?c/);
     }
@@ -231,8 +231,31 @@ test('Manual QA section 5 against the live stack (one continuous session)', asyn
     expect(tmuxSessions()).toEqual(expect.arrayContaining(['qa-agent-1', 'qa-agent-2']));
   });
 
-  await step('12b', 'Closing agents via the UI leaves no qa-e2e-* tmux session behind', async () => {
-    await expect.poll(() => tmuxSessions().filter((x) => x.startsWith('qa-e2e-')), { timeout: 10_000 }).toEqual([]);
+  await step('12b', 'Closing an agent via the UI leaves its tmux session running (qa-e2e-a survives)', async () => {
+    // qa-e2e-b is not asserted: its shell exited in step 11.
+    await expect.poll(() => tmuxSessions(), { timeout: 10_000 }).toContain(A);
+  });
+
+  await step('13', 'Kill tmux session control: Cancel keeps the session, Confirm ends it and removes the pane', async () => {
+    await addAgent(A, `localhost:${A}`);
+    await expect(paneOf(A)).toHaveCount(1, { timeout: 20_000 });
+    await expect(paneOf(A).getByTestId('pane-state-starting')).toHaveCount(0, { timeout: 20_000 });
+    const killButton = () => paneOf(A).getByRole('button', { name: /Kill tmux session/ });
+    const dialog = () => page.getByRole('alertdialog');
+
+    await killButton().click();
+    await expect(dialog()).toBeVisible();
+    await expect(dialog()).toContainText(A);
+    await dialog().getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog()).toHaveCount(0);
+    expect(tmuxSessions(), 'Cancel must keep the session').toContain(A);
+
+    await killButton().click();
+    await expect(dialog()).toBeVisible();
+    await dialog().getByRole('button', { name: 'Kill session' }).click();
+    await expect(paneOf(A)).toHaveCount(0, { timeout: 20_000 });
+    await expect.poll(() => tmuxSessions(), { timeout: 10_000 }).not.toContain(A);
+    expect(tmuxSessions()).toEqual(expect.arrayContaining(['qa-agent-1', 'qa-agent-2']));
   });
 
   await closeQaPanesViaUi().catch(() => {});

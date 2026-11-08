@@ -1,8 +1,8 @@
 # QA driver: docs/qa-test-plan.md section 5 (live stack)
 
-Playwright driver for the manual QA in `docs/qa-test-plan.md` (steps 1, 1a-1c, 2-12). It runs against the stack that is
+Playwright driver for the manual QA in `docs/qa-test-plan.md` (steps 1, 1a-1d, 2-13). It runs against the stack that is
 already running (frontend, gateway, real tmux). It never starts or stops servers and never touches `qa-agent-*` tmux
-sessions; it only creates and removes agents/sessions named `qa-e2e-*`.
+sessions; it only creates and removes agents/sessions named `qa-e2e-*`. Step 12b asserts that closing an agent leaves its tmux session running, and step 13 exercises the "Kill tmux session..." control (Cancel keeps the session, Confirm ends it).
 
 ## Run
 

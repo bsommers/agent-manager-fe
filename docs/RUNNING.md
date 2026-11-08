@@ -133,7 +133,7 @@ The header chip and the banner below it always show the true connection state:
 
 ### Agent roster
 
-In live mode the pane list starts empty and always equals the gateway's latest agent list, including tmux sessions the gateway rediscovered at startup. Add Agent shows a pane in a Starting state at once, and it becomes the real terminal when the gateway confirms. If the app is not connected, or the gateway does not confirm within 10 seconds, the pane disappears and an error notice says why. Closing an agent stays pending until the gateway confirms; if the close is not confirmed within 10 seconds, the pane stays in place and an error notice is shown. After a reconnect the list refreshes from the gateway without duplicates. Demo mode keeps its seed agents and simulated behavior. Rename, tags, group and stale markers are not available yet (Phase 6 and 11).
+In live mode the pane list starts empty and always equals the gateway's latest agent list, including tmux sessions the gateway rediscovered at startup. Add Agent shows a pane in a Starting state at once, and it becomes the real terminal when the gateway confirms. If the app is not connected, or the gateway does not confirm within 10 seconds, the pane disappears and an error notice says why. Closing an agent stays pending until the gateway confirms; if the close is not confirmed within 10 seconds, the pane stays in place and an error notice is shown. Closing an agent (the trash control) only removes it from the roster and leaves its tmux session running, so you can re-attach by adding an agent with the same session name. To end the session itself, use "Kill tmux session..." in the pane footer (live mode, tmux agents only): it asks for confirmation naming the agent, the session and the command, and only the dialog's "Kill session" button sends the request. The pane disappears once the gateway confirms. The gateway acts only on an explicit confirmation and only for sessions of agents it manages. After a reconnect the list refreshes from the gateway without duplicates. Demo mode keeps its seed agents and simulated behavior. Rename, tags, group and stale markers are not available yet (Phase 6 and 11).
 
 ---
 
@@ -192,3 +192,7 @@ npm run build && cd server && npm run build
 - **Solution**: Nothing to configure. If a program insists on an answer it falls back after its own timeout. The table of suppressed queries is in `src/components/agent/terminalReports.ts`.
   - Real keystrokes and paste are unaffected.
   - Focus and mouse reports that a program explicitly enabled are unaffected.
+
+### Issue 7: A closed agent's tmux session is still running
+- **Cause**: Closing an agent never kills its tmux session, by design.
+- **Solution**: Use "Kill tmux session..." in the pane footer before closing. From a terminal you can list sessions with `tmux list-sessions` and end one with `tmux kill-session -t <name>`. Use this manual alternative too for sessions whose names contain spaces or other unusual characters (the gateway refuses to kill those) and for sessions that have no agent.

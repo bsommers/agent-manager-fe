@@ -58,6 +58,7 @@ Covers multi-agent broadcast, the destructive-command gate, global log search, a
    - 1a. Stop the gateway, then click Add Agent for a throwaway name. Expected: no pane appears and an error notice says the backend is not connected. Restart the gateway afterwards.
    - 1b. Reload the page while `qa-a` and `qa-b` exist. Expected: both panes are back without clicking Add Agent, and there are no duplicates.
    - 1c. Restart only the gateway with the page open. Expected: after the reconnect the pane list equals the gateway's list (agents whose tmux session still exists come back under the discovered name `Tmux: <session>`), with no duplicate panes.
+   - 1d. Look at the prompts of `qa-a` and `qa-b` right after they appear. Expected: no stray characters such as `1;2c` or `0;276;0c` at the prompt, and the first command you type is not altered.
    - Note: if you cancel a pending create after the gateway has already received it, the agent reappears as an ordinary pane. The create timeout starts at send time, so a create sent just before a disconnect may roll back and then appear later.
 
 ### Broadcast
@@ -79,4 +80,8 @@ Covers multi-agent broadcast, the destructive-command gate, global log search, a
 11. In the `qa-b` pane type `exit` to end its shell. Expected: within a few seconds a disconnected or error toast naming `qa-b` appears.
 
 ### Cleanup
-12. Remove only the `qa-a` and `qa-b` agents from the UI. Do not kill any tmux session other than `qa_a` and `qa_b`. A pane disappears only after the gateway confirms the close.
+12. Remove only the `qa-a` and `qa-b` agents from the UI. Closing leaves the tmux sessions running by design. A pane disappears only after the gateway confirms the close. Do not kill any tmux session other than `qa_a` and `qa_b`.
+   - 12b. Run `tmux list-sessions`. Expected: `qa_a` is still listed; `qa_b` ended in step 11 when its shell exited.
+
+### Kill tmux session
+13. Add Agent `qa-a` again with target host `localhost:qa_a`. Expected: the pane attaches to the surviving session. Click Kill tmux session on `qa-a`. Expected: a confirmation names `qa_a`. Choose Cancel: the modal closes and `qa_a` is still listed by `tmux list-sessions`. Click Kill tmux session again and choose Kill session. Expected: the pane disappears after the gateway confirms and `tmux list-sessions` no longer lists `qa_a`. Do not kill any tmux session other than `qa_a`.
