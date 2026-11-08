@@ -5,7 +5,7 @@
  *
  * Exit codes:
  *   0  contract is current and no unaccepted breaking change relative to the base
- *   1  committed snapshot is stale, or a breaking change was made without raising CONTRACT_VERSION
+ *   1  committed snapshot or JSON Schema is stale (missing, or differs from the live tables), or a breaking change was made without raising CONTRACT_VERSION
  *   2  usage error: bad or unknown argument, unsafe or unresolvable ref, unreadable base snapshot
  *
  * Git is only ever run through an argv array (never a shell), only to read, and only after the ref passed
@@ -16,9 +16,13 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describeSurface, evaluate, isSafeGitRef, serializeSurface } from '../src/index.js';
 import type { Surface } from '../src/index.js';
+import { serializeJsonSchema } from '../src/jsonschema.js';
 
 const SNAPSHOT_REPO_PATH = 'packages/protocol/contract.snapshot.json';
 const SNAPSHOT_FILE = fileURLToPath(new URL('../contract.snapshot.json', import.meta.url));
+const SCHEMA_REPO_PATH = 'packages/protocol/contract.schema.json';
+const SCHEMA_FILE = fileURLToPath(new URL('../contract.schema.json', import.meta.url));
+const SCHEMA_COMMAND = 'npx vite-node packages/protocol/scripts/generate-schema.ts';
 
 function usage(message: string): never {
   console.error(`contract-check: ${message}`);
@@ -70,6 +74,21 @@ function main(): void {
     console.error(
       `contract-check: ${SNAPSHOT_REPO_PATH} is stale: it does not match the contract in packages/protocol/src.\n` +
         'Run npm run contract:update, review the diff and commit it.',
+    );
+    process.exit(1);
+  }
+
+  let committedSchema: string;
+  try {
+    committedSchema = readFileSync(SCHEMA_FILE, 'utf8');
+  } catch {
+    console.error(`contract-check: ${SCHEMA_REPO_PATH} is missing. Run ${SCHEMA_COMMAND}.`);
+    process.exit(1);
+  }
+  if (committedSchema !== serializeJsonSchema()) {
+    console.error(
+      `contract-check: ${SCHEMA_REPO_PATH} is stale: it does not match the schema generated from packages/protocol/src.\n` +
+        `Run ${SCHEMA_COMMAND}, review the diff and commit it.`,
     );
     process.exit(1);
   }

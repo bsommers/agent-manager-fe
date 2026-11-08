@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -148,5 +148,51 @@ describe('contract-check CLI', () => {
     const r = run(makeRepo(base), ['--base', 'HEAD']);
     expect(r.status).toBe(0);
     expect(r.out).toMatch(/additive: client\.ping: added/);
+  });
+});
+
+describe('contract-check CLI: JSON Schema drift', () => {
+  const GENERATOR = 'npx vite-node packages/protocol/scripts/generate-schema.ts';
+  const protocolDir = join(here, '../..');
+
+  /** A copy of the package laid out as <tmp>/packages/protocol, so the copied CLI reads the copied files. */
+  function copyPackage(): string {
+    const root = mkdtempSync(join(work, 'pkg-'));
+    const dest = join(root, 'packages/protocol');
+    mkdirSync(dest, { recursive: true });
+    for (const name of ['src', 'scripts', 'contract.snapshot.json', 'contract.schema.json', 'package.json']) {
+      cpSync(join(protocolDir, name), join(dest, name), {
+        recursive: true,
+        filter: (src) => !src.split('/').includes('__tests__'),
+      });
+    }
+    return root;
+  }
+  const runCopied = (root: string): { status: number | null; out: string } => {
+    const r = spawnSync(process.execPath, [viteNode, join(root, 'packages/protocol/scripts/contract-check.ts')], {
+      cwd: root,
+      encoding: 'utf8',
+      env: GIT_ENV,
+    });
+    return { status: r.status, out: `${r.stdout}${r.stderr}` };
+  };
+
+  it('exits 1 with the generator command when the schema was edited by hand', () => {
+    const root = copyPackage();
+    const file = join(root, 'packages/protocol/contract.schema.json');
+    writeFileSync(file, readFileSync(file, 'utf8').replace('"maxLength": 128', '"maxLength": 129'));
+    const r = runCopied(root);
+    expect(r.status).toBe(1);
+    expect(r.out).toContain(GENERATOR);
+    expect(r.out).toMatch(/contract\.schema\.json is stale/);
+  });
+
+  it('exits 1 with the generator command when the schema file is missing', () => {
+    const root = copyPackage();
+    rmSync(join(root, 'packages/protocol/contract.schema.json'));
+    const r = runCopied(root);
+    expect(r.status).toBe(1);
+    expect(r.out).toContain(GENERATOR);
+    expect(r.out).toMatch(/contract\.schema\.json is missing/);
   });
 });
