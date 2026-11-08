@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { diffSurface, evaluate, isSafeGitRef } from '../index.js';
-import type { Surface, FieldEntry } from '../index.js';
+import type { Surface, FieldEntry, OperationEntry } from '../index.js';
 
 const base = (): Surface => ({
   contract: 1,
@@ -237,5 +237,63 @@ describe('isSafeGitRef', () => {
   });
   it('accepts exactly 200 characters', () => {
     expect(isSafeGitRef('x'.repeat(200))).toBe(true);
+  });
+});
+
+describe('diffSurface: operations', () => {
+  const op = (): OperationEntry => ({
+    destructive: false,
+    readOnly: false,
+    requires: { gateway: 'terminal', agent: 'input' },
+    params: { id: { kind: 'string', required: true, min: 1, max: 10 } },
+    rules: [],
+    ws: { type: 'agent:input' },
+    http: null,
+    mcp: null,
+    palette: null,
+  });
+  const withOps = (): Surface => ({ ...base(), operations: { 'x.do': op() } });
+  const diffWith = (mutate: (o: OperationEntry) => void) => {
+    const next = clone(withOps());
+    mutate((next.operations as Record<string, OperationEntry>)['x.do']);
+    return diffSurface(withOps(), next);
+  };
+
+  it('is quiet when unchanged', () => {
+    expect(diffSurface(withOps(), clone(withOps()))).toEqual({ breaking: [], additive: [] });
+  });
+  it('operation added is additive, removed is breaking; absent section counts as empty', () => {
+    expect(diffSurface(base(), withOps())).toEqual({ breaking: [], additive: ['operations.x.do: added'] });
+    expect(diffSurface(withOps(), base())).toEqual({ breaking: ['operations.x.do: removed'], additive: [] });
+  });
+  it('destructive, readOnly, confirmParam and requires changes are breaking', () => {
+    expect(diffWith((o) => (o.destructive = true)).breaking).toEqual(['operations.x.do.destructive: changed from false to true']);
+    expect(diffWith((o) => (o.readOnly = true)).breaking).toEqual(['operations.x.do.readOnly: changed from false to true']);
+    expect(diffWith((o) => (o.confirmParam = 'confirm')).breaking).toHaveLength(1);
+    expect(diffWith((o) => (o.requires = { gateway: 'terminal', agent: 'kill' })).breaking).toEqual([
+      'operations.x.do.requires.agent: changed from "input" to "kill"',
+    ]);
+    expect(diffWith((o) => (o.requires = {})).breaking).toHaveLength(2);
+  });
+  it('params are classified like message fields', () => {
+    expect(diffWith((o) => (o.params.n = { kind: 'boolean', required: true })).breaking).toEqual([
+      'operations.x.do.params.n: new required field',
+    ]);
+    const added = diffWith((o) => (o.params.n = { kind: 'boolean', required: false }));
+    expect(added.breaking).toEqual([]);
+    expect(added.additive).toEqual(['operations.x.do.params.n: new optional field']);
+    expect(diffWith((o) => (o.params.id.max = 5)).breaking).toEqual(['operations.x.do.params.id.max: lowered from 10 to 5']);
+  });
+  it('rule added is breaking, removed is additive', () => {
+    const rule = { kind: 'atLeastOne', fields: ['id'] };
+    expect(diffWith((o) => o.rules.push(rule)).breaking).toHaveLength(1);
+    const prev = clone(withOps());
+    (prev.operations as Record<string, OperationEntry>)['x.do'].rules.push(rule);
+    expect(diffSurface(prev, withOps())).toMatchObject({ breaking: [], additive: [expect.stringContaining('rule removed')] });
+  });
+  it('binding null to bound is additive, bound to null or different is breaking', () => {
+    expect(diffWith((o) => (o.mcp = { tool: 't' }))).toMatchObject({ breaking: [], additive: ['operations.x.do.mcp: binding added'] });
+    expect(diffWith((o) => (o.ws = null)).breaking).toEqual(['operations.x.do.ws: binding removed']);
+    expect(diffWith((o) => (o.ws = { type: 'agent:resize' })).breaking).toHaveLength(1);
   });
 });

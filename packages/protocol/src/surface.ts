@@ -352,12 +352,44 @@ function diffLimits(path: string, prev: Record<string, unknown>, next: Record<st
   for (const key of Object.keys(next)) if (!(key in prev)) out.additive.push(`${path}.${key}: limit added`);
 }
 
+const BINDINGS = ['ws', 'http', 'mcp', 'palette'] as const;
+
 function diffOperations(
   prev: Record<string, OperationEntry>,
   next: Record<string, OperationEntry>,
   out: SurfaceDiff,
 ): void {
-  for (const name of Object.keys(prev)) if (!(name in next)) out.breaking.push(`operations.${name}: removed`);
+  for (const name of Object.keys(prev)) {
+    const here = `operations.${name}`;
+    if (!(name in next)) {
+      out.breaking.push(`${here}: removed`);
+      continue;
+    }
+    const a = prev[name];
+    const b = next[name];
+    for (const flag of ['destructive', 'readOnly', 'confirmParam'] as const) {
+      if (!same(a[flag], b[flag])) {
+        out.breaking.push(`${here}.${flag}: changed from ${JSON.stringify(a[flag])} to ${JSON.stringify(b[flag])}`);
+      }
+    }
+    const members = new Set([...Object.keys(a.requires), ...Object.keys(b.requires)]);
+    for (const m of [...members].sort()) {
+      const was = (a.requires as Record<string, unknown>)[m];
+      const now = (b.requires as Record<string, unknown>)[m];
+      if (!same(was, now)) out.breaking.push(`${here}.requires.${m}: changed from ${JSON.stringify(was)} to ${JSON.stringify(now)}`);
+    }
+    diffFieldMap(`${here}.params`, a.params, b.params, out);
+    const wasRules = a.rules.map((r) => JSON.stringify(r));
+    const nowRules = b.rules.map((r) => JSON.stringify(r));
+    for (const r of nowRules) if (!wasRules.includes(r)) out.breaking.push(`${here}: rule added ${r}`);
+    for (const r of wasRules) if (!nowRules.includes(r)) out.additive.push(`${here}: rule removed ${r}`);
+    for (const key of BINDINGS) {
+      if (same(a[key], b[key])) continue;
+      if (a[key] === null) out.additive.push(`${here}.${key}: binding added`);
+      else if (b[key] === null) out.breaking.push(`${here}.${key}: binding removed`);
+      else out.breaking.push(`${here}.${key}: binding changed from ${JSON.stringify(a[key])} to ${JSON.stringify(b[key])}`);
+    }
+  }
   for (const name of Object.keys(next)) if (!(name in prev)) out.additive.push(`operations.${name}: added`);
 }
 

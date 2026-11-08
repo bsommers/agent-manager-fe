@@ -7,7 +7,7 @@ import { hasOwn, isPlainObjectLike, validateObject } from './fieldspec.js';
 import { evaluateRules } from './fieldspec.js';
 import type { FieldSpec, MessageSpec, ObjectSpec } from './fieldspec.js';
 import { clientRowFor } from './operations.js';
-import { reqIdSpec } from './specs.js';
+import { GROUP_SPEC, TAGS_SPEC, idSpec, inputData, positiveInt, reqIdSpec } from './specs.js';
 
 export type ParseFailureReason = 'not_object' | 'missing_type' | 'unknown_type' | 'invalid_field';
 
@@ -21,7 +21,6 @@ export type ParseResult<T> =
 
 const STATUSES = ['idle', 'running', 'thinking', 'error', 'disconnected'] as const;
 
-const idSpec: FieldSpec = { kind: 'string', min: 1, max: LIMITS.MAX_ID_LENGTH };
 const statusSpec: FieldSpec = { kind: 'enum', values: STATUSES };
 
 const LAYOUT_SPEC: ObjectSpec = {
@@ -39,14 +38,6 @@ const JSON_MAX_DEPTH = 8;
 const JSON_MAX_CHARS = 65536;
 
 const AGENT_KINDS = ['terminal', 'sandbox', 'pipeline'] as const;
-const TAGS_SPEC: FieldSpec = {
-  kind: 'stringArray',
-  minItems: 0,
-  maxItems: 32,
-  item: { kind: 'string', min: 1, max: 64, noControl: true },
-  optional: true,
-};
-const GROUP_SPEC: FieldSpec = { kind: 'string', min: 1, max: 64, noControl: true, optional: true };
 const META_SPEC: FieldSpec = {
   kind: 'json',
   maxDepth: JSON_MAX_DEPTH,
@@ -73,12 +64,6 @@ export const AGENT_SPEC: ObjectSpec = {
   meta: META_SPEC,
 };
 
-const inputData: FieldSpec = {
-  kind: 'string',
-  min: 0,
-  max: LIMITS.MAX_INPUT_BYTES,
-  maxBytes: LIMITS.MAX_INPUT_BYTES,
-};
 
 // ---------------------------------------------------------------------------
 // Tables: one row per message type. `satisfies Record<type, ObjectSpec>` makes a
@@ -87,9 +72,7 @@ const inputData: FieldSpec = {
 
 const nameSpec: FieldSpec = { kind: 'string', min: 1, max: 64 };
 const versionSpec: FieldSpec = { kind: 'string', min: 1, max: 32 };
-const seqSpec: FieldSpec = { kind: 'integer', min: 0, max: Number.MAX_SAFE_INTEGER, optional: true };
 
-const positiveInt: FieldSpec = { kind: 'integer', min: 1, max: Number.MAX_SAFE_INTEGER };
 
 export const CLIENT_TABLE = {
   hello: {
@@ -112,76 +95,14 @@ export const CLIENT_TABLE = {
     },
   },
   ping: { fields: { t: { kind: 'number' } } },
-  'agent:input': { fields: { agentId: idSpec, data: inputData } },
-  'agent:resize': {
-    fields: {
-      agentId: idSpec,
-      cols: { kind: 'integer', min: 1, max: 1000 },
-      rows: { kind: 'integer', min: 1, max: 1000 },
-    },
-  },
+  'agent:input': clientRowFor('agent:input'),
+  'agent:resize': clientRowFor('agent:resize'),
   'agent:create': clientRowFor('agent:create'),
-  'agent:kill': {
-    fields: {
-      agentId: idSpec,
-      killSession: { kind: 'boolean', optional: true },
-      confirm: { kind: 'boolean', optional: true },
-      reqId: reqIdSpec,
-    },
-  },
-  'agent:update': {
-    fields: {
-      agentId: idSpec,
-      name: {
-        kind: 'string',
-        min: 1,
-        max: LIMITS.MAX_NAME_LENGTH,
-        trim: true,
-        noControl: true,
-        optional: true,
-      },
-      tags: {
-        kind: 'stringArray',
-        minItems: 0,
-        maxItems: 32,
-        item: { kind: 'string', min: 1, max: 64, noControl: true },
-        optional: true,
-      },
-      group: { kind: 'string', min: 1, max: 64, noControl: true, optional: true },
-      reqId: reqIdSpec,
-    },
-    rules: [{ kind: 'atLeastOne', fields: ['name', 'tags', 'group'] }],
-  },
-  'agent:history': {
-    fields: {
-      agentId: idSpec,
-      beforeSeq: seqSpec,
-      afterSeq: seqSpec,
-      limit: { kind: 'integer', min: 1, max: 1000, optional: true },
-      reqId: reqIdSpec,
-    },
-    rules: [{ kind: 'exactlyOne', fields: ['beforeSeq', 'afterSeq'] }],
-  },
-  'agent:approve': {
-    fields: {
-      agentId: idSpec,
-      gateId: idSpec,
-      decision: { kind: 'enum', values: ['approve', 'deny'] },
-      reqId: reqIdSpec,
-    },
-  },
-  'agent:broadcast': {
-    fields: {
-      targetAgentIds: {
-        kind: 'stringArray',
-        minItems: 1,
-        maxItems: LIMITS.MAX_BROADCAST_TARGETS,
-        item: idSpec,
-      },
-      data: inputData,
-      reqId: reqIdSpec,
-    },
-  },
+  'agent:kill': clientRowFor('agent:kill'),
+  'agent:update': clientRowFor('agent:update'),
+  'agent:history': clientRowFor('agent:history'),
+  'agent:approve': clientRowFor('agent:approve'),
+  'agent:broadcast': clientRowFor('agent:broadcast'),
 } as const satisfies Record<WSMessageClient['type'], MessageSpec>;
 
 const OUTPUT_DATA: FieldSpec = {
