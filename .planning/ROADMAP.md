@@ -317,6 +317,83 @@ Objective: one UI over several backends (cvm sandboxes, climah pipelines, option
 2. A `mad route` suggestion appears in the create dialog, non-blocking and off by default
 3. Subprocesses use argv arrays only; both integrations are optional and absent by default
 
+## Milestone v2.2 - libbilterm and Shared Terminal Core (proposed, gated)
+
+Objective: share bilterm's agent-state engine and VT/fleet core with the gateway, first through a sidecar adapter and shared fixtures, then (only if the Phase 30 gate says GO) through a libbilterm workspace split and bindings. Plan: `docs/superpowers/plans/2026-11-07-libbilterm-library-plan.md`; benefits and go/no-go: `docs/superpowers/specs/2026-11-07-libbilterm-benefits.md`.
+Scope note: bilterm (`~/src/ai/bilterm`) is an external repo. Phases 27, 31, 32 and 33 land code in that repo (executed there by its owner); this repo's plans only record acceptance evidence and consume the result. v2.1 has no bilterm adapter phase, so Phase 29 adds it here.
+
+### Phase 27: Upstream bilterm Fixes (Pump, Streams, Pane API)
+**Goal:** bilterm headless mode is usable as a backend: output flows, streams resume, panes are controllable.
+**Depends on:** Phase 19 (capability vocabulary)
+**Requirements:** LIB-01
+**Success criteria:**
+1. The headless pump runs `poll_all_ptys()` in `serve_loop`; a regression test shows `pane.read` containing output of `printf hi` with no other RPC
+2. `pane.spawn`, `pane.write`, `pane.resize`, `pane.kill`, `pane.snapshot` exist with size caps; per-pane output has a global monotonic `seq`, a bounded ring, `subscribe(from_seq)` with Gap events and non-draining `events.poll {cursor}`
+3. Two concurrent subscribers receive the same stream without stealing events; the changes are additive and documented in bilterm `docs/API.md`
+
+### Phase 28: Fleet Contract Fixtures and JSON Schema
+**Goal:** A language-neutral contract for bilterm fleet data that every consumer and binding must pass.
+**Depends on:** Phase 2, Phase 27
+**Requirements:** LIB-02
+**Success criteria:**
+1. `packages/protocol/fixtures/fleet/` holds `agents.list`, `fleet.*`, `find.*`, SSE record, classifier and masking vectors generated from real bilterm output and reviewed in diff
+2. JSON Schema is generated from the FieldSpec tables, checked in, and `contract:check` fails on drift; integer fields are pinned
+3. The bilterm-to-FE status mapping (`working|blocked|idle|done|errored` to `AgentStatus`) has its own adapter fixtures; unknown enums land in an `unknown` bucket
+
+### Phase 29: BilTerm Sidecar Adapter
+**Goal:** The gateway runs bilterm as a backend adapter through the sidecar.
+**Depends on:** Phase 20 (BackendAdapter), Phase 19, Phase 21, Phase 27, Phase 28
+**Requirements:** LIB-03
+**Success criteria:**
+1. A `BilTermAdapter` implements `BackendAdapter` (list, create, kill, input, resize, events, capabilities) over bilterm JSON-RPC/HTTP+SSE; no code path bypasses the Phase 20 interface
+2. A supervisor spawns `bilterm --headless --http` on loopback, restarts with backoff, keeps the token server-side, and `hello_ack.backends` advertises `bilterm` with capabilities; `blocked` maps through a negotiated capability, not a hard-coded status
+3. Fake-bilterm recorded-fixture tests pass; a down sidecar yields `disconnected` then recovery, isolated to its own agents
+
+### Phase 30: libbilterm Go/No-Go Gate and Seam Spike
+**Goal:** Decide on evidence whether to split the workspace.
+**Depends on:** Phase 29
+**Requirements:** LIB-04
+**Success criteria:**
+1. The `agent_state.rs` seam spike (AgentSignals decoupled from CompositePane/WindowManager) meets the plan criteria: zero pane/wm imports, at most 1.5k LOC diff, suite green, at most 5 days
+2. Measured sidecar latency and classifier agreement on a 200-sample corpus, consumer commitments and maintainer capacity are recorded against the six go/no-go criteria in the benefits spec
+3. A written GO, NO-GO or leaf-only decision is recorded; on NO-GO, Phases 31-34 are deferred and the sidecar plus fixtures stay the supported path
+
+### Phase 31: bilterm Workspace Split and Headless Core
+**Goal:** bilterm becomes a workspace whose headless crates have no ratatui or crossterm.
+**Depends on:** Phase 30 (GO)
+**Requirements:** LIB-05
+**Success criteria:**
+1. Plan steps 1-10 land strangler-style behind a `bilterm` facade; the full test suite and `cargo build` are green after each step
+2. `cargo tree -p bilterm-core` shows no ratatui, crossterm, portable-pty or tokio runtime features; `PtyBackend`/`PtyHandle` and `Frontend`/`UiEvent` traits exist
+3. A typed `Error` with stable codes, `#[non_exhaustive]` public types and a curated facade replace the 20 flat `pub mod`s; `cargo-semver-checks` runs in CI
+
+### Phase 32: Shared Core Conformance and wasm Subset
+**Goal:** One classifier, scanner and masker, proven by the shared fixtures.
+**Depends on:** Phase 28, Phase 31
+**Requirements:** LIB-06
+**Success criteria:**
+1. Rust (`tests/contract.rs`) and TS (`fleet.conformance.test.ts`) pass the same Phase 28 fixtures
+2. The pure subset (vt snapshot/scan, classifier, selector, masking) builds for `wasm32-unknown-unknown` under 300 KB gzipped and passes the fixtures in Node
+3. A VT golden corpus replays against vt100-ctt (and ghostty when enabled) with no drift
+
+### Phase 33: Bindings (C ABI, Optional napi-rs and PyO3)
+**Goal:** Non-JS and in-process consumers without extra hand-ported logic.
+**Depends on:** Phase 32
+**Requirements:** LIB-07
+**Success criteria:**
+1. A thin JSON-string C ABI (`bt_scan`, `bt_classify`, `bt_free`) with a cbindgen header passes the fixtures
+2. napi-rs and PyO3 are built only if a recorded consumer or profiling demands them; each passes the same fixtures and has a CI matrix before release
+3. Binding upkeep and semver policy (STABILITY.md) are documented
+
+### Phase 34: agent-manager-fe Consumes libbilterm
+**Goal:** The gateway and FE use the shared core instead of duplicate logic.
+**Depends on:** Phase 29, Phase 32
+**Requirements:** LIB-08
+**Success criteria:**
+1. The gateway classifies status and masks search output with the wasm (or napi) core, behind a flag, falling back to the sidecar path
+2. The `BilTermAdapter` from Phase 29 is unchanged at the `BackendAdapter` boundary, and fixture parity tests show identical output to the sidecar path
+3. Docs (RUNNING, ARCHITECTURE, ADR) describe the supported modes and the rollback
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status |
@@ -328,3 +405,4 @@ Objective: one UI over several backends (cvm sandboxes, climah pipelines, option
 | 5. Keyboard-First Operation and Accessibility | v2.0 | 0/4 | In progress (05-01 planned) |
 | 6-18 | v2.0 | 0/TBD | Not planned |
 | 19-26 | v2.1 | 0/TBD | Not planned |
+| 27-34 | v2.2 | 0/TBD | Proposed; 30 is a go/no-go gate for 31-34 |

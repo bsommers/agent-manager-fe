@@ -52,10 +52,21 @@ ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides 
 - [ ] ADP-02: climah adapter (events.jsonl, gates, budget, non-interactive)
 - [ ] ADP-03: Optional mads state store and mad route helper
 
+## v2.2 libbilterm and Shared Terminal Core (proposed, gated)
+
+- [ ] LIB-01: Upstream bilterm headless pump fix, pane spawn/write/resize/kill/snapshot, and multi-subscriber output streams with cursors
+- [ ] LIB-02: Fleet contract fixtures and JSON Schema shared with packages/protocol, with status mapping fixtures
+- [ ] LIB-03: BilTerm sidecar BackendAdapter (depends on GW-02)
+- [ ] LIB-04: libbilterm go/no-go gate and agent-state seam spike
+- [ ] LIB-05: bilterm workspace split into headless core crates without ratatui or crossterm, typed errors, semver policy
+- [ ] LIB-06: Shared classifier/scan/masking conformance and wasm32 subset
+- [ ] LIB-07: Thin C ABI and demand-driven napi-rs/PyO3 bindings
+- [ ] LIB-08: Gateway consumes libbilterm core with sidecar fallback
+
 ## Out of Scope
 - Replacing the in-repo PTY gateway with mads, mad, climah or cvm (none provides an interactive PTY)
 - Interactive attach (stdin, resize) for cvm or climah; tracked as an upstream feature request
-- Modifying, pulling or writing into the external repos (`~/src/meso/mads`, `~/src/inter/mad`, `~/src/tests/climah`, `~/src/ai/projects/cvm`) from any GSD plan
+- Modifying, pulling or writing into the external repos (`~/src/meso/mads`, `~/src/inter/mad`, `~/src/tests/climah`, `~/src/ai/projects/cvm`) from any GSD plan. Exception: bilterm (`~/src/ai/bilterm`) work for LIB-01 and LIB-05..07 is executed in that repo by its owner; plans here record acceptance only
 - Building a cluster manager (scheduling and quota stay in cvmd)
 
 ## Traceability
@@ -88,5 +99,13 @@ ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides 
 | ADP-01 | 24 |
 | ADP-02 | 25 |
 | ADP-03 | 26 |
+| LIB-01 | 27 |
+| LIB-02 | 28 |
+| LIB-03 | 29 |
+| LIB-04 | 30 |
+| LIB-05 | 31 |
+| LIB-06 | 32 |
+| LIB-07 | 33 |
+| LIB-08 | 34 |
 
-**Coverage:** 2 (v1.1) + 17 (v2.0) + 8 (v2.1) = 27 active requirements, all mapped, 0 unmapped.
+**Coverage:** 2 (v1.1) + 17 (v2.0) + 8 (v2.1) + 8 (v2.2) = 35 active requirements, all mapped, 0 unmapped.
