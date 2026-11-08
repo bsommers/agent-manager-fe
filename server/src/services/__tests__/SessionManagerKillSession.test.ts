@@ -46,6 +46,7 @@ describe('SessionManager killSession', () => {
 
   const replies = () => reply.mock.calls.map((c) => c[0]);
   const snapshots = () => sent.filter((f) => f.type === 'agent:init_list');
+  const removed = () => sent.filter((f) => f.type === 'agent:removed');
   const statusChanges = () => sent.filter((f) => f.type === 'agent:status_change');
   const kill = (msg: Record<string, unknown>, r: any = reply) =>
     manager.handleClientMessage({ type: 'agent:kill', ...msg } as any, r);
@@ -99,7 +100,7 @@ describe('SessionManager killSession', () => {
   });
 
   describe('confirmed kill', () => {
-    it('ends the derived session once, then closes the driver, removes the agent, one snapshot, no reply', async () => {
+    it('ends the derived session once, then closes the driver, removes the agent, one agent:removed, no reply', async () => {
       const a = manager.createAgent('a', 'tmux', 'localhost:qa_a');
       sent.length = 0;
 
@@ -110,8 +111,8 @@ describe('SessionManager killSession', () => {
       expect(killMock).toHaveBeenCalledWith('qa_a');
       expect(tmuxDrivers[0].close).toHaveBeenCalledTimes(1);
       expect(manager.getAgent(a.id)).toBeUndefined();
-      expect(snapshots()).toHaveLength(1);
-      expect(snapshots()[0].agents).toEqual([]);
+      expect(removed()).toEqual([{ type: 'agent:removed', agentId: a.id, reason: 'killed' }]);
+      expect(snapshots()).toHaveLength(0);
       expect(reply).not.toHaveBeenCalled();
     });
 
@@ -124,7 +125,7 @@ describe('SessionManager killSession', () => {
       await settle();
 
       expect(manager.getAgent(a.id)).toBeUndefined();
-      expect(snapshots()).toHaveLength(1);
+      expect(removed()).toHaveLength(1);
       expect(reply).not.toHaveBeenCalled();
     });
 
@@ -260,7 +261,7 @@ describe('SessionManager killSession', () => {
       expect(killMock).not.toHaveBeenCalled();
       expect(tmuxDrivers[0].close).toHaveBeenCalledTimes(1);
       expect(manager.getAgent(a.id)).toBeUndefined();
-      expect(snapshots()).toHaveLength(1);
+      expect(removed()).toHaveLength(1);
       expect(reply).not.toHaveBeenCalled();
     });
 
@@ -271,6 +272,7 @@ describe('SessionManager killSession', () => {
       await settle();
       expect(killMock).not.toHaveBeenCalled();
       expect(snapshots()).toHaveLength(0);
+      expect(removed()).toHaveLength(0);
       expect(replies()).toHaveLength(1);
       expect(replies()[0]).toMatchObject({ type: 'agent:error', code: 'NOT_FOUND', agentId: 'ghost' });
       expect(manager.getAgent(a.id)).toBe(a);
@@ -406,7 +408,7 @@ describe('SessionManager killSession', () => {
       d.resolve('killed');
       await settle();
       expect(manager.getAgent(a.id)).toBeUndefined();
-      expect(snapshots()).toHaveLength(1);
+      expect(removed()).toHaveLength(1);
 
       kill({ agentId: a.id, killSession: true, confirm: true });
       await settle();

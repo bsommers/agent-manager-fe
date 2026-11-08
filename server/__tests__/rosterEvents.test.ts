@@ -240,7 +240,230 @@ describe('create is announced as agent:added', () => {
   });
 });
 
-// Task 2 and 3 cases are appended below.
-void capturedDrivers;
+describe('close and session kill are announced as agent:removed', () => {
+  function seed(...names: string[]) {
+    return names.map((n) => handle.sessionManager.createAgent(n, 'tmux', `qa_${n}`));
+  }
+
+  it('close: every connection gets one removed (killed), the driver closes once, no snapshot', async () => {
+    const [x, y] = seed('x', 'y');
+    const a = await connect();
+    const b = await connect();
+    const baseA = a.frames.length;
+    const baseB = b.frames.length;
+
+    send(a, { type: 'agent:kill', agentId: x.id });
+
+    await vi.waitFor(() => {
+      expect(ofType(a, baseA, 'agent:removed')).toHaveLength(1);
+      expect(ofType(b, baseB, 'agent:removed')).toHaveLength(1);
+    });
+    await pong(a, b);
+    for (const [c, base] of [
+      [a, baseA],
+      [b, baseB],
+    ] as const) {
+      const f = ofType(c, base, 'agent:removed')[0];
+      expect(f).toEqual({ type: 'agent:removed', agentId: x.id, reason: 'killed' });
+      expect(parseServerMessage(f).ok).toBe(true);
+      expect(ofType(c, base, 'agent:removed')).toHaveLength(1);
+      expect(ofType(c, base, 'agent:init_list')).toHaveLength(0);
+    }
+    expect(capturedDrivers()[0].close).toHaveBeenCalledTimes(1);
+    expect(capturedDrivers()[1].close).not.toHaveBeenCalled();
+    expect(killMock).not.toHaveBeenCalled();
+    expect((await connect()).frames[0].agents.map((z: any) => z.id)).toEqual([y.id]);
+  });
+
+  it('close with a reqId: the requester gets the ack and the event, the other client only the event', async () => {
+    const [x] = seed('x');
+    const a = await connect();
+    const b = await connect();
+    const baseA = a.frames.length;
+    const baseB = b.frames.length;
+
+    send(a, { type: 'agent:kill', agentId: x.id, reqId: 'k1' });
+
+    await vi.waitFor(() => {
+      expect(ofType(a, baseA, 'agent:ack')).toHaveLength(1);
+      expect(ofType(a, baseA, 'agent:removed')).toHaveLength(1);
+      expect(ofType(b, baseB, 'agent:removed')).toHaveLength(1);
+    });
+    await pong(a, b);
+    expect(ofType(a, baseA, 'agent:ack')[0]).toMatchObject({ reqId: 'k1', op: 'kill', ok: true });
+    expect(ofType(b, baseB, 'agent:ack')).toHaveLength(0);
+  });
+
+  it('close of an unknown id announces nothing and answers NOT_FOUND to the requester', async () => {
+    seed('x');
+    const a = await connect();
+    const b = await connect();
+    const baseA = a.frames.length;
+    const baseB = b.frames.length;
+
+    send(a, { type: 'agent:kill', agentId: 'ghost' });
+
+    await vi.waitFor(() => expect(ofType(a, baseA, 'agent:error')).toHaveLength(1));
+    await pong(a, b);
+    expect(ofType(a, baseA, 'agent:error')[0]).toMatchObject({ code: 'NOT_FOUND', agentId: 'ghost' });
+    expect(ofType(a, baseA, 'agent:removed')).toHaveLength(0);
+    expect(ofType(b, baseB, 'agent:removed')).toHaveLength(0);
+    expect(ofType(b, baseB, 'agent:error')).toHaveLength(0);
+  });
+
+  it('session kill: tmux once, then removed (killed) to everyone and the ack to the requester', async () => {
+    const [x, y] = seed('x', 'y');
+    const a = await connect();
+    const b = await connect();
+    const baseA = a.frames.length;
+    const baseB = b.frames.length;
+    const order: string[] = [];
+    killMock.mockImplementationOnce(async () => {
+      order.push('tmux');
+      return 'killed';
+    });
+    capturedDrivers()[0].close.mockImplementation(() => order.push('driver-close'));
+
+    send(a, { type: 'agent:kill', agentId: x.id, killSession: true, confirm: true, reqId: 'k2' });
+
+    await vi.waitFor(() => {
+      expect(ofType(a, baseA, 'agent:removed')).toHaveLength(1);
+      expect(ofType(b, baseB, 'agent:removed')).toHaveLength(1);
+      expect(ofType(a, baseA, 'agent:ack')).toHaveLength(1);
+    });
+    await pong(a, b);
+    expect(killMock).toHaveBeenCalledTimes(1);
+    expect(killMock).toHaveBeenCalledWith('qa_x');
+    expect(order).toEqual(['tmux', 'driver-close']);
+    expect(ofType(a, baseA, 'agent:removed')[0]).toEqual({ type: 'agent:removed', agentId: x.id, reason: 'killed' });
+    expect(ofType(a, baseA, 'agent:ack')[0]).toMatchObject({ reqId: 'k2', op: 'kill', ok: true });
+    expect(ofType(b, baseB, 'agent:ack')).toHaveLength(0);
+    expect(ofType(a, baseA, 'agent:init_list')).toHaveLength(0);
+    expect(ofType(b, baseB, 'agent:init_list')).toHaveLength(0);
+    expect((await connect()).frames[0].agents.map((z: any) => z.id)).toEqual([y.id]);
+  });
+
+  it.each([
+    ['confirm missing', { killSession: true }, 'USAGE'],
+    ['confirm not literally true', { killSession: true, confirm: 'true' }, 'USAGE'],
+  ])('refusal (%s) announces nothing and leaves the registry unchanged', async (_n, extra, code) => {
+    const [x] = seed('x');
+    const a = await connect();
+    const b = await connect();
+    const baseA = a.frames.length;
+    const baseB = b.frames.length;
+
+    send(a, { type: 'agent:kill', agentId: x.id, ...extra });
+
+    await vi.waitFor(() => expect(ofType(a, baseA, 'agent:error')).toHaveLength(1));
+    await pong(a, b);
+    expect(ofType(a, baseA, 'agent:error')[0]).toMatchObject({ code });
+    expect(ofType(a, baseA, 'agent:removed')).toHaveLength(0);
+    expect(ofType(b, baseB, 'agent:removed')).toHaveLength(0);
+    expect(ofType(b, baseB, 'agent:error')).toHaveLength(0);
+    expect(killMock).not.toHaveBeenCalled();
+    expect((await connect()).frames[0].agents.map((z: any) => z.id)).toEqual([x.id]);
+  });
+
+  it('refusal for an unkillable session name announces nothing', async () => {
+    const [bad] = [handle.sessionManager.createAgent('bad', 'tmux', 'bad name;x')];
+    const a = await connect();
+    const b = await connect();
+    const baseA = a.frames.length;
+    const baseB = b.frames.length;
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    send(a, { type: 'agent:kill', agentId: bad.id, killSession: true, confirm: true });
+
+    await vi.waitFor(() => expect(ofType(a, baseA, 'agent:error')).toHaveLength(1));
+    await pong(a, b);
+    vi.mocked(console.warn).mockRestore();
+    expect(ofType(a, baseA, 'agent:error')[0]).toMatchObject({ code: 'USAGE' });
+    expect(ofType(b, baseB, 'agent:removed')).toHaveLength(0);
+    expect(killMock).not.toHaveBeenCalled();
+    expect((await connect()).frames[0].agents.map((z: any) => z.id)).toEqual([bad.id]);
+  });
+
+  it('a tmux failure announces nothing, keeps the agent, and replays a deferred exit as one status_change', async () => {
+    const [x] = seed('x');
+    const a = await connect();
+    const b = await connect();
+    const baseA = a.frames.length;
+    const baseB = b.frames.length;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let fail!: (e: unknown) => void;
+    killMock.mockImplementationOnce(
+      () =>
+        new Promise((_res, rej) => {
+          fail = rej;
+        })
+    );
+
+    send(a, { type: 'agent:kill', agentId: x.id, killSession: true, confirm: true });
+    await vi.waitFor(() => expect(killMock).toHaveBeenCalledTimes(1));
+    capturedDrivers()[0].onExit(0); // exit while the kill is in flight: held back
+    await pong(b);
+    expect(ofType(b, baseB, 'agent:status_change')).toHaveLength(0);
+    fail(new Error('tmux down'));
+
+    await vi.waitFor(() => expect(ofType(b, baseB, 'agent:status_change')).toHaveLength(1));
+    await pong(a, b);
+    vi.mocked(console.error).mockRestore();
+    vi.mocked(console.warn).mockRestore();
+    expect(ofType(b, baseB, 'agent:status_change')[0]).toMatchObject({ agentId: x.id, status: 'disconnected' });
+    expect(ofType(a, baseA, 'agent:removed')).toHaveLength(0);
+    expect(ofType(b, baseB, 'agent:removed')).toHaveLength(0);
+    expect(ofType(a, baseA, 'agent:error')).toHaveLength(1);
+  });
+
+  it('a driver exit during a successful kill is dropped: removed only, never a status_change', async () => {
+    const [x] = seed('x');
+    const a = await connect();
+    const baseA = a.frames.length;
+    let done!: () => void;
+    killMock.mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          done = () => res('killed');
+        })
+    );
+
+    send(a, { type: 'agent:kill', agentId: x.id, killSession: true, confirm: true });
+    await vi.waitFor(() => expect(killMock).toHaveBeenCalledTimes(1));
+    capturedDrivers()[0].onExit(0);
+    done();
+
+    await vi.waitFor(() => expect(ofType(a, baseA, 'agent:removed')).toHaveLength(1));
+    capturedDrivers()[0].onExit(0); // a late exit after removal is dropped too
+    await pong(a);
+    expect(ofType(a, baseA, 'agent:status_change')).toHaveLength(0);
+  });
+
+  it('a rename is announced as agent:updated and never as a snapshot', async () => {
+    const [x] = seed('x');
+    const a = await connect();
+    const b = await connect();
+    const baseA = a.frames.length;
+    const baseB = b.frames.length;
+
+    send(a, { type: 'agent:update', agentId: x.id, name: 'Renamed' });
+
+    await vi.waitFor(() => {
+      expect(ofType(a, baseA, 'agent:updated')).toHaveLength(1);
+      expect(ofType(b, baseB, 'agent:updated')).toHaveLength(1);
+    });
+    await pong(a, b);
+    expect(ofType(b, baseB, 'agent:updated')[0]).toEqual({
+      type: 'agent:updated',
+      agentId: x.id,
+      patch: { name: 'Renamed' },
+    });
+    expect(ofType(a, baseA, 'agent:init_list')).toHaveLength(0);
+    expect(ofType(b, baseB, 'agent:init_list')).toHaveLength(0);
+  });
+});
+
+// Task 3 cases are appended below.
 void view;
 void reduce;

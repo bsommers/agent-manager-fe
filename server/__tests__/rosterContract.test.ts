@@ -174,7 +174,7 @@ describe('gateway roster contract (what the frontend reconciles against)', () =>
     expect(twins[0].id).not.toBe(twins[1].id);
   });
 
-  it('answers a kill with a snapshot without that agent, and closes its driver', async () => {
+  it('answers a kill with one agent:removed to every client, and closes its driver', async () => {
     const first = handle.sessionManager.createAgent('keep', 'tmux', 'qa_keep');
     const second = handle.sessionManager.createAgent('drop', 'tmux', 'qa_drop');
     const a = await connect();
@@ -185,18 +185,20 @@ describe('gateway roster contract (what the frontend reconciles against)', () =>
     send(a, { type: 'agent:kill', agentId: second.id });
 
     await vi.waitFor(() => {
-      expect(snapshotsAfter(a, baseA)).toHaveLength(1);
-      expect(snapshotsAfter(b, baseB)).toHaveLength(1);
+      expect(removedAfter(a, baseA)).toHaveLength(1);
+      expect(removedAfter(b, baseB)).toHaveLength(1);
     });
     for (const [client, base] of [
       [a, baseA],
       [b, baseB],
     ] as const) {
-      const ids = snapshotsAfter(client, base)[0].agents.map((x: any) => x.id);
-      expect(ids).toEqual([first.id]);
+      expect(removedAfter(client, base)[0]).toMatchObject({ agentId: second.id, reason: 'killed' });
+      expect(snapshotsAfter(client, base)).toHaveLength(0);
     }
     expect(capturedDrivers()[1].close).toHaveBeenCalled();
     expect(capturedDrivers()[0].close).not.toHaveBeenCalled();
+    const late = await connect();
+    expect(late.frames[0].agents.map((x: any) => x.id)).toEqual([first.id]);
   });
 
   it('answers a kill of an unknown id with NOT_FOUND to the requester and no snapshot to anyone', async () => {

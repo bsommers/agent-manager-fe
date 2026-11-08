@@ -70,6 +70,8 @@ async function connect(): Promise<Client> {
 const send = (c: Client, msg: object) => c.ws.send(JSON.stringify(msg));
 const snapshotsAfter = (c: Client, from: number) =>
   c.frames.slice(from).filter((f) => f.type === 'agent:init_list');
+const removedAfter = (c: Client, from: number) =>
+  c.frames.slice(from).filter((f) => f.type === 'agent:removed');
 const errorsAfter = (c: Client, from: number) =>
   c.frames.slice(from).filter((f) => f.type === 'agent:error');
 
@@ -109,7 +111,7 @@ afterEach(async () => {
 });
 
 describe('agent:kill with killSession over a real WebSocket', () => {
-  it('confirmed: ends the tmux session, closes the driver and announces one snapshot', async () => {
+  it('confirmed: ends the tmux session, closes the driver and announces one agent:removed', async () => {
     const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
     const b = handle.sessionManager.createAgent('beta', 'tmux', 'qa_b');
     const c1 = await connect();
@@ -119,15 +121,18 @@ describe('agent:kill with killSession over a real WebSocket', () => {
 
     send(c1, { type: 'agent:kill', agentId: a.id, killSession: true, confirm: true });
 
-    await vi.waitFor(() => expect(snapshotsAfter(c1, base1)).toHaveLength(1), { timeout: 2000 });
-    await vi.waitFor(() => expect(snapshotsAfter(c2, base2)).toHaveLength(1), { timeout: 2000 });
+    await vi.waitFor(() => expect(removedAfter(c1, base1)).toHaveLength(1), { timeout: 2000 });
+    await vi.waitFor(() => expect(removedAfter(c2, base2)).toHaveLength(1), { timeout: 2000 });
     expect(killMock).toHaveBeenCalledTimes(1);
     expect(killMock).toHaveBeenCalledWith('qa_a');
     const [da, db] = capturedDrivers();
     expect(da.close).toHaveBeenCalledTimes(1);
     expect(db.close).not.toHaveBeenCalled();
-    expect(snapshotsAfter(c1, base1)[0].agents.map((x: any) => x.id)).toEqual([b.id]);
-    expect(snapshotsAfter(c2, base2)[0].agents.map((x: any) => x.id)).toEqual([b.id]);
+    expect(removedAfter(c1, base1)[0]).toMatchObject({ agentId: a.id, reason: 'killed' });
+    expect(removedAfter(c2, base2)[0]).toMatchObject({ agentId: a.id, reason: 'killed' });
+    expect(snapshotsAfter(c1, base1)).toHaveLength(0);
+    expect(snapshotsAfter(c2, base2)).toHaveLength(0);
+    expect((await rosterNow()).agents.map((x: any) => x.id)).toEqual([b.id]);
     expect(errorsAfter(c1, base1)).toHaveLength(0);
     expect(errorsAfter(c2, base2)).toHaveLength(0);
   });
@@ -162,6 +167,8 @@ describe('agent:kill with killSession over a real WebSocket', () => {
     expect(errorsAfter(c1, base1)).toHaveLength(1);
     expect(errorsAfter(c2, base2)).toHaveLength(0);
     expect(snapshotsAfter(c1, base1)).toHaveLength(0); // nothing was announced
+    expect(removedAfter(c1, base1)).toHaveLength(0);
+    expect(removedAfter(c2, base2)).toHaveLength(0);
     expect(killMock).not.toHaveBeenCalled();
     expect(capturedDrivers()[0].close).not.toHaveBeenCalled();
   });
@@ -173,8 +180,9 @@ describe('agent:kill with killSession over a real WebSocket', () => {
 
     send(c1, { type: 'agent:kill', agentId: a.id });
 
-    await vi.waitFor(() => expect(snapshotsAfter(c1, base)).toHaveLength(1), { timeout: 2000 });
-    expect(snapshotsAfter(c1, base)[0].agents).toEqual([]);
+    await vi.waitFor(() => expect(removedAfter(c1, base)).toHaveLength(1), { timeout: 2000 });
+    expect(removedAfter(c1, base)[0]).toMatchObject({ agentId: a.id, reason: 'killed' });
+    expect(snapshotsAfter(c1, base)).toHaveLength(0);
     expect(killMock).not.toHaveBeenCalled();
     expect(capturedDrivers()[0].close).toHaveBeenCalledTimes(1);
     expect(errorsAfter(c1, base)).toHaveLength(0);
@@ -187,8 +195,9 @@ describe('agent:kill with killSession over a real WebSocket', () => {
 
     send(c1, { type: 'agent:kill', agentId: a.id, confirm: true });
 
-    await vi.waitFor(() => expect(snapshotsAfter(c1, base)).toHaveLength(1), { timeout: 2000 });
-    expect(snapshotsAfter(c1, base)[0].agents).toEqual([]);
+    await vi.waitFor(() => expect(removedAfter(c1, base)).toHaveLength(1), { timeout: 2000 });
+    expect(removedAfter(c1, base)[0]).toMatchObject({ agentId: a.id, reason: 'killed' });
+    expect(snapshotsAfter(c1, base)).toHaveLength(0);
     expect(killMock).not.toHaveBeenCalled();
     expect(capturedDrivers()[0].close).toHaveBeenCalledTimes(1);
   });
