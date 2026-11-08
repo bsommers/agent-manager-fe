@@ -183,4 +183,16 @@ describe('agent:kill with killSession over a real WebSocket', () => {
     expect(killMock).not.toHaveBeenCalled();
     expect(capturedDrivers()[0].close).toHaveBeenCalledTimes(1);
   });
+
+  it('confirmed killSession for an unknown agent id calls no tmux and answers with an unchanged snapshot', async () => {
+    const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
+    const c1 = await connect();
+    const base = c1.frames.length;
+
+    send(c1, { type: 'agent:kill', agentId: 'ghost', killSession: true, confirm: true });
+
+    await vi.waitFor(() => expect(snapshotsAfter(c1, base)).toHaveLength(1), { timeout: 2000 });
+    expect(snapshotsAfter(c1, base)[0].agents.map((x: any) => x.id)).toEqual([a.id]);
+    expect(killMock).not.toHaveBeenCalled();
+  });
 });
