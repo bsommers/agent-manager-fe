@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { Agent, LayoutMode } from '../types/agent';
 import { agentSocket } from '../services/agentSocket';
 import { AgentRequestError, REQUEST_TIMEOUT_MS, type AckResult } from '../services/agentRequests';
-import { LIMITS, parseAgent, parseServerMessage, type AgentStatus, type WSMessageClient } from '../services/wsProtocol';
+import { LIMITS, parseAgent, type AgentPatch, parseServerMessage, type AgentStatus, type WSMessageClient } from '../services/wsProtocol';
 import type { BackendMode } from '../services/adapters/types';
 import { useConnectionStore } from './connectionStore';
 import { reconcileSnapshot, type PendingMap } from './rosterReconcile';
@@ -131,6 +131,10 @@ export interface AgentStoreState {
   applyStatusChange: (agentId: string, status: AgentStatus) => void;
   /** Live only. An agent:added event, already validated: append a new agent or refresh a known one's server fields. */
   applyAgentAdded: (agent: Agent) => void;
+  /** Live only. An agent:removed event, already validated: drop a known agent and clear its killing flag. */
+  applyAgentRemoved: (agentId: string) => void;
+  /** Live only. An agent:updated event, already validated: merge the supplied keys into a known agent. */
+  applyAgentUpdated: (agentId: string, patch: AgentPatch) => void;
   dismissRosterNotice: (id: string) => void;
   /** Shows an agent:error that matched no request; message is already sanitized "(CODE) text". */
   pushGatewayError: (message: string) => void;
@@ -496,6 +500,39 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       });
     },
 
+    applyAgentRemoved: (agentId) => {
+      if (!isLive()) return;
+      const st = get();
+      if (Object.prototype.hasOwnProperty.call(st.pending, agentId)) return;
+      if (!st.agents.some((a) => a.id === agentId)) return;
+      const nextAgents = st.agents.filter((a) => a.id !== agentId);
+      const { [agentId]: _k, ...restKilling } = st.killing;
+      // Match a snapshot: fall back to the first remaining agent when the active one went away.
+      set({
+        agents: nextAgents,
+        killing: restKilling,
+        activeAgentId: st.activeAgentId === agentId ? nextAgents[0]?.id ?? null : st.activeAgentId,
+      });
+    },
+
+    applyAgentUpdated: (agentId, patch) => {
+      if (!isLive()) return;
+      const st = get();
+      if (Object.prototype.hasOwnProperty.call(st.pending, agentId)) return;
+      const idx = st.agents.findIndex((a) => a.id === agentId);
+      if (idx === -1) return;
+      const merged: Partial<Agent> = {};
+      if (patch.name !== undefined) merged.name = patch.name;
+      if (patch.tags !== undefined) merged.tags = patch.tags;
+      if (patch.group !== undefined) merged.group = patch.group;
+      if (patch.meta !== undefined) merged.meta = patch.meta;
+      if (patch.capabilities !== undefined) merged.capabilities = patch.capabilities;
+      if (Object.keys(merged).length === 0) return;
+      const next = st.agents.slice();
+      next[idx] = { ...next[idx], ...merged };
+      set({ agents: next });
+    },
+
     pushGatewayError: (message) => {
       pushRosterNotice('gateway_error', 'The backend reported an error', message);
     },
@@ -699,6 +736,10 @@ agentSocket.subscribe((msg) => {
     }
     if (parsed.msg.type === 'agent:added') {
       useAgentStore.getState().applyAgentAdded(parsed.msg.agent);
+    } else if (parsed.msg.type === 'agent:removed') {
+      useAgentStore.getState().applyAgentRemoved(parsed.msg.agentId);
+    } else if (parsed.msg.type === 'agent:updated') {
+      useAgentStore.getState().applyAgentUpdated(parsed.msg.agentId, parsed.msg.patch);
     }
   } else if (msg.type === 'agent:error' || msg.type === 'agent:ack') {
     // Only answers that no request claimed reach this listener. A valid ack is simply stray; an
