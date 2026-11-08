@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "build:protocol": "tsc -p packages/protocol/tsconfig.build.json",
     "test": "vitest run",
+    "contract:check": "vite-node packages/protocol/scripts/contract-check.ts",
+    "contract:update": "vitest run packages/protocol/src/__tests__/surface.test.ts -u",
     "start:backend": "./scripts/start-backend.sh",
     "start:frontend": "./scripts/start-frontend.sh",
     "start:all": "./scripts/start-all.sh"
