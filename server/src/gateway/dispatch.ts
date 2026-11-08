@@ -4,6 +4,8 @@ import type { AgentService } from '../services/AgentService.js';
 import { fail } from '../services/serviceResult.js';
 import type { ServiceError, ServiceResult } from '../services/serviceResult.js';
 import { IdempotencyCache, fingerprintOf } from './idempotency.js';
+import { checkDestructivePolicy, destructiveRules } from './policy.js';
+import type { DestructiveRule } from './policy.js';
 import { rejectionFor } from './wsFrames.js';
 import type { ParseFailure } from './wsFrames.js';
 
@@ -48,11 +50,15 @@ export class AgentApi {
   /** The reqId store; share an AgentApi (or pass the same cache) to share idempotency across surfaces. */
   readonly cache: IdempotencyCache;
 
+  /** Destructive-operation rules, derived from the operations catalog unless a test injects its own. */
+  private readonly rules: readonly DestructiveRule[];
+
   constructor(
     private readonly service: AgentService,
-    options: { cache?: IdempotencyCache } = {}
+    options: { cache?: IdempotencyCache; rules?: readonly DestructiveRule[] } = {}
   ) {
     this.cache = options.cache ?? new IdempotencyCache();
+    this.rules = options.rules ?? destructiveRules();
   }
 
   /**
@@ -75,6 +81,14 @@ export class AgentApi {
   }
 
   private route(msg: WSMessageClient): Promise<DispatchOutcome> {
+    // Policy stage: first, before the idempotency cache, any registry lookup or any process.
+    const refusal = checkDestructivePolicy(
+      operationForClientMessage(msg),
+      msg as unknown as Record<string, unknown>,
+      this.rules
+    );
+    if (refusal) return Promise.resolve({ ok: false, error: refusal });
+
     switch (msg.type) {
       case 'hello':
       case 'ping':
