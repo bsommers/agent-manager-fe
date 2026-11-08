@@ -5,6 +5,7 @@ import { parseAgent, type AgentStatus, type WSMessageClient } from '../services/
 import type { BackendMode } from '../services/adapters/types';
 import { useConnectionStore } from './connectionStore';
 import { reconcileSnapshot, type PendingMap } from './rosterReconcile';
+import { stackPanes } from '../styles/zLayers';
 
 const SEED_AGENTS = (): Agent[] => [
   {
@@ -450,16 +451,14 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
 
     bringToFront: (id) => {
       const currentAgents = get().agents;
-      const maxZ = Math.max(...currentAgents.map((a) => a.layout.zIndex || 1), 100);
-      const nextAgents = currentAgents.map((a) => {
-        if (a.id === id) {
-          return {
-            ...a,
-            layout: { ...a.layout, zIndex: maxZ + 1 },
-          };
-        }
-        return a;
-      });
+      // Re-rank panes into [paneBase ..] so the z-index never grows without bound.
+      const ranks = stackPanes(
+        currentAgents.map((a) => ({ id: a.id, z: a.layout.zIndex })),
+        id,
+      );
+      const nextAgents = currentAgents.map((a) =>
+        a.id in ranks ? { ...a, layout: { ...a.layout, zIndex: ranks[a.id] } } : a,
+      );
 
       set({ agents: nextAgents, activeAgentId: id });
     },
