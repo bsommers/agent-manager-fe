@@ -19,8 +19,8 @@ import type { Terminal, IDisposable } from '@xterm/xterm';
 type ParserLike = Terminal['parser'];
 type Register = (parser: ParserLike) => IDisposable;
 
-/** Query families suppressed so far. */
-export const REPORTING_WINDOW_OPS: ReadonlySet<number> = new Set<number>();
+/** CSI Ps t window operations that make xterm send a report (the rest, e.g. 22/23 title push/pop, must still run). */
+export const REPORTING_WINDOW_OPS: ReadonlySet<number> = new Set<number>([11, 13, 14, 15, 16, 18, 19, 20, 21]);
 
 /** True when an OSC colour payload asks for the current value (a segment equal to "?"). */
 export function isColorQuery(data: string): boolean {
@@ -33,14 +33,71 @@ interface Row {
   readonly register: Register;
 }
 
+const csi =
+  (
+    id: { prefix?: string; intermediates?: string; final: string },
+    handler: (p: (number | number[])[]) => boolean = () => true,
+  ): Row['register'] =>
+  (p) =>
+    p.registerCsiHandler(id, handler);
+const dcs =
+  (id: { intermediates: string; final: string }): Row['register'] =>
+  (p) =>
+    p.registerDcsHandler(id, () => true);
+const osc =
+  (ident: number): Row['register'] =>
+  (p) =>
+    p.registerOscHandler(ident, isColorQuery);
+
 const TABLE: readonly Row[] = [
-  { what: 'DA1 primary device attributes (CSI c)', register: (p) => p.registerCsiHandler({ final: 'c' }, () => true) },
+  {
+    what: 'DA1 primary device attributes (CSI c)',
+    register: csi({ final: 'c' }),
+  },
   {
     what: 'DA2 secondary device attributes (CSI > c)',
-    register: (p) => p.registerCsiHandler({ prefix: '>', final: 'c' }, () => true),
+    register: csi({ prefix: '>', final: 'c' }),
   },
-  { what: 'OSC 10 foreground colour query', register: (p) => p.registerOscHandler(10, isColorQuery) },
-  { what: 'OSC 11 background colour query', register: (p) => p.registerOscHandler(11, isColorQuery) },
+  {
+    what: 'DA3 tertiary device attributes (CSI = c)',
+    register: csi({ prefix: '=', final: 'c' }),
+  },
+  {
+    what: 'DSR status and cursor position (CSI 5 n, CSI 6 n)',
+    register: csi({ final: 'n' }),
+  },
+  {
+    what: 'DEC private DSR (CSI ? 6 n, CSI ? 15 n ...)',
+    register: csi({ prefix: '?', final: 'n' }),
+  },
+  {
+    what: 'DECRQM ansi mode request (CSI Ps $ p)',
+    register: csi({ intermediates: '$', final: 'p' }),
+  },
+  {
+    what: 'DECRQM private mode request (CSI ? Ps $ p)',
+    register: csi({ prefix: '?', intermediates: '$', final: 'p' }),
+  },
+  { what: 'XTVERSION (CSI > q)', register: csi({ prefix: '>', final: 'q' }) },
+  {
+    what: 'window-state reports (CSI Ps t with a reporting Ps); title push/pop fall through to xterm',
+    register: csi({ final: 't' }, (params) => {
+      const first = params[0];
+      return typeof first === 'number' && REPORTING_WINDOW_OPS.has(first);
+    }),
+  },
+  {
+    what: 'DECRQSS status string request (DCS $ q)',
+    register: dcs({ intermediates: '$', final: 'q' }),
+  },
+  {
+    what: 'XTGETTCAP termcap request (DCS + q)',
+    register: dcs({ intermediates: '+', final: 'q' }),
+  },
+  { what: 'OSC 4 palette colour query', register: osc(4) },
+  { what: 'OSC 10 foreground colour query', register: osc(10) },
+  { what: 'OSC 11 background colour query', register: osc(11) },
+  { what: 'OSC 12 cursor colour query', register: osc(12) },
 ];
 
 /**
