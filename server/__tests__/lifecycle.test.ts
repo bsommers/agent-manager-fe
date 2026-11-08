@@ -435,3 +435,107 @@ describe('the confirm gate through the validator', () => {
     expect(capturedDrivers()[0].close).not.toHaveBeenCalled();
   });
 });
+
+describe('idempotent reqId over real WebSockets', () => {
+  const createFrame = { type: 'agent:create', name: 'once', mode: 'tmux', targetHost: 'qa_once', reqId: 'same' };
+
+  it('creates one agent when the same frame is sent twice on one socket, and acks both sends', async () => {
+    const a = await connect();
+    const base = a.frames.length;
+
+    send(a, createFrame);
+    send(a, createFrame);
+
+    await vi.waitFor(() => expect(acksAfter(a, base)).toHaveLength(2));
+    const [first, second] = acksAfter(a, base);
+    expect(second.agent.id).toBe(first.agent.id);
+    expect(capturedDrivers()).toHaveLength(1);
+    expect((await rosterNow()).agents).toHaveLength(1);
+  });
+
+  it('creates one agent when two sockets send the same reqId, and acks each sender', async () => {
+    const a = await connect();
+    const b = await connect();
+    const baseA = a.frames.length;
+    const baseB = b.frames.length;
+
+    send(a, createFrame);
+    await vi.waitFor(() => expect(acksAfter(a, baseA)).toHaveLength(1));
+    send(b, createFrame);
+    await vi.waitFor(() => expect(acksAfter(b, baseB)).toHaveLength(1));
+
+    expect(acksAfter(b, baseB)[0].agent.id).toBe(acksAfter(a, baseA)[0].agent.id);
+    expect(capturedDrivers()).toHaveLength(1);
+    expect((await rosterNow()).agents).toHaveLength(1);
+  });
+
+  it('refuses a reqId reused for a different request with CONFLICT carrying the reqId', async () => {
+    const a = await connect();
+    const base = a.frames.length;
+
+    send(a, createFrame);
+    await vi.waitFor(() => expect(acksAfter(a, base)).toHaveLength(1));
+    send(a, { ...createFrame, name: 'different' });
+
+    await vi.waitFor(() => expect(errorsAfter(a, base)).toHaveLength(1));
+    expect(errorsAfter(a, base)[0]).toMatchObject({ code: 'CONFLICT', reqId: 'same', retryable: false });
+    expect(capturedDrivers()).toHaveLength(1);
+  });
+
+  it('replays a close ack without closing twice', async () => {
+    const x = handle.sessionManager.createAgent('x', 'tmux', 'qa_x');
+    const a = await connect();
+    const base = a.frames.length;
+    const frame = { type: 'agent:kill', agentId: x.id, reqId: 'kk' };
+
+    send(a, frame);
+    send(a, frame);
+
+    await vi.waitFor(() => expect(acksAfter(a, base)).toHaveLength(2));
+    expect(errorsAfter(a, base)).toHaveLength(0);
+    expect(capturedDrivers()[0].close).toHaveBeenCalledTimes(1);
+  });
+
+  it('replays a confirmed kill ack without calling tmux twice', async () => {
+    const x = handle.sessionManager.createAgent('x', 'tmux', 'qa_x');
+    const a = await connect();
+    const base = a.frames.length;
+    const frame = { type: 'agent:kill', agentId: x.id, killSession: true, confirm: true, reqId: 'kd' };
+
+    send(a, frame);
+    await vi.waitFor(() => expect(acksAfter(a, base)).toHaveLength(1));
+    send(a, frame);
+
+    await vi.waitFor(() => expect(acksAfter(a, base)).toHaveLength(2));
+    expect(killMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a create with a backend, or params, as UNSUPPORTED and creates nothing', async () => {
+    const a = await connect();
+    const base = a.frames.length;
+
+    send(a, { ...createFrame, reqId: 'u1', backend: 'docker' });
+    send(a, { ...createFrame, reqId: 'u2', params: { image: 'x' } });
+
+    await vi.waitFor(() => expect(errorsAfter(a, base)).toHaveLength(2));
+    expect(errorsAfter(a, base).map((e) => [e.code, e.reqId])).toEqual([
+      ['UNSUPPORTED', 'u1'],
+      ['UNSUPPORTED', 'u2'],
+    ]);
+    expect(capturedDrivers()).toHaveLength(0);
+  });
+
+  it('refuses agent:history and agent:approve as UNSUPPORTED with the reqId echoed', async () => {
+    const a = await connect();
+    const base = a.frames.length;
+
+    send(a, { type: 'agent:history', agentId: 'a1', beforeSeq: 10, reqId: 'h1' });
+    send(a, { type: 'agent:approve', agentId: 'a1', gateId: 'g1', decision: 'approve', reqId: 'h2' });
+
+    await vi.waitFor(() => expect(errorsAfter(a, base)).toHaveLength(2));
+    expect(errorsAfter(a, base).map((e) => [e.code, e.reqId])).toEqual([
+      ['UNSUPPORTED', 'h1'],
+      ['UNSUPPORTED', 'h2'],
+    ]);
+  });
+});
