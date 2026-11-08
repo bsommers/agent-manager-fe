@@ -44,43 +44,42 @@ describe('reconcileSnapshot', () => {
     expect(r.removedIds).toEqual(['a']);
   });
 
-  it('claims pending creates in FIFO order for identical keys', () => {
+  it('does not claim pending panes by name, mode and targetHost: the pane stays, the snapshot agent is appended', () => {
     const pending: PendingMap = { 'pending-1': req(), 'pending-2': req() };
     const local = [
       ag('pending-1', { layout: { isFloating: true, x: 1 } }),
       ag('pending-2', { layout: { isFloating: true, x: 2 } }),
     ];
     const r = reconcileSnapshot(local, pending, [ag('s1'), ag('s2')]);
-    expect(r.claimed).toEqual({ 'pending-1': 's1', 'pending-2': 's2' });
-    expect(r.agents.map((a) => a.id)).toEqual(['s1', 's2']);
+    expect(r.agents.map((a) => a.id)).toEqual(['pending-1', 'pending-2', 's1', 's2']);
     expect(r.agents[0].layout.x).toBe(1);
     expect(r.agents[1].layout.x).toBe(2);
-    expect(r.pending).toEqual({});
+    expect(Object.keys(r.pending)).toEqual(['pending-1', 'pending-2']);
+    expect(r.pending['pending-1']).toBe(pending['pending-1']);
+    expect('claimed' in r).toBe(false);
   });
 
-  it('never claims an agent that was already in the roster', () => {
-    const local = [ag('existing'), ag('pending-1')];
-    const r = reconcileSnapshot(local, { 'pending-1': req() }, [ag('existing')]);
-    expect(r.claimed).toEqual({});
-    expect(r.agents.map((a) => a.id)).toEqual(['existing', 'pending-1']);
+  it('a snapshot agent equal to the pending request leaves the pane in place (same index)', () => {
+    const local = [ag('existing'), ag('pending-1'), ag('other', { name: 'O' })];
+    const r = reconcileSnapshot(local, { 'pending-1': req() }, [ag('existing'), ag('fresh'), ag('other', { name: 'O' })]);
+    expect(r.agents.map((a) => a.id)).toEqual(['existing', 'pending-1', 'other', 'fresh']);
     expect(Object.keys(r.pending)).toEqual(['pending-1']);
+    expect(r.removedIds).toEqual([]);
   });
 
-  it('claims the fresh agent, not the existing one, when both match the key', () => {
-    const local = [ag('existing'), ag('pending-1')];
-    const r = reconcileSnapshot(local, { 'pending-1': req() }, [ag('existing'), ag('fresh')]);
-    expect(r.claimed).toEqual({ 'pending-1': 'fresh' });
-    expect(r.agents.map((a) => a.id)).toEqual(['existing', 'fresh']);
-  });
-
-  it('keeps unmatched pending and appends unmatched fresh agents in snapshot order', () => {
+  it('keeps pending panes and appends fresh agents in snapshot order', () => {
     const local = [ag('pending-1', { name: 'Mine', targetHost: 'h:mine' })];
     const r = reconcileSnapshot(local, { 'pending-1': req('Mine', 'h:mine') }, [
       ag('z1', { name: 'Z1' }),
       ag('z2', { name: 'Z2' }),
     ]);
     expect(r.agents.map((a) => a.id)).toEqual(['pending-1', 'z1', 'z2']);
-    expect(r.claimed).toEqual({});
+  });
+
+  it('never lists a pending pane in removedIds', () => {
+    const r = reconcileSnapshot([ag('pending-1')], { 'pending-1': req() }, []);
+    expect(r.agents.map((a) => a.id)).toEqual(['pending-1']);
+    expect(r.removedIds).toEqual([]);
   });
 
   it('collapses duplicate snapshot ids to the first', () => {
@@ -108,7 +107,7 @@ describe('reconcileSnapshot', () => {
     const once = reconcileSnapshot(local, pending, snap);
     const twice = reconcileSnapshot(once.agents, once.pending, snap);
     expect(twice.agents).toEqual(once.agents);
-    expect(twice.pending).toEqual({});
+    expect(twice.pending).toEqual(once.pending);
     expect(twice.removedIds).toEqual([]);
   });
 });

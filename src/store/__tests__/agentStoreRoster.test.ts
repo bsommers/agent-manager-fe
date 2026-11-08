@@ -51,11 +51,13 @@ describe('live roster: initial state and snapshot reconciliation', () => {
 
   beforeEach(() => {
     useConnectionStore.setState({ mode: 'live' });
+    (agentSocket as any).requests.clear();
     useAgentStore.setState({ agents: [], activeAgentId: null, pending: {} });
     send = vi.spyOn(agentSocket, 'send').mockReturnValue(true);
   });
 
   afterEach(() => {
+    (agentSocket as any).requests.clear();
     vi.restoreAllMocks();
     useConnectionStore.setState({ mode: 'demo' });
   });
@@ -73,6 +75,7 @@ describe('live roster: initial state and snapshot reconciliation', () => {
       name: 'Build',
       mode: 'tmux',
       targetHost: 'localhost:build',
+      reqId: expect.any(String),
     });
     const s = useAgentStore.getState();
     expect(s.agents).toHaveLength(1);
@@ -91,6 +94,7 @@ describe('live roster: initial state and snapshot reconciliation', () => {
       mode: 'ssh',
       targetHost: 'u@h',
       initialCmd: 'ls -la',
+      reqId: expect.any(String),
     });
     useAgentStore.getState().addAgent('B', 'ssh', 'u@h2', '');
     expect(send).toHaveBeenLastCalledWith({
@@ -98,6 +102,7 @@ describe('live roster: initial state and snapshot reconciliation', () => {
       name: 'B',
       mode: 'ssh',
       targetHost: 'u@h2',
+      reqId: expect.any(String),
     });
   });
 
@@ -109,7 +114,7 @@ describe('live roster: initial state and snapshot reconciliation', () => {
     expect(s.pending).toEqual({});
   });
 
-  it('claims the pending create: server id, same slot, layout and focus carried over', () => {
+  it('the ack settles the pending create: server id, same slot, layout and focus carried over', async () => {
     useAgentStore.setState({
       agents: [serverAgent({ id: 'agent-9', name: 'Other', targetHost: 'localhost:o' })],
       activeAgentId: 'agent-9',
@@ -123,18 +128,33 @@ describe('live roster: initial state and snapshot reconciliation', () => {
     }));
 
     notify({
-      type: 'agent:init_list',
-      agents: [
-        serverAgent({ id: 'agent-9', name: 'Other', targetHost: 'localhost:o' }),
-        serverAgent({ id: 'agent-77-zz', name: 'Build', targetHost: 'localhost:build' }),
-      ],
+      type: 'agent:ack',
+      reqId: (send.mock.calls[0][0] as any).reqId,
+      op: 'create',
+      ok: true,
+      agent: serverAgent({ id: 'agent-77-zz', name: 'Build', targetHost: 'localhost:build' }),
     });
+    await Promise.resolve();
+    await Promise.resolve();
 
     const s = useAgentStore.getState();
     expect(s.agents.map((a) => a.id)).toEqual(['agent-9', 'agent-77-zz']);
     expect(s.agents[1].layout).toEqual({ isFloating: true, x: 5, y: 6, width: 300, height: 200 });
     expect(s.pending).toEqual({});
     expect(s.activeAgentId).toBe('agent-77-zz');
+  });
+
+  it('a snapshot no longer claims the pending create by fields: the pane stays until its answer', () => {
+    useAgentStore.getState().addAgent('Build', 'tmux', 'localhost:build');
+    const pendingId = useAgentStore.getState().agents[0].id;
+    notify({
+      type: 'agent:init_list',
+      agents: [serverAgent({ id: 'agent-77-zz', name: 'Build', targetHost: 'localhost:build' })],
+    });
+    const s = useAgentStore.getState();
+    expect(s.agents.map((a) => a.id)).toEqual([pendingId, 'agent-77-zz']);
+    expect(Object.keys(s.pending)).toEqual([pendingId]);
+    expect(s.activeAgentId).toBe(pendingId);
   });
 
   it('applying the same snapshot twice never duplicates', () => {
@@ -185,9 +205,18 @@ describe('live roster: initial state and snapshot reconciliation', () => {
     expect(s.agents[1]).toMatchObject({ name: 'Build Runner', mode: 'tmux', targetHost: 'localhost:build' });
   });
 
-  it('claims a pending create against the gateway-real server shape', () => {
+  it('settles a pending create against the gateway-real server shape', async () => {
     useAgentStore.getState().addAgent('Build Runner', 'tmux', 'localhost:build');
-    notify({ type: 'agent:init_list', agents: [GATEWAY_DISCOVERED, GATEWAY_CREATED] });
+    notify({ type: 'agent:init_list', agents: [GATEWAY_DISCOVERED] });
+    notify({
+      type: 'agent:ack',
+      reqId: (send.mock.calls[0][0] as any).reqId,
+      op: 'create',
+      ok: true,
+      agent: GATEWAY_CREATED,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
     const s = useAgentStore.getState();
     expect(s.agents.map((a) => a.id)).toEqual(['agent-1762500000000-a1b2', 'tmux-foo']);
     expect(s.pending).toEqual({});
