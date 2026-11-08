@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { agentSocket } from '../../services/agentSocket';
 import { matchGlobalShortcut } from '../../keyboard/shortcuts';
 import { useFocusRequest } from '../../keyboard/hooks';
+import { suppressTerminalReports } from './terminalReports';
 
 interface TerminalViewProps {
   agentId: string;
@@ -53,6 +54,9 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       },
       convertEol: true,
     });
+
+    // Never let xterm type its own answers to terminal queries into the shell (QA-01).
+    suppressTerminalReports(term);
 
     const fitAddon = new FitAddon();
     const webLinksAddon = new WebLinksAddon();
