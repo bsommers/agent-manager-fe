@@ -32,10 +32,10 @@ Phase numbers continue after v1.1 (no restart). Source milestone mapping: M-INT-
 | 1 | 1, 2, 3, 4 | Done (merged 2026-11-07). |
 | 2 | 5, 6, 7, 8 | Re-cut at plan level, see below. 6 and 8 both edit `server/src/index.ts`: sequence 6 before 8. 5 and 7 add devDependencies: require a Package Legitimacy Audit in their RESEARCH.md. |
 | 3 | 9, 10, 11, 12 | |
-| 4 | 13, 14, 15, 16, 17 | |
+| 4 | 13, 14, 15, 16, 17 | Phase 2.1 (operations catalog and JSON Schema, inserted) is scheduled at plan level right after 02-04. |
 | 5 | 18 | |
 | 6 | 19 | v2.1 starts. |
-| 7 | 20, 21, 22, 23 | |
+| 7 | 20, 21, 22, 23 | Optional Phase 21.1 (gateway MCP facade) follows Phase 21. |
 | 8 | 24, 25, 26 | Adapters treat external repos as read-only (fixtures in this repo only). |
 
 **Plan-level schedule** (authoritative from 2026-11-07; one global wave counter; plans in the same wave have disjoint file ownership, verified by `node .planning/tools/check-wave-collisions.mjs --pending`):
@@ -45,8 +45,8 @@ Phase numbers continue after v1.1 (no restart). Source milestone mapping: M-INT-
 | 1 | 01-01, 02-01, 03-01, 04-01 | Complete. 01-01 manual QA pending-human. |
 | 2 | 02-02, 03-02, 05-01 | Planned. 05-01 touches only modals, so it needs none of the files 03-02 (Header, App) and 02-0x (package.json) own. |
 | 3 | 02-03, 05-02, 05-03 (planned); 10-01, 10-02 (merged) | 02-03 needs 02-02 (same package files) and owns `packages/protocol/**`. 10-01 and 10-02 are the Phase 10 roster slice pulled forward on 2026-11-07 and are merged, so 05-03 plans against the current `AgentPane.tsx`. 05-02 owns Header.tsx, App.tsx, Toolbar.tsx, TerminalView.tsx, the shared UI store, `src/keyboard/**` and the keyboard docs; 05-03 owns FloatingPane.tsx, AgentPane.tsx, AgentControls.tsx and `paneKeyboard.ts`. The three plans are disjoint (checked with `node .planning/tools/check-wave-collisions.mjs --pending`) and fill the configured `max_concurrent_agents` of three. 05-02 documents the pane keys 05-03 implements (10 px, 50 px with Shift); the two must agree at merge. |
-| 4 | 02-04 (planned); Phase 6 plans (to plan; needs 02-03 merged) | 02-04 owns package.json, CI and the surface snapshot; Phase 6 owns `server/src` dispatch and FE lifecycle, so they are disjoint. |
-| 5 | 05-04 (devDependency for the axe audit, so after 02-04 owns package.json); Phase 8 plans (after Phase 6: both edit `server/src/index.ts`) | |
+| 4 | 02-04 (planned); 09.1-01, 09.1-02, 09.1-03 (planned); Phase 6 plans (to plan; needs 02-03 merged) | 02-04 owns package.json, CI and the surface snapshot; Phase 6 owns `server/src` dispatch and FE lifecycle, so they are disjoint. The 09.1 plans have disjoint file ownership; merge 09.1-03 before 02-04 (see Phase 9.1). Phase 6 starts with the agent service-layer plan, which needs no catalog; its destructive-policy plan needs Phase 2.1 and so lands after wave 5. |
+| 5 | 05-04 (devDependency for the axe audit, so after 02-04 owns package.json); 09.1-04 (after 09.1-01..03); Phase 2.1 plans (to plan; right after 02-04, owns `packages/protocol/**` and the schema generator script); Phase 8 plans (after Phase 6: both edit `server/src/index.ts`) | Phase 2.1 may add a devDependency (schema tooling): sequence it after 05-04 or check with `check-wave-collisions.mjs --pending`. |
 | 6 | Phase 7 plans (adds devDependencies, so after 05-04) | |
 
 Deviations from the UI plan's ordering: UI-8 (a11y, Phase 5) moves from wave 1 to the wave-2 to wave-5 range because parts share `Header.tsx`/`App.tsx` with Phase 3 and `package.json` with Phase 2 (the modal-focus part, 05-01, shares neither and runs in wave 2); INT-10 follows INT-7; the connection chip/banner of UI-1 is delivered in Phase 3 with the transport (needs no later dependency), leaving pane states, error boundary and failure toasts to Phase 9.
@@ -70,6 +70,20 @@ Plans: 4 plans (re-cut 2026-11-07: the original 02-02 was split because it excee
 - [ ] 02-02-PLAN.md - Field-spec engine extraction, hello/hello_ack tracer, error vocabulary, client-to-gateway messages and fixtures (wave 2)
 - [ ] 02-03-PLAN.md - Gateway-to-client messages, additive Agent fields, per-scope meta, HTTP shapes, limits, FE/gateway drift guards (wave 3)
 - [ ] 02-04-PLAN.md - Surface snapshot, `contract:check`, CI workflow, package README (wave 4)
+
+### Phase 2.1: Operations Catalog and JSON Schema (inserted 2026-11-07)
+**Goal:** One operations catalog and one generated JSON Schema in `packages/protocol` drive every surface (WS, HTTP, MCP, command palette) and every adapter fixture, so surfaces cannot drift.
+**Depends on:** Phase 2 (plan 02-04 merged: it owns package.json, CI and the surface snapshot)
+**Requirements:** INT-12
+**Success criteria:**
+1. JSON Schema is generated from the FieldSpec tables in `packages/protocol`, checked in, and `contract:check` fails on drift; integer fields are pinned. It serves the cvm and climah adapter fixtures as well as the bilterm fixtures of Phase 28
+2. An operations catalog exports, per operation: name, params, required capability and a `destructive` flag; WS validators, HTTP routes, the MCP tool list and FE command-palette entries derive from it, and a test fails if a surface lists an operation the catalog lacks (or the reverse)
+3. The existing agent operations (create, close, kill, rename/update, input, broadcast, resize, search) are catalogued; `agent:kill` is marked destructive, consistent with Phase 9.1
+4. `contract:check` classifies the catalog addition as additive; the merge gate stays green
+
+Plans: to plan (small phase; 2 plans expected)
+- [ ] 2.1-01 (to plan) - JSON Schema generation from the FieldSpec tables, checked in, drift check in `contract:check` (criterion 1)
+- [ ] 2.1-02 (to plan) - Operations catalog and the derivation tests for WS validators, HTTP routes, MCP tool list and palette entries (criteria 2-3)
 
 ### Phase 3: Transport Reconnect and Connection State
 **Goal:** The UI always shows the true connection state, recovers by itself, and never fabricates live data.
@@ -116,13 +130,16 @@ Plans: 3 of 4 planned (split by file ownership; 05-01 ran in wave 2, 05-02 and 0
 
 ### Phase 6: Agent Lifecycle API
 **Goal:** Create, list, kill and rename are server-confirmed with typed errors, and the gateway validates every client frame.
-**Depends on:** Phase 2, Phase 3
-**Requirements:** INT-03
+**Depends on:** Phase 2, Phase 3; Phase 2.1 for the destructive policy (criterion 7; the service-layer plan has no such dependency and goes first)
+**Requirements:** INT-03, GW-04, GW-05
 **Success criteria:**
-1. `create`/`kill`/`update` resolve with the server's agent or reject with a typed error (`reqId` correlation, 10 s timeout)
-2. The gateway validates every client frame with the package validators; malformed frames yield `agent:error USAGE`
-3. After reconnect the roster resyncs from `agent:init_list` without duplicates; `agent:added/removed/updated` are applied
-4. `/api/health` and `/api/agents` (GET, POST, DELETE) work; a repeated `reqId` is idempotent
+1. At the start of the phase, a gateway agent service layer (create, close, destroy, broadcast, input) exists and the WS, HTTP and (later) MCP handlers are thin wrappers over it; the logic moves out of `SessionManager`'s WS message switch. This lands before any HTTP route is added
+2. `create`/`kill`/`update` resolve with the server's agent or reject with a typed error (`reqId` correlation, 10 s timeout)
+3. `reqId` correlation is required, not polish: with several surfaces creating agents, the FE matches every pending create to its ack by `reqId`, which replaces the Phase 10 name/mode/targetHost reconciliation
+4. The gateway validates every client frame with the package validators; malformed frames yield `agent:error USAGE`
+5. After reconnect the roster resyncs from `agent:init_list` without duplicates; `agent:added/removed/updated` are applied
+6. `/api/health` and `/api/agents` (GET, POST, DELETE) work; a repeated `reqId` is idempotent
+7. Destructive operations are enforced at the gateway from the catalog's `destructive` flag (Phase 2.1): without a valid confirm token the gateway refuses with a typed `agent:error`. The FE `DestructiveSafetyModal` is UX only. Phase 6 adopts the Phase 9.1 `agent:kill {agentId, killSession, confirm}` message, which already follows this rule
 
 ### Phase 7: Offline Mock Server and Dev Tooling
 **Goal:** Full UI development and e2e testing without any real backend.
@@ -131,7 +148,7 @@ Plans: 3 of 4 planned (split by file ownership; 05-01 ran in wave 2, 05-02 and 0
 **Success criteria:**
 1. `npm run dev:mock` serves the UI against a scriptable mock WS server with normal, flaky, auth-fail, slow, large-output and partial-broadcast-failure scenarios, reproducible by seed
 2. The mock server conforms to the shared fixtures
-3. Playwright e2e covers create, type, broadcast, search and reconnect; `npm run test:e2e` is green in CI
+3. Playwright e2e covers create, type, broadcast, search and reconnect and builds on the existing `qa/` driver (`qa/playwright.config.ts`, `qa/e2e/*.e2e.ts`) rather than a second Playwright setup; `npm run test:e2e` is green in CI
 
 ### Phase 8: Auth and Secure Transport
 **Goal:** Remote access is possible only with a token over TLS; local use stays zero-config.
@@ -161,6 +178,7 @@ Plans: 3 of 4 planned (split by file ownership; 05-01 ran in wave 2, 05-02 and 0
 2. The destructive safety modal's Cancel is clickable; every modal, the palette, the help overlay and the toasts render in a portal above any pane, from one z-index scale, and a test asserts the overlay z-index exceeds every pane z-index after thousands of `bringToFront` calls (QA step 5 passes)
 3. Closing an agent leaves its tmux session running (QA step 12b); a "Kill tmux session..." control behind `DestructiveSafetyModal` sends `agent:kill {killSession: true, confirm: true}`; the gateway refuses a kill without `confirm`, derives the session name itself, uses `execFile` with an argument array and a strict name check, and only acts on agents it manages; the session is gone afterwards (QA step 13); `tmux kill-session -t <name>` is documented
 4. The merge gate stays green (counts only grow from root 58 files / 753 tests, server 10 / 108) and the contract check classifies the `agent:kill` change as additive
+5. The bilterm TUI runs cleanly in an agent pane with no stray input (Stage 0 of the bilterm integration)
 
 Plans: 4 plans, disjoint file ownership (checked with `node .planning/tools/check-wave-collisions.mjs --pending`)
 - [ ] 09.1-01-PLAN.md - xterm parser handlers consume terminal queries so no reply is generated (not a byte filter on `onData`; Shift+F3 equals a CPR reply), wired in `TerminalView`, real-xterm tests with the QA bytes and negative tests for user input, RUNNING.md Issue 6 (wave 4; QA-01)
@@ -182,7 +200,7 @@ Ordering versus 02-04: 02-04 owns the root `package.json`, CI, `packages/protoco
 
 **Pulled forward (2026-11-07) as a slice:** Phase 10 runs now, ahead of its declared dependencies Phase 6 and Phase 8, because manual QA step 1 (`docs/qa-test-plan.md` section 5) fails in live mode: Add Agent builds a local agent and never sends `agent:create`. The slice works against what the gateway emits today (a full `agent:init_list` snapshot after every create, kill and new connection; the gateway assigns agent ids) and changes no server source and no `packages/protocol/**`.
 - Covered by the slice: criterion 1 (empty live start, roster equals the last snapshot, Demo mode unchanged); criterion 2 (Starting pane reconciled by name, mode and targetHost, rollback after 10 s or on a failed send with a plain error notice; typed failure toasts stay with Phase 9); criterion 3 for the status badge, plus gateway-confirmed kill.
-- Deferred and still open: stale-agent markers (need new server fields); rename, tags and group via `agent:update` (the gateway has no `agent:update` handler yet; Phase 6 adds it); `reqId` correlation, typed errors, `agent:added/removed/updated` and HTTP `/api/agents` (Phase 6); auth (Phase 8). UX-02 stays unticked in REQUIREMENTS.md until those land. When Phase 6 runs it replaces the key-based pending reconciliation with `reqId` acks.
+- Deferred and still open: stale-agent markers (need new server fields); rename, tags and group via `agent:update` (the gateway has no `agent:update` handler yet; Phase 6 adds it); `reqId` correlation, typed errors, `agent:added/removed/updated` and HTTP `/api/agents` (Phase 6); auth (Phase 8). UX-02 stays unticked in REQUIREMENTS.md until those land. When Phase 6 runs it replaces the key-based pending reconciliation with `reqId` acks (required there, since several surfaces will create agents).
 
 Plans: 2 plans (slice, both wave 3, disjoint file ownership)
 - [ ] 10-01-PLAN.md - Frontend roster slice: empty live start, `agent:init_list` snapshot reconciliation, `agent:create` with Starting pane and rollback, gateway-confirmed kill, status events in the store, error notices, empty-roster copy (wave 3; criteria 1-3 partly)
@@ -236,11 +254,12 @@ Plans: 2 plans (slice, both wave 3, disjoint file ownership)
 ### Phase 16: Search API
 **Goal:** Server-side history search when the gateway offers it.
 **Depends on:** Phase 11
-**Requirements:** INT-06
+**Requirements:** INT-06, INT-11
 **Success criteria:**
 1. `GET /api/search` paginates by cursor and merges deterministically with local hits (dedupe `(agentId, seq, line)`)
 2. A cancelled query ignores late responses
 3. A gateway without the `search` capability uses the local-only path
+4. Secret masking applies to search: the gateway masks secrets in `/api/search` results and snippets, and the local-only path masks them too (test with token-like fixtures). Phase 32 later swaps in the shared masker from libbilterm; the behavior is already required here
 
 ### Phase 17: Alerts and Notification Center
 **Goal:** No important event is missed.
@@ -269,7 +288,7 @@ Objective: one UI over several backends (cvm sandboxes, climah pipelines, option
 **Depends on:** Phase 3, Phase 8
 **Requirements:** INT-07
 **Success criteria:**
-1. `hello_ack.backends` and `Agent.capabilities` drive UI gating; unknown capabilities are ignored
+1. `hello_ack.backends` and `Agent.capabilities` drive UI gating; unknown capabilities are ignored. Clients also announce their own capabilities in `hello`, not only the gateway in `hello_ack`, so the gateway can tailor what it sends
 2. `agent:meta` payloads are schema-validated; unknown event types are logged and dropped without throwing
 3. Older and newer gateways of the same major interoperate; a different major shows a clear upgrade message
 
@@ -278,7 +297,7 @@ Objective: one UI over several backends (cvm sandboxes, climah pipelines, option
 **Depends on:** Phase 11, Phase 19
 **Requirements:** GW-02
 **Success criteria:**
-1. `BackendAdapter` (list, create, kill, input, resize, events, capabilities) is the only path from the session manager to a backend
+1. `BackendAdapter` (list, create, close, destroy, input, resize, events, capabilities) is the only path from the session manager to a backend; `close` detaches and the session survives, `destroy` is the explicit kill
 2. Unsupported operations return `agent:error UNSUPPORTED`; a failing adapter isolates to its own agents
 3. A fake adapter plus recorded-fixture contract tests exist; FE behavior with tmux/ssh is unchanged
 
@@ -290,15 +309,27 @@ Objective: one UI over several backends (cvm sandboxes, climah pipelines, option
 1. Fuzzed malformed frames never crash the app (package validators at the FE boundary)
 2. "Copy diagnostics" exports a ring-buffered report containing no tokens
 3. A CSP and a terminal-link security checklist are documented and signed off
+4. The gateway-enforced destructive policy (Phase 6, driven by the Phase 2.1 catalog's `destructive` flag) covers every surface: HTTP and WS destructive operations without a confirm token are refused, asserted by a test that walks the catalog
+
+### Phase 21.1: Gateway MCP Facade (optional, inserted 2026-11-07)
+**Goal:** Expose agent operations as MCP tools from the gateway so other agents and tools can drive the fleet through the same service layer.
+**Depends on:** Phase 6 (agent service layer), Phase 2.1 (operations catalog), Phase 21
+**Requirements:** GW-03
+**Success criteria:**
+1. An MCP server in the gateway lists tools derived from the operations catalog and calls the Phase 6 service layer through thin handlers; no operation logic is duplicated
+2. Tool names reuse bilterm's MCP tool names where they match an operation; differences are documented in a mapping table
+3. Destructive tools obey the gateway destructive policy (confirm token or refusal); the MCP endpoint is loopback-only and uses the gateway token
+4. Optional: off by default, and the gateway runs unchanged without it
 
 ### Phase 22: Multi-Capability Agent Model
 **Goal:** Surface what cvm, climah, mads and mad offer without hard-coding any one.
 **Depends on:** Phase 10, Phase 19
-**Requirements:** UX-09
+**Requirements:** UX-09, UX-11
 **Success criteria:**
 1. With a mock adapter advertising only `terminal`, no extra panel renders
 2. Advertising `cost`, `quota`, `pipeline`, `tasks` or `sandbox` shows the matching panel fed by `agent:meta`
 3. The Add-Agent wizard renders its fields from a backend-advertised `AgentSpec` fixture; agents without `input` get read-only panes
+4. A `blocked` capability flag marks agents that can report a blocked state, and the command palette offers "jump to next blocked agent", which focuses the next blocked agent in a stable order and says so when none is blocked. The bilterm adapter supplies this state through the Phase 29 status mapping (Blocked)
 
 ### Phase 23: Settings, Multi-Backend Profiles and Polish
 **Goal:** Configure without env vars; connect to several backends at once.
@@ -343,20 +374,20 @@ Scope note: bilterm (`~/src/ai/bilterm`) is an external repo. Phases 27, 31, 32 
 
 ### Phase 27: Upstream bilterm Fixes (Pump, Streams, Pane API)
 **Goal:** bilterm headless mode is usable as a backend: output flows, streams resume, panes are controllable.
-**Depends on:** Phase 19 (capability vocabulary)
+**Depends on:** Nothing (upstream work in the bilterm repo; it can start now)
 **Requirements:** LIB-01
 **Success criteria:**
 1. The headless pump runs `poll_all_ptys()` in `serve_loop`; a regression test shows `pane.read` containing output of `printf hi` with no other RPC
 2. `pane.spawn`, `pane.write`, `pane.resize`, `pane.kill`, `pane.snapshot` exist with size caps; per-pane output has a global monotonic `seq`, a bounded ring, `subscribe(from_seq)` with Gap events and non-draining `events.poll {cursor}`
 3. Two concurrent subscribers receive the same stream without stealing events; the changes are additive and documented in bilterm `docs/API.md`
 
-### Phase 28: Fleet Contract Fixtures and JSON Schema
-**Goal:** A language-neutral contract for bilterm fleet data that every consumer and binding must pass.
-**Depends on:** Phase 2, Phase 27
+### Phase 28: Fleet Contract Fixtures
+**Goal:** Language-neutral fixtures for bilterm fleet data that every consumer and binding must pass. (JSON Schema generation moved to Phase 2.1 because it also benefits the cvm and climah adapters.)
+**Depends on:** Phase 2, Phase 2.1 (JSON Schema), Phase 27
 **Requirements:** LIB-02
 **Success criteria:**
 1. `packages/protocol/fixtures/fleet/` holds `agents.list`, `fleet.*`, `find.*`, SSE record, classifier and masking vectors generated from real bilterm output and reviewed in diff
-2. JSON Schema is generated from the FieldSpec tables, checked in, and `contract:check` fails on drift; integer fields are pinned
+2. Every fleet fixture validates against the Phase 2.1 JSON Schema, and `contract:check` still passes with the fixtures added
 3. The bilterm-to-FE status mapping (`working|blocked|idle|done|errored` to `AgentStatus`) has its own adapter fixtures; unknown enums land in an `unknown` bucket
 
 ### Phase 29: BilTerm Sidecar Adapter
@@ -364,7 +395,8 @@ Scope note: bilterm (`~/src/ai/bilterm`) is an external repo. Phases 27, 31, 32 
 **Depends on:** Phase 20 (BackendAdapter), Phase 19, Phase 21, Phase 27, Phase 28
 **Requirements:** LIB-03
 **Success criteria:**
-1. A `BilTermAdapter` implements `BackendAdapter` (list, create, kill, input, resize, events, capabilities) over bilterm JSON-RPC/HTTP+SSE; no code path bypasses the Phase 20 interface
+1. A `BilTermAdapter` implements `BackendAdapter` (list, create, close, destroy, input, resize, events, capabilities) over bilterm JSON-RPC/HTTP+SSE; no code path bypasses the Phase 20 interface
+1a. Agent ids are stable strings `bilterm:<workspace>:<pane>`; bilterm has no Agent entity, so the gateway synthesizes `createdAt` and `lastActivity` (fixture-tested). The bilterm `blocked` state maps to the Phase 22 `blocked` capability and the "jump to next blocked agent" command
 2. A supervisor spawns `bilterm --headless --http` on loopback, restarts with backoff, keeps the token server-side, and `hello_ack.backends` advertises `bilterm` with capabilities; `blocked` maps through a negotiated capability, not a hard-coded status
 3. Fake-bilterm recorded-fixture tests pass; a down sidecar yields `disconnected` then recovery, isolated to its own agents
 
@@ -419,9 +451,11 @@ Scope note: bilterm (`~/src/ai/bilterm`) is an external repo. Phases 27, 31, 32 
 |-------|-----------|----------------|--------|
 | 1. Verify and reconcile fan-out and search | v1.1 | 1/1 | Executed; open for manual QA (pending-human) |
 | 2. Shared Protocol Package and Contract Fixtures | v2.0 | 1/4 | In progress (02-02..02-04 planned) |
+| 2.1 Operations Catalog and JSON Schema | v2.0 | 0/TBD | Not planned |
 | 3. Transport Reconnect and Connection State | v2.0 | 1/2 | In progress (03-02 planned) |
 | 4. Gateway Baseline Hardening | v2.0 | 1/1 | Complete |
 | 5. Keyboard-First Operation and Accessibility | v2.0 | 0/4 | In progress (05-01 planned) |
-| 6-18 | v2.0 | 0/TBD | Not planned |
-| 19-26 | v2.1 | 0/TBD | Not planned |
+| 9.1 QA Bug Fixes | v2.0 | 0/4 | Planned |
+| 6-18 (excluding 9.1) | v2.0 | 0/TBD | Not planned |
+| 19-26 (including optional 21.1) | v2.1 | 0/TBD | Not planned |
 | 27-34 | v2.2 | 0/TBD | Proposed; 30 is a go/no-go gate for 31-34 |

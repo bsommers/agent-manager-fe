@@ -1,7 +1,7 @@
 # Requirements
 
 Contract source of truth for v2.x: `docs/superpowers/specs/2026-11-07-fe-be-contract.md`.
-ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides with shipped `UI-01`), `GW-nn` = gateway work, `ADP-nn` = backend adapters.
+ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides with shipped `UI-01`), `GW-nn` = gateway work, `ADP-nn` = backend adapters, `QA-nn` = fixes from the live manual-QA run (Phase 9.1), `LIB-nn` = libbilterm / shared terminal core.
 
 ## v1 (validated, shipped)
 - [x] SESS-01: Create, kill, resize and send input to agent sessions
@@ -21,15 +21,19 @@ ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides 
 ### Integration
 - [ ] INT-01: Transport layer with reconnect (jittered backoff, heartbeat), visible connection state, no silent mock fallback, explicit Demo mode, single `VITE_BACKEND_URL` (in progress: transport done in 03-01; visible state and docs in 03-02)
 - [ ] INT-02: Token auth and secure transport (`hello` handshake, `auth_failed`, wss for non-local, logout clears state)
-- [ ] INT-03: Server-confirmed agent lifecycle (`reqId`, `agent:ack`/`agent:error`, added/removed/updated, `/api/agents`)
+- [ ] INT-03: Server-confirmed agent lifecycle (required `reqId` correlation, `agent:ack`/`agent:error`, added/removed/updated, `/api/agents`)
 - [ ] INT-04: Lossless ordered output (`seq`, `epoch`, resume, gap markers, LogStore, history, logs endpoint)
 - [ ] INT-05: Acked broadcast and input API (per-target results, idempotency, size and rate limits)
 - [ ] INT-06: Server-side history search (`/api/search`, cursor pagination, cancellation, local merge)
 - [ ] INT-08: Shared protocol package, golden fixtures and breaking-change check; FE never imports from `server/src` (in progress: 02-01 done; 02-02, 02-03, 02-04 planned)
-- [ ] INT-09: Offline mock server with seeded scenarios and Playwright e2e
+- [ ] INT-09: Offline mock server with seeded scenarios and Playwright e2e (builds on the existing `qa/` Playwright driver)
+- [ ] INT-11: Secret masking in search results (gateway `/api/search` and the local-only path)
+- [ ] INT-12: Operations catalog (name, params, required capability, destructive flag) and generated JSON Schema in `packages/protocol`; WS validators, HTTP routes, MCP tool list and palette entries derive from it (Phase 2.1)
 
 ### Gateway
 - [x] GW-01: Gateway baseline hardening (loopback default bind, Origin allowlist, frame cap, ping/pong, liveness) (Phase 4, plan 04-01)
+- [ ] GW-04: Gateway agent service layer (create, close, destroy, broadcast, input) behind thin WS, HTTP and MCP handlers (Phase 6)
+- [ ] GW-05: Gateway-enforced destructive policy driven by the catalog's destructive flag (confirm token or refuse); the FE modal is UX only (Phases 6 and 21)
 
 ### UX
 - [ ] UX-01: Resilient shell (pane states, error boundary, failure toasts)
@@ -41,22 +45,29 @@ ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides 
 - [ ] UX-07: Alerts and notification center (rules, history, desktop permission flow)
 - [ ] UX-08: Keyboard-first operation and accessibility (command palette, focus management, axe-clean) (in progress: 05-01 planned; 05-02..05-04 to plan)
 
+### QA (Phase 9.1)
+- [ ] QA-01: xterm-generated terminal reports are never forwarded to the shell
+- [ ] QA-02: One z-index scale; all overlays render above all panes
+- [ ] QA-03: Explicit, gateway-confirmed tmux session kill; closing an agent does not kill the session
+
 ## v2.1 Multi-Backend and Fleet (planned)
 
-- [ ] INT-07: Capability negotiation and validated `agent:meta` events
+- [ ] INT-07: Capability negotiation (gateway in `hello_ack`, clients in `hello`) and validated `agent:meta` events
 - [ ] INT-10: Error taxonomy, diagnostics, boundary validation, CSP and security checklist
-- [ ] GW-02: Gateway `BackendAdapter` interface; tmux/ssh as adapters; UNSUPPORTED handling and fault isolation
+- [ ] GW-02: Gateway `BackendAdapter` interface (`close` detaches, `destroy` kills); tmux/ssh as adapters; UNSUPPORTED handling and fault isolation
 - [ ] UX-09: Multi-capability agent model (cost, quota, pipeline, tasks, sandbox panels; spec-driven Add-Agent wizard; read-only panes)
 - [ ] UX-10: Settings UI and multi-backend profiles
 - [ ] ADP-01: cvm adapter (cvmd REST + SSE, non-interactive)
 - [ ] ADP-02: climah adapter (events.jsonl, gates, budget, non-interactive)
 - [ ] ADP-03: Optional mads state store and mad route helper
+- [ ] GW-03: Optional gateway MCP facade exposing agent operations as MCP tools derived from the catalog, reusing bilterm's tool names where they match (Phase 21.1)
+- [ ] UX-11: `blocked` capability flag and a palette command "jump to next blocked agent" (Phase 22)
 
 ## v2.2 libbilterm and Shared Terminal Core (proposed, gated)
 
 - [ ] LIB-01: Upstream bilterm headless pump fix, pane spawn/write/resize/kill/snapshot, and multi-subscriber output streams with cursors
-- [ ] LIB-02: Fleet contract fixtures and JSON Schema shared with packages/protocol, with status mapping fixtures
-- [ ] LIB-03: BilTerm sidecar BackendAdapter (depends on GW-02)
+- [ ] LIB-02: Fleet contract fixtures shared with packages/protocol (validated against the INT-12 JSON Schema), with status mapping fixtures
+- [ ] LIB-03: BilTerm sidecar BackendAdapter with stable ids `bilterm:<workspace>:<pane>` and gateway-synthesized createdAt/lastActivity (depends on GW-02)
 - [ ] LIB-04: libbilterm go/no-go gate and agent-state seam spike
 - [ ] LIB-05: bilterm workspace split into headless core crates without ratatui or crossterm, typed errors, semver policy
 - [ ] LIB-06: Shared classifier/scan/masking conformance and wasm32 subset
@@ -75,13 +86,19 @@ ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides 
 | VER-01 | 1 |
 | DOC-01 | 1 |
 | INT-08 | 2 |
+| INT-12 | 2.1 |
 | INT-01 | 3 |
 | GW-01 | 4 |
 | UX-08 | 5 |
 | INT-03 | 6 |
+| GW-04 | 6 |
+| GW-05 | 6, 21 |
 | INT-09 | 7 |
 | INT-02 | 8 |
 | UX-01 | 9 |
+| QA-01 | 9.1 |
+| QA-02 | 9.1 |
+| QA-03 | 9.1 |
 | UX-02 | 10 |
 | INT-04 | 11 |
 | INT-05 | 12 |
@@ -89,12 +106,15 @@ ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides 
 | UX-04 | 14 |
 | UX-05 | 15 |
 | INT-06 | 16 |
+| INT-11 | 16 |
 | UX-07 | 17 |
 | UX-06 | 18 |
 | INT-07 | 19 |
 | GW-02 | 20 |
 | INT-10 | 21 |
+| GW-03 | 21.1 |
 | UX-09 | 22 |
+| UX-11 | 22 |
 | UX-10 | 23 |
 | ADP-01 | 24 |
 | ADP-02 | 25 |
@@ -108,4 +128,4 @@ ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides 
 | LIB-07 | 33 |
 | LIB-08 | 34 |
 
-**Coverage:** 2 (v1.1) + 17 (v2.0) + 8 (v2.1) + 8 (v2.2) = 35 active requirements, all mapped, 0 unmapped.
+**Coverage:** 2 (v1.1) + 24 (v2.0) + 10 (v2.1) + 8 (v2.2) = 44 active requirements, all mapped, 0 unmapped.
