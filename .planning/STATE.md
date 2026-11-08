@@ -2,9 +2,9 @@
 
 ## Current Position
 Milestone: v1.1 Fan-out Close-out (active, open only for a human QA checkpoint); v2.0 Live-Connected Command Center and v2.1 Multi-Backend and Fleet defined in ROADMAP.md
-Phase: waves 1-3 merged (wave 3: 02-03, 05-02, 05-03, plus pulled-forward Phase 10 slice 10-01/10-02); next is wave 4 (02-04 planned; Phase 6 plans to write)
+Phase: waves 1-3 merged (wave 3: 02-03, 05-02, 05-03, plus pulled-forward Phase 10 slice 10-01/10-02); wave 4 9.1 bug fixes merged; next is 02-04 (then contract:update for agent:kill), Phase 6 plans to write (service layer first)
 Status: Wave 2 merged and green. Phase 3 (transport + connection UI) is complete pending manual QA. Phase 1 stays open for the human QA checkpoint only.
-Last activity: 2026-11-07 - wave 3 executed in parallel worktrees, merged, merge gate passed (root 58 files / 753 tests, server 10 / 108)
+Last activity: 2026-11-07 - Phase 9.1 QA bug fixes (09.1-01..04) merged, gate passed (root 68 files / 1037 tests, server 13 / 208), live QA re-run 17 PASS / 0 FAIL / 2 FIXME
 
 ## Wave 1 results (merged, green)
 
@@ -38,6 +38,17 @@ Merged gate (master d17af86): root 39 files / 439 tests, server 8 files / 98 tes
 | 05-03 | Keyboard move/resize of floating panes (10 px, Shift 50 px; no focus steal), named pane controls, status as text |
 
 Merged gate (master after 05-02 merge): root 58 files / 753 tests, server 10 / 108, tsc, build:protocol, builds, collision check pass. Watch: `server/__tests__/hardening.test.ts` "never terminates a responsive client" flaked once under load in a worktree.
+
+## Phase 9.1 results (QA bug fixes, merged, green)
+
+| Plan | Result |
+|------|--------|
+| 09.1-01 | xterm parser handlers consume terminal queries (DA1/DA2/OSC 10/11 etc.), so no reply is forwarded as `agent:input` (QA-01) |
+| 09.1-02 | `src/styles/zLayers.ts` single scale, overlays portalled to `document.body`, bounded `bringToFront` (QA-02, ADR-009) |
+| 09.1-03 | `agent:kill {agentId, killSession, confirm}`; gateway refuses `killSession` without `confirm: true`; `execFile` argv `kill-session -t =<name>`, strict name, registry agents only (QA-03 gateway) |
+| 09.1-04 | "Kill tmux session..." control via DestructiveSafetyModal; close still leaves tmux running; QA driver steps 12b and 13 (QA-03 UI) |
+
+Gate (master 467d0d0): root 68 files / 1037 tests, server 13 / 208, tsc, builds pass. Live QA re-run: 17 PASS, 0 FAIL, 2 FIXME (`qa/QA-REPORT.md`). Pending after 02-04 merges: `npm run contract:update`, check the only diff is `killSession`/`confirm` on `agent:kill`, then `contract:check`. The FE does not handle `agent:error` yet (a refused kill shows the 10 s notice).
 
 ## Phase 10 slice results (pulled forward 2026-11-07, merged, green)
 

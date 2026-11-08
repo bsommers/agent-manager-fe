@@ -1,7 +1,21 @@
 # QA report: manual QA section 5 against the live stack
 
 Run: 2026-11-07, Playwright 1.64.1, Google Chrome (channel), viewport 1440x900, frontend :3000, gateway :8089, real tmux.
-Result: 12 PASS, 4 FAIL, 2 FIXME (16 executed steps + 2 fixme). All 4 failures are app bugs (below), not driver bugs.
+Result: 12 PASS, 4 FAIL, 2 FIXME (16 executed steps + 2 fixme). All 4 failures are app bugs (below), not driver bugs. (Original run; see the re-run section.)
+
+## Re-run after Phase 9.1 (2026-11-07, master 467d0d0)
+
+Result: **17 PASS, 0 FAIL, 2 FIXME** (1a, 1c still need a gateway stop/restart). Same stack (:3000 / :8089, real tmux), restarted on the merged code.
+
+| Step | Before 9.1 | After 9.1 |
+|---|---|---|
+| 1d Clean prompt (was 1e) | FAIL (bug 1) | PASS |
+| 3 Broadcast echo in both panes | FAIL (bug 1) | PASS |
+| 5 Cancel safety modal | FAIL (bug 2) | PASS |
+| 12b Close leaves tmux running | FAIL (then expected kill) | PASS (session survives by design) |
+| 13 Kill tmux session control: Cancel keeps it, Confirm kills it | new | PASS |
+
+All other steps PASS as before. Video of the re-run: `qa/test-results/manual-qa.e2e.ts-Manual-QA-b7c0c-ack-one-continuous-session-/video.webm`. The per-step table below is the original pre-fix run.
 
 ## Per-step results
 
@@ -68,4 +82,4 @@ Result: 12 PASS, 4 FAIL, 2 FIXME (16 executed steps + 2 fixme). All 4 failures a
 - The explicit "Kill tmux session..." control and the driver steps 12b (the session survives closing) and 13 (kill through the control) were added by plans 09.1-03 and 09.1-04.
 - Bugs 1 and 2 are addressed by plans 09.1-01 and 09.1-02.
 - Step 1e is now step 1d.
-- The live re-run is pending.
+- Live re-run done: 17 PASS, 0 FAIL, 2 FIXME (see the re-run section at the top).
