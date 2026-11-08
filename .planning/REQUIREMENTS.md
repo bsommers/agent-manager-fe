@@ -28,7 +28,7 @@ ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides 
 - [ ] INT-08: Shared protocol package, golden fixtures and breaking-change check; FE never imports from `server/src` (in progress: 02-01 done; 02-02, 02-03, 02-04 planned)
 - [ ] INT-09: Offline mock server with seeded scenarios and Playwright e2e (builds on the existing `qa/` Playwright driver)
 - [ ] INT-11: Secret masking in search results (gateway `/api/search` and the local-only path)
-- [ ] INT-12: Operations catalog (name, params, required capability, destructive flag) and generated JSON Schema in `packages/protocol`; WS validators, HTTP routes, MCP tool list and palette entries derive from it (Phase 2.1)
+- [x] INT-12: Operations catalog (name, params, required capability, destructive flag) and generated JSON Schema in `packages/protocol`; WS validators, HTTP routes, MCP tool list and palette entries derive from it (Phase 2.1)
 
 ### Gateway
 - [x] GW-01: Gateway baseline hardening (loopback default bind, Origin allowlist, frame cap, ping/pong, liveness) (Phase 4, plan 04-01)

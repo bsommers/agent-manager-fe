@@ -84,7 +84,7 @@ Plans: 4 plans (re-cut 2026-11-07: the original 02-02 was split because it excee
 Plans: 3 plans (02.1-01 and 02.1-02 in wave 5 with disjoint file ownership; 02.1-03 in wave 6, depends on 02.1-02; checked with `node .planning/tools/check-wave-collisions.mjs --pending`); none touches root `package.json` (05-04 owns it) and none installs a package
 - [x] 02.1-01-PLAN.md - JSON Schema (draft 2020-12) generated from the FieldSpec tables into `packages/protocol/contract.schema.json`, `scripts/generate-schema.ts`, drift check in `contract:check`, integer fields pinned, differential tests against every fixture with an in-repo evaluator, `SCHEMA.md`, extension hook (`SCHEMA_GROUPS`) for the cvm, climah and Phase 28 bilterm fixtures (wave 5; criterion 1)
 - [x] 02.1-02-PLAN.md - Operations catalog (`OPERATIONS`, 12 operations, `agent.kill` the only destructive one) driving the WS validator rows, HTTP route list and MCP tool list, palette identities exported, `operations` section in the surface snapshot classified additive by `contract:check`, coverage tests in both directions (wave 5; criteria 2-4, protocol side). Touches no FE file, README or spec
-- [ ] 02.1-03-PLAN.md - Palette entries for the three operation commands derived from the catalog in `src/keyboard/commands.ts` (no palette command maps to a destructive operation, coverage test in both directions), contract spec section 4.3 Operations catalog with a spec-versus-catalog cross-check test, `packages/protocol/README.md` (wave 6, depends on 02.1-02; criterion 2, palette and docs side)
+- [x] 02.1-03-PLAN.md - Palette entries for the three operation commands derived from the catalog in `src/keyboard/commands.ts` (no palette command maps to a destructive operation, coverage test in both directions), contract spec section 4.3 Operations catalog with a spec-versus-catalog cross-check test, `packages/protocol/README.md` (wave 6, depends on 02.1-02; criterion 2, palette and docs side)
 
 ### Phase 3: Transport Reconnect and Connection State
 **Goal:** The UI always shows the true connection state, recovers by itself, and never fabricates live data.
@@ -452,7 +452,7 @@ Scope note: bilterm (`~/src/ai/bilterm`) is an external repo. Phases 27, 31, 32 
 |-------|-----------|----------------|--------|
 | 1. Verify and reconcile fan-out and search | v1.1 | 1/1 | Executed; open for manual QA (pending-human) |
 | 2. Shared Protocol Package and Contract Fixtures | v2.0 | 1/4 | In progress (02-02..02-04 planned) |
-| 2.1 Operations Catalog and JSON Schema | v2.0 | 2/3 | In progress (02.1-01, 02.1-02 merged; 02.1-03 wave 6 pending) |
+| 2.1 Operations Catalog and JSON Schema | v2.0 | 3/3 | Complete (2026-11-08) |
 | 3. Transport Reconnect and Connection State | v2.0 | 1/2 | In progress (03-02 planned) |
 | 4. Gateway Baseline Hardening | v2.0 | 1/1 | Complete |
 | 5. Keyboard-First Operation and Accessibility | v2.0 | 0/4 | In progress (05-01 planned) |
