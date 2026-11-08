@@ -2,9 +2,9 @@
 
 ## Current Position
 Milestone: v1.1 Fan-out Close-out (active, open only for a human QA checkpoint); v2.0 Live-Connected Command Center and v2.1 Multi-Backend and Fleet defined in ROADMAP.md
-Phase: waves 1-3 merged (wave 3: 02-03, 05-02, 05-03, plus pulled-forward Phase 10 slice 10-01/10-02); wave 4 9.1 bug fixes merged; next is 02-04 (then contract:update for agent:kill), Phase 6 plans to write (service layer first)
+Phase: waves 1-3 merged (wave 3: 02-03, 05-02, 05-03, plus pulled-forward Phase 10 slice 10-01/10-02); wave 4 9.1 bug fixes merged; 02-04 merged (contract snapshot includes agent:kill killSession/confirm; contract:update was a no-op); next is Phase 6 plans (service layer first)
 Status: Wave 2 merged and green. Phase 3 (transport + connection UI) is complete pending manual QA. Phase 1 stays open for the human QA checkpoint only.
-Last activity: 2026-11-07 - Phase 9.1 QA bug fixes (09.1-01..04) merged, gate passed (root 68 files / 1037 tests, server 13 / 208), live QA re-run 17 PASS / 0 FAIL / 2 FIXME
+Last activity: 2026-11-07 - Plan 02-04 merged (surface snapshot, contract:check, CI); gate passed (root 72 files / 1123 tests, server 13 / 208)
 
 ## Wave 1 results (merged, green)
 

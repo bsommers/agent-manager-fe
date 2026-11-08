@@ -69,7 +69,7 @@ Plans: 4 plans (re-cut 2026-11-07: the original 02-02 was split because it excee
 - [x] 02-01-PLAN.md - Package skeleton, consumer wiring, validators for existing messages (wave 1, done)
 - [ ] 02-02-PLAN.md - Field-spec engine extraction, hello/hello_ack tracer, error vocabulary, client-to-gateway messages and fixtures (wave 2)
 - [ ] 02-03-PLAN.md - Gateway-to-client messages, additive Agent fields, per-scope meta, HTTP shapes, limits, FE/gateway drift guards (wave 3)
-- [ ] 02-04-PLAN.md - Surface snapshot, `contract:check`, CI workflow, package README (wave 4)
+- [x] 02-04-PLAN.md - Surface snapshot, `contract:check`, CI workflow, package README (wave 4)
 
 ### Phase 2.1: Operations Catalog and JSON Schema (inserted 2026-11-07)
 **Goal:** One operations catalog and one generated JSON Schema in `packages/protocol` drive every surface (WS, HTTP, MCP, command palette) and every adapter fixture, so surfaces cannot drift.
