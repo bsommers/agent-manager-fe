@@ -65,11 +65,14 @@ async function connect(): Promise<Client> {
 
 const send = (c: Client, msg: object) => c.ws.send(JSON.stringify(msg));
 
-const lastSnapshot = (c: Client): Frame | undefined =>
-  [...c.frames].reverse().find((f) => f.type === 'agent:init_list');
-
 const snapshotsAfter = (c: Client, from: number) =>
   c.frames.slice(from).filter((f) => f.type === 'agent:init_list');
+
+const addedAfter = (c: Client, from: number) =>
+  c.frames.slice(from).filter((f) => f.type === 'agent:added');
+
+const removedAfter = (c: Client, from: number) =>
+  c.frames.slice(from).filter((f) => f.type === 'agent:removed');
 
 beforeEach(async () => {
   drivers.length = 0;
@@ -111,7 +114,7 @@ describe('gateway roster contract (what the frontend reconciles against)', () =>
     expect(new Set(ids).size).toBe(2);
   });
 
-  it('announces a create to every client, sender included, as a full snapshot', async () => {
+  it('announces a create to every client, sender included, as one agent:added', async () => {
     handle.sessionManager.createAgent('existing', 'tmux', 'qa_x');
     const a = await connect();
     const b = await connect();
@@ -121,22 +124,23 @@ describe('gateway roster contract (what the frontend reconciles against)', () =>
     send(a, { type: 'agent:create', name: 'qa-new', mode: 'tmux', targetHost: 'qa_new' });
 
     await vi.waitFor(() => {
-      expect(snapshotsAfter(a, baseA)).toHaveLength(1);
-      expect(snapshotsAfter(b, baseB)).toHaveLength(1);
+      expect(addedAfter(a, baseA)).toHaveLength(1);
+      expect(addedAfter(b, baseB)).toHaveLength(1);
     });
     for (const [client, base] of [
       [a, baseA],
       [b, baseB],
     ] as const) {
-      const snap = snapshotsAfter(client, base)[0];
-      // The whole roster, not a delta.
-      expect(snap.agents).toHaveLength(2);
-      const created = snap.agents.find((x: any) => x.name === 'qa-new');
+      // One delta, not the whole roster.
+      expect(snapshotsAfter(client, base)).toHaveLength(0);
+      const created = addedAfter(client, base)[0].agent;
       expect(created).toMatchObject({ name: 'qa-new', mode: 'tmux', targetHost: 'qa_new' });
       expect(typeof created.id).toBe('string');
       expect(created.id.length).toBeGreaterThan(0);
-      expect(snap.agents.some((x: any) => x.name === 'existing')).toBe(true);
     }
+    // The whole roster is what a fresh connection sees.
+    const late = await connect();
+    expect(late.frames[0].agents.map((x: any) => x.name)).toEqual(['existing', 'qa-new']);
   });
 
   it('writes initialCmd followed by a newline to the new session', async () => {
@@ -164,14 +168,13 @@ describe('gateway roster contract (what the frontend reconciles against)', () =>
     send(a, create);
     send(a, create);
 
-    await vi.waitFor(() => expect(snapshotsAfter(a, base)).toHaveLength(2));
-    const snap = lastSnapshot(a)!;
-    const twins = snap.agents.filter((x: any) => x.name === 'twin');
-    expect(twins).toHaveLength(2);
+    await vi.waitFor(() => expect(addedAfter(a, base)).toHaveLength(2));
+    const twins = addedAfter(a, base).map((f) => f.agent);
+    expect(twins.every((x: any) => x.name === 'twin')).toBe(true);
     expect(twins[0].id).not.toBe(twins[1].id);
   });
 
-  it('answers a kill with a snapshot without that agent, and closes its driver', async () => {
+  it('answers a kill with one agent:removed to every client, and closes its driver', async () => {
     const first = handle.sessionManager.createAgent('keep', 'tmux', 'qa_keep');
     const second = handle.sessionManager.createAgent('drop', 'tmux', 'qa_drop');
     const a = await connect();
@@ -182,18 +185,20 @@ describe('gateway roster contract (what the frontend reconciles against)', () =>
     send(a, { type: 'agent:kill', agentId: second.id });
 
     await vi.waitFor(() => {
-      expect(snapshotsAfter(a, baseA)).toHaveLength(1);
-      expect(snapshotsAfter(b, baseB)).toHaveLength(1);
+      expect(removedAfter(a, baseA)).toHaveLength(1);
+      expect(removedAfter(b, baseB)).toHaveLength(1);
     });
     for (const [client, base] of [
       [a, baseA],
       [b, baseB],
     ] as const) {
-      const ids = snapshotsAfter(client, base)[0].agents.map((x: any) => x.id);
-      expect(ids).toEqual([first.id]);
+      expect(removedAfter(client, base)[0]).toMatchObject({ agentId: second.id, reason: 'killed' });
+      expect(snapshotsAfter(client, base)).toHaveLength(0);
     }
     expect(capturedDrivers()[1].close).toHaveBeenCalled();
     expect(capturedDrivers()[0].close).not.toHaveBeenCalled();
+    const late = await connect();
+    expect(late.frames[0].agents.map((x: any) => x.id)).toEqual([first.id]);
   });
 
   it('answers a kill of an unknown id with NOT_FOUND to the requester and no snapshot to anyone', async () => {
@@ -225,7 +230,7 @@ describe('gateway roster contract (what the frontend reconciles against)', () =>
     const a = await connect();
     const base = a.frames.length;
     send(a, { type: 'agent:create', name: 'persist', mode: 'tmux', targetHost: 'qa_persist' });
-    await vi.waitFor(() => expect(snapshotsAfter(a, base)).toHaveLength(1));
+    await vi.waitFor(() => expect(addedAfter(a, base)).toHaveLength(1));
     a.ws.close();
     await vi.waitFor(() => expect(a.ws.readyState).toBe(WebSocket.CLOSED));
 

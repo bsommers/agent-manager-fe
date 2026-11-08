@@ -130,7 +130,7 @@ export class AgentService {
       }, 500);
     }
 
-    this.publishSnapshot();
+    this.publish({ type: 'agent:added', agent: structuredClone(agent) });
     return ok(agent);
   }
 
@@ -260,11 +260,7 @@ export class AgentService {
       this.drivers.delete(agent.id);
     }
     this.agents.delete(agent.id);
-    this.publishSnapshot();
-  }
-
-  private publishSnapshot(): void {
-    this.publish({ type: 'agent:init_list', agents: Array.from(this.agents.values()) });
+    this.publish({ type: 'agent:removed', agentId: agent.id, reason: 'killed' });
   }
 
   private getOrCreateDriver(agentId: string): Driver | undefined {

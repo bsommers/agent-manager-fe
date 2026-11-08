@@ -492,7 +492,7 @@ describe('SessionManager', () => {
   });
 
   describe('killAgent', () => {
-    it('should close driver, remove agent, and broadcast updated init list', () => {
+    it('should close driver, remove agent, and broadcast agent:removed', () => {
       const mockWs: any = { send: vi.fn(), readyState: WebSocket.OPEN };
       manager.addClient(mockWs);
 
@@ -506,8 +506,9 @@ describe('SessionManager', () => {
       expect(manager.getAgentCount()).toBe(0);
       expect(manager.getAgent(agent.id)).toBeUndefined();
       expect(manager.getDriver(agent.id)).toBeUndefined();
+      expect(mockWs.send).toHaveBeenCalledTimes(1);
       expect(mockWs.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: 'agent:init_list', agents: [] })
+        JSON.stringify({ type: 'agent:removed', agentId: agent.id, reason: 'killed' })
       );
     });
 

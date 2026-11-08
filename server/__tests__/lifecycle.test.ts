@@ -141,8 +141,10 @@ describe('agent:create with a reqId', () => {
     expect(acksAfter(a, baseA)).toHaveLength(1);
     expect(acksAfter(b, baseB)).toHaveLength(0);
 
-    const snap = snapshotsAfter(b, baseB).at(-1)!;
-    expect(snap.agents.map((x: any) => x.id)).toContain(ack.agent.id);
+    // Every connection learns of the create from agent:added (06-04), the other client included.
+    await vi.waitFor(() => expect(ofType(b, baseB, 'agent:added')).toHaveLength(1));
+    expect(ofType(b, baseB, 'agent:added')[0].agent.id).toBe(ack.agent.id);
+    expect(snapshotsAfter(b, baseB)).toHaveLength(0);
   });
 
   it('sends no ack when the create carries no reqId', async () => {
@@ -151,7 +153,7 @@ describe('agent:create with a reqId', () => {
 
     send(a, { type: 'agent:create', name: 'plain', mode: 'tmux', targetHost: 'qa_plain' });
 
-    await vi.waitFor(() => expect(snapshotsAfter(a, base)).toHaveLength(1));
+    await vi.waitFor(() => expect(ofType(a, base, 'agent:added')).toHaveLength(1));
     await settle(a);
     expect(acksAfter(a, base)).toHaveLength(0);
     expect(errorsAfter(a, base)).toHaveLength(0);
