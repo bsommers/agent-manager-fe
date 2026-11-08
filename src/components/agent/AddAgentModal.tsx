@@ -3,6 +3,7 @@ import { X, Server, Terminal } from 'lucide-react';
 import { useAgentStore } from '../../store/agentStore';
 import { AgentMode } from '../../types/agent';
 import { useModalFocus } from '../../hooks/useModalFocus';
+import { OverlayPortal } from '../layout/OverlayPortal';
 
 interface AddAgentModalProps {
   isOpen: boolean;
@@ -34,7 +35,8 @@ export const AddAgentModal: React.FC<AddAgentModalProps> = ({ isOpen, onClose })
   };
 
   return (
-    <div className="fixed inset-0 z-[500] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <OverlayPortal>
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
       <div
         ref={dialogRef}
         role="dialog"
@@ -129,5 +131,6 @@ export const AddAgentModal: React.FC<AddAgentModalProps> = ({ isOpen, onClose })
         </form>
       </div>
     </div>
+    </OverlayPortal>
   );
 };

@@ -5,6 +5,11 @@ import { Z_LAYERS, clampPaneZ, stackPanes } from '../../../styles/zLayers';
 import { OverlayPortal } from '../OverlayPortal';
 import { DestructiveSafetyModal } from '../DestructiveSafetyModal';
 import { useAgentStore } from '../../../store/agentStore';
+import { AddAgentModal } from '../../agent/AddAgentModal';
+import { GlobalSearchModal } from '../GlobalSearchModal';
+import { CommandPalette } from '../CommandPalette';
+import { ShortcutHelp } from '../ShortcutHelp';
+import { useUiStore, resetUiStore } from '../../../store/uiStore';
 import { Agent } from '../../../types/agent';
 
 const makeAgent = (id: string, zIndex?: number): Agent => ({
@@ -168,6 +173,67 @@ describe('OverlayPortal', () => {
       </OverlayPortal>,
     );
     expect(layerWrapper('overlay')!.style.zIndex).toBe('9000');
+  });
+});
+
+describe('ordinary dialogs render in the overlay layer', () => {
+  beforeEach(() => {
+    resetUiStore();
+    useAgentStore.setState({ agents: seed() });
+    raiseMany(10000);
+  });
+  afterEach(() => {
+    resetUiStore();
+  });
+
+  const expectInOverlayLayer = (dialogSelector: string) => {
+    const wrappers = document.body.querySelectorAll('[data-overlay-layer="overlay"]');
+    expect(wrappers).toHaveLength(1);
+    const w = wrappers[0] as HTMLElement;
+    expect(w.parentElement).toBe(document.body);
+    expect(w.querySelector(dialogSelector)).not.toBeNull();
+    expect(Number(w.style.zIndex)).toBe(Z_LAYERS.overlay);
+    expect(Number(w.style.zIndex)).toBeGreaterThan(maxPaneZ());
+    expect(Z_LAYERS.confirm).toBeGreaterThan(Number(w.style.zIndex));
+  };
+
+  it('AddAgentModal', () => {
+    render(<AddAgentModal isOpen onClose={() => {}} />);
+    expectInOverlayLayer('[role="dialog"]');
+  });
+  it('AddAgentModal renders nothing when closed', () => {
+    const { container } = render(<AddAgentModal isOpen={false} onClose={() => {}} />);
+    expect(container).toBeEmptyDOMElement();
+    expect(document.body.querySelector('[data-overlay-layer]')).toBeNull();
+  });
+  it('GlobalSearchModal', () => {
+    render(<GlobalSearchModal isOpen onClose={() => {}} />);
+    expectInOverlayLayer('[data-testid="search-modal-backdrop"]');
+  });
+  it('GlobalSearchModal renders nothing when closed', () => {
+    const { container } = render(<GlobalSearchModal isOpen={false} onClose={() => {}} />);
+    expect(container).toBeEmptyDOMElement();
+    expect(document.body.querySelector('[data-overlay-layer]')).toBeNull();
+  });
+  it('CommandPalette', () => {
+    useUiStore.getState().openOverlay('palette');
+    render(<CommandPalette />);
+    expectInOverlayLayer('[data-testid="palette-backdrop"]');
+  });
+  it('ShortcutHelp', () => {
+    useUiStore.getState().openOverlay('help');
+    render(<ShortcutHelp />);
+    expectInOverlayLayer('[data-testid="shortcut-help-backdrop"]');
+  });
+  it('CommandPalette and ShortcutHelp render nothing when not open', () => {
+    const { container } = render(
+      <>
+        <CommandPalette />
+        <ShortcutHelp />
+      </>,
+    );
+    expect(container).toBeEmptyDOMElement();
+    expect(document.body.querySelector('[data-overlay-layer]')).toBeNull();
   });
 });
 

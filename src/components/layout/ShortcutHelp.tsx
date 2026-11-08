@@ -2,6 +2,7 @@ import React, { useId, useRef } from 'react';
 import { X } from 'lucide-react';
 import { useUiStore } from '../../store/uiStore';
 import { useModalFocus } from '../../hooks/useModalFocus';
+import { OverlayPortal } from './OverlayPortal';
 import { SHORTCUTS, formatKeys } from '../../keyboard/shortcuts';
 import type { Shortcut } from '../../keyboard/shortcuts';
 
@@ -28,9 +29,10 @@ const HelpDialog: React.FC = () => {
   }
 
   return (
+    <OverlayPortal>
     <div
       data-testid="shortcut-help-backdrop"
-      className="fixed inset-0 z-[500] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={() => closeOverlay('help')}
     >
       <div
@@ -81,6 +83,7 @@ const HelpDialog: React.FC = () => {
         </div>
       </div>
     </div>
+    </OverlayPortal>
   );
 };
 

@@ -4,6 +4,7 @@ import { useAgentStore } from '../../store/agentStore';
 import { useLogBufferStore, LogSearchResult } from '../../store/logBufferStore';
 import { Agent } from '../../types/agent';
 import { useModalFocus } from '../../hooks/useModalFocus';
+import { OverlayPortal } from './OverlayPortal';
 
 export interface GlobalSearchModalProps {
   isOpen: boolean;
@@ -91,10 +92,11 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
   if (!isOpen) return null;
 
   return (
+    <OverlayPortal>
     <div
       data-testid="search-modal-backdrop"
       onClick={onClose}
-      className="fixed inset-0 z-[500] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
     >
       <div
         ref={dialogRef}
@@ -306,5 +308,6 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
         </div>
       </div>
     </div>
+    </OverlayPortal>
   );
 };

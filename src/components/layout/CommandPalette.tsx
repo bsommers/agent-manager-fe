@@ -3,6 +3,7 @@ import { Command as CommandIcon } from 'lucide-react';
 import { useUiStore } from '../../store/uiStore';
 import { useAgentStore } from '../../store/agentStore';
 import { useModalFocus } from '../../hooks/useModalFocus';
+import { OverlayPortal } from './OverlayPortal';
 import { buildCommands, filterCommands, MAX_PALETTE_RESULTS } from '../../keyboard/commands';
 import { formatKeys } from '../../keyboard/shortcuts';
 
@@ -58,9 +59,10 @@ const PaletteDialog: React.FC = () => {
   };
 
   return (
+    <OverlayPortal>
     <div
       data-testid="palette-backdrop"
-      className="fixed inset-0 z-[500] flex items-start justify-center pt-24 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 flex items-start justify-center pt-24 bg-black/60 backdrop-blur-sm"
       onClick={() => closeOverlay('palette')}
     >
       <div
@@ -136,6 +138,7 @@ const PaletteDialog: React.FC = () => {
         </div>
       </div>
     </div>
+    </OverlayPortal>
   );
 };
 
