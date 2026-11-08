@@ -6,6 +6,8 @@ import { ERROR_CODES } from './errors.js';
 import { hasOwn, isPlainObjectLike, validateObject } from './fieldspec.js';
 import { evaluateRules } from './fieldspec.js';
 import type { FieldSpec, MessageSpec, ObjectSpec } from './fieldspec.js';
+import { clientRowFor } from './operations.js';
+import { reqIdSpec } from './specs.js';
 
 export type ParseFailureReason = 'not_object' | 'missing_type' | 'unknown_type' | 'invalid_field';
 
@@ -18,7 +20,6 @@ export type ParseResult<T> =
 // ---------------------------------------------------------------------------
 
 const STATUSES = ['idle', 'running', 'thinking', 'error', 'disconnected'] as const;
-const CLIENT_MODES = ['tmux', 'ssh'] as const;
 
 const idSpec: FieldSpec = { kind: 'string', min: 1, max: LIMITS.MAX_ID_LENGTH };
 const statusSpec: FieldSpec = { kind: 'enum', values: STATUSES };
@@ -86,7 +87,6 @@ const inputData: FieldSpec = {
 
 const nameSpec: FieldSpec = { kind: 'string', min: 1, max: 64 };
 const versionSpec: FieldSpec = { kind: 'string', min: 1, max: 32 };
-const reqIdSpec: FieldSpec = { kind: 'string', min: 1, max: LIMITS.MAX_ID_LENGTH, optional: true };
 const seqSpec: FieldSpec = { kind: 'integer', min: 0, max: Number.MAX_SAFE_INTEGER, optional: true };
 
 const positiveInt: FieldSpec = { kind: 'integer', min: 1, max: Number.MAX_SAFE_INTEGER };
@@ -120,28 +120,7 @@ export const CLIENT_TABLE = {
       rows: { kind: 'integer', min: 1, max: 1000 },
     },
   },
-  'agent:create': {
-    fields: {
-      name: { kind: 'string', min: 1, max: LIMITS.MAX_NAME_LENGTH, trim: true, noControl: true },
-      mode: { kind: 'enum', values: CLIENT_MODES },
-      targetHost: {
-        kind: 'string',
-        min: 1,
-        max: LIMITS.MAX_TARGET_HOST_LENGTH,
-        noControl: true,
-      },
-      initialCmd: { kind: 'string', min: 0, max: LIMITS.MAX_INITIAL_CMD_LENGTH, optional: true },
-      backend: { kind: 'token', max: 64, optional: true },
-      params: {
-        kind: 'map',
-        maxEntries: 32,
-        keyMax: 64,
-        value: { kind: 'scalar', maxString: 1024 },
-        optional: true,
-      },
-      reqId: reqIdSpec,
-    },
-  },
+  'agent:create': clientRowFor('agent:create'),
   'agent:kill': {
     fields: {
       agentId: idSpec,

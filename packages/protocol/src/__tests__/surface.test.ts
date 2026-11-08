@@ -40,7 +40,7 @@ describe('describeSurface', () => {
   it('contains every section header the contract defines', () => {
     const s = describeSurface();
     expect(Object.keys(s).sort()).toEqual(
-      ['agentCapabilities', 'client', 'contract', 'errorCodes', 'gatewayCapabilities', 'http', 'limits', 'server'].sort(),
+      ['agentCapabilities', 'client', 'contract', 'errorCodes', 'gatewayCapabilities', 'http', 'limits', 'operations', 'server'].sort(),
     );
     expect(s.contract).toBe(CONTRACT_VERSION);
     expect(s.limits).toMatchObject({ MAX_FRAME_BYTES: LIMITS.MAX_FRAME_BYTES, RECONNECT: { baseMs: 500 } });

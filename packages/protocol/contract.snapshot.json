@@ -948,6 +948,84 @@
       "factor": 2
     }
   },
+  "operations": {
+    "agent.create": {
+      "destructive": false,
+      "http": {
+        "headerParams": {
+          "Idempotency-Key": "reqId"
+        },
+        "input": "body",
+        "method": "POST",
+        "path": "/api/agents",
+        "status": 201
+      },
+      "mcp": {
+        "tool": "agent_create"
+      },
+      "palette": {
+        "id": "agent.new"
+      },
+      "params": {
+        "backend": {
+          "kind": "token",
+          "max": 64,
+          "required": false
+        },
+        "initialCmd": {
+          "kind": "string",
+          "max": 4096,
+          "min": 0,
+          "required": false
+        },
+        "mode": {
+          "kind": "enum",
+          "required": true,
+          "values": [
+            "tmux",
+            "ssh"
+          ]
+        },
+        "name": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "noControl": true,
+          "required": true,
+          "trim": true
+        },
+        "params": {
+          "keyMax": 64,
+          "kind": "map",
+          "maxEntries": 32,
+          "required": false,
+          "value": {
+            "kind": "scalar",
+            "maxString": 1024
+          }
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        },
+        "targetHost": {
+          "kind": "string",
+          "max": 255,
+          "min": 1,
+          "noControl": true,
+          "required": true
+        }
+      },
+      "readOnly": false,
+      "requires": {},
+      "rules": [],
+      "ws": {
+        "type": "agent:create"
+      }
+    }
+  },
   "server": {
     "agent:ack": {
       "fields": {
