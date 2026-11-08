@@ -3,6 +3,8 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { agentSocket } from '../../services/agentSocket';
+import { matchGlobalShortcut } from '../../keyboard/shortcuts';
+import { useFocusRequest } from '../../keyboard/hooks';
 
 interface TerminalViewProps {
   agentId: string;
@@ -23,6 +25,8 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const currentInputRef = useRef<string>('');
+
+  useFocusRequest(`terminal:${agentId}`, () => terminalRef.current?.focus());
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -57,6 +61,16 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     term.loadAddon(webLinksAddon);
     term.open(containerRef.current);
     fitAddon.fit();
+
+    // Accessible name for the terminal's input element.
+    if (term.textarea) {
+      term.textarea.setAttribute('aria-label', `Terminal input: ${agentName}`);
+    }
+    // Registered global chords (Ctrl+K, Ctrl+Shift+F, Ctrl+/) are withheld from the program so they
+    // bubble to the window listener; every other key still reaches the terminal.
+    if (typeof term.attachCustomKeyEventHandler === 'function') {
+      term.attachCustomKeyEventHandler((event: KeyboardEvent) => matchGlobalShortcut(event) === null);
+    }
 
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;

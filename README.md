@@ -23,6 +23,7 @@
 - **🔌 Live Transport and Explicit Demo Mode**: The app connects to the backend at the configured `VITE_BACKEND_URL` (default `http://localhost:8088`), reconnects by itself, and shows the connection state in the header. Terminal output is simulated only when Demo mode is selected explicitly (`VITE_DEMO_MODE=1`). See [`docs/RUNNING.md`](docs/RUNNING.md) for connection configuration.
 - **📡 Multi-Agent Command Broadcast**: Send one command to all, filtered, or selected agents at once from the broadcast bar. Commands matching destructive patterns (e.g. `rm`, `sudo`, `kill`, `shutdown`) require explicit confirmation in a safety modal before they are sent.
 - **🔎 Global Log Search**: Search ANSI-stripped terminal output buffered across all agents, with a plain-text or regular-expression toggle (`Ctrl+Shift+F`), and jump straight to the matching agent pane.
+- **⌨️ Keyboard-First Operation**: A `Ctrl+K` command palette reaches every agent, layout, the broadcast bar and search, and `Ctrl+/` lists every shortcut, even from inside a terminal. See [`docs/KEYBOARD.md`](docs/KEYBOARD.md).
 - **🔔 Status Toast Alerts**: An in-app toast appears when an agent enters an error or disconnected state; click it to jump to that agent.
 - **🔍 Agent Roster Search & Quick Actions**: Search agents by name or host, clear terminal outputs, send interrupt signals (`Ctrl+C`), and manage agent lifecycles.
 
