@@ -15,3 +15,4 @@ export type {
 } from './fieldspec.js';
 export { validateObject } from './fieldspec.js';
 export * from './surface.js';
+export * from './operations.js';

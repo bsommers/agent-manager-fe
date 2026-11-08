@@ -3,6 +3,8 @@ import { AGENT_CAPABILITIES, GATEWAY_CAPABILITIES } from './capabilities.js';
 import { ERROR_CODES, ERROR_HTTP_STATUS } from './errors.js';
 import { CLIENT_TABLE, SERVER_TABLE } from './validate.js';
 import { HTTP_TABLE } from './http.js';
+import { OPERATIONS } from './operations.js';
+import type { OperationSpec } from './operations.js';
 import type { FieldSpec, MessageSpec, ObjectSpec } from './fieldspec.js';
 
 // ---------------------------------------------------------------------------
@@ -24,6 +26,20 @@ export interface MessageEntry {
   rules: unknown[];
 }
 
+/** One catalogued operation. A surface the operation lacks is null (the reason lives in the catalog, not here). */
+export interface OperationEntry {
+  destructive: boolean;
+  readOnly: boolean;
+  confirmParam?: string;
+  requires: { gateway?: string; agent?: string };
+  params: FieldMap;
+  rules: unknown[];
+  ws: Record<string, unknown> | null;
+  http: Record<string, unknown> | null;
+  mcp: Record<string, unknown> | null;
+  palette: Record<string, unknown> | null;
+}
+
 export interface Surface {
   contract: number;
   client: Record<string, MessageEntry>;
@@ -33,6 +49,8 @@ export interface Surface {
   gatewayCapabilities: string[];
   agentCapabilities: string[];
   limits: Record<string, unknown>;
+  /** Absent in snapshots from before the operations catalog; treated as empty when diffing. */
+  operations?: Record<string, OperationEntry>;
 }
 
 /** Recursively sorts object keys; array order is preserved (it is meaningful for enums and rules). */
@@ -128,6 +146,29 @@ function describeTable(table: Readonly<Record<string, MessageSpec>>): Record<str
   return out;
 }
 
+const binding = (b: object): Record<string, unknown> | null => ('none' in b ? null : { ...b });
+
+function describeOperations(catalog: Readonly<Record<string, OperationSpec>>): Record<string, OperationEntry> {
+  const out: Record<string, OperationEntry> = {};
+  for (const name of Object.keys(catalog)) {
+    const op = catalog[name];
+    const entry: OperationEntry = {
+      destructive: op.destructive,
+      readOnly: op.readOnly,
+      requires: { ...op.requires },
+      params: describeFieldMap(op.params),
+      rules: (op.rules ?? []).map((r) => ({ ...r })),
+      ws: binding(op.ws),
+      http: binding(op.http),
+      mcp: binding(op.mcp),
+      palette: binding(op.palette),
+    };
+    if (op.confirmParam !== undefined) entry.confirmParam = op.confirmParam;
+    out[name] = entry;
+  }
+  return out;
+}
+
 /** Deterministic description of the whole contract; key order is sorted so JSON.stringify is stable. */
 export function describeSurface(): Surface {
   const surface = {
@@ -139,6 +180,7 @@ export function describeSurface(): Surface {
     gatewayCapabilities: [...GATEWAY_CAPABILITIES],
     agentCapabilities: [...AGENT_CAPABILITIES],
     limits: JSON.parse(JSON.stringify(LIMITS)) as Record<string, unknown>,
+    operations: describeOperations(OPERATIONS),
   };
   return sortKeys(surface) as Surface;
 }
@@ -310,6 +352,47 @@ function diffLimits(path: string, prev: Record<string, unknown>, next: Record<st
   for (const key of Object.keys(next)) if (!(key in prev)) out.additive.push(`${path}.${key}: limit added`);
 }
 
+const BINDINGS = ['ws', 'http', 'mcp', 'palette'] as const;
+
+function diffOperations(
+  prev: Record<string, OperationEntry>,
+  next: Record<string, OperationEntry>,
+  out: SurfaceDiff,
+): void {
+  for (const name of Object.keys(prev)) {
+    const here = `operations.${name}`;
+    if (!(name in next)) {
+      out.breaking.push(`${here}: removed`);
+      continue;
+    }
+    const a = prev[name];
+    const b = next[name];
+    for (const flag of ['destructive', 'readOnly', 'confirmParam'] as const) {
+      if (!same(a[flag], b[flag])) {
+        out.breaking.push(`${here}.${flag}: changed from ${JSON.stringify(a[flag])} to ${JSON.stringify(b[flag])}`);
+      }
+    }
+    const members = new Set([...Object.keys(a.requires), ...Object.keys(b.requires)]);
+    for (const m of [...members].sort()) {
+      const was = (a.requires as Record<string, unknown>)[m];
+      const now = (b.requires as Record<string, unknown>)[m];
+      if (!same(was, now)) out.breaking.push(`${here}.requires.${m}: changed from ${JSON.stringify(was)} to ${JSON.stringify(now)}`);
+    }
+    diffFieldMap(`${here}.params`, a.params, b.params, out);
+    const wasRules = a.rules.map((r) => JSON.stringify(r));
+    const nowRules = b.rules.map((r) => JSON.stringify(r));
+    for (const r of nowRules) if (!wasRules.includes(r)) out.breaking.push(`${here}: rule added ${r}`);
+    for (const r of wasRules) if (!nowRules.includes(r)) out.additive.push(`${here}: rule removed ${r}`);
+    for (const key of BINDINGS) {
+      if (same(a[key], b[key])) continue;
+      if (a[key] === null) out.additive.push(`${here}.${key}: binding added`);
+      else if (b[key] === null) out.breaking.push(`${here}.${key}: binding removed`);
+      else out.breaking.push(`${here}.${key}: binding changed from ${JSON.stringify(a[key])} to ${JSON.stringify(b[key])}`);
+    }
+  }
+  for (const name of Object.keys(next)) if (!(name in prev)) out.additive.push(`operations.${name}: added`);
+}
+
 /** Classifies every difference between two surfaces as breaking or additive. */
 export function diffSurface(prev: Surface, next: Surface): SurfaceDiff {
   const out: SurfaceDiff = { breaking: [], additive: [] };
@@ -330,6 +413,7 @@ export function diffSurface(prev: Surface, next: Surface): SurfaceDiff {
   diffList('gatewayCapabilities', prev.gatewayCapabilities, next.gatewayCapabilities, out);
   diffList('agentCapabilities', prev.agentCapabilities, next.agentCapabilities, out);
   diffLimits('limits', prev.limits, next.limits, out);
+  diffOperations(prev.operations ?? {}, next.operations ?? {}, out);
   return out;
 }
 

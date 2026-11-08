@@ -948,6 +948,588 @@
       "factor": 2
     }
   },
+  "operations": {
+    "agent.approve": {
+      "destructive": false,
+      "http": null,
+      "mcp": null,
+      "palette": null,
+      "params": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "decision": {
+          "kind": "enum",
+          "required": true,
+          "values": [
+            "approve",
+            "deny"
+          ]
+        },
+        "gateId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        }
+      },
+      "readOnly": false,
+      "requires": {
+        "agent": "approve",
+        "gateway": "gates"
+      },
+      "rules": [],
+      "ws": {
+        "type": "agent:approve"
+      }
+    },
+    "agent.broadcast": {
+      "destructive": false,
+      "http": null,
+      "mcp": {
+        "tool": "agent_broadcast"
+      },
+      "palette": {
+        "id": "broadcast.open"
+      },
+      "params": {
+        "data": {
+          "kind": "string",
+          "max": 65536,
+          "maxBytes": 65536,
+          "min": 0,
+          "required": true
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        },
+        "targetAgentIds": {
+          "item": {
+            "kind": "string",
+            "max": 128,
+            "min": 1
+          },
+          "kind": "array",
+          "maxItems": 64,
+          "minItems": 1,
+          "required": true
+        }
+      },
+      "readOnly": false,
+      "requires": {
+        "agent": "broadcast",
+        "gateway": "broadcast"
+      },
+      "rules": [],
+      "ws": {
+        "type": "agent:broadcast"
+      }
+    },
+    "agent.close": {
+      "destructive": false,
+      "http": {
+        "input": "none",
+        "method": "DELETE",
+        "path": "/api/agents/:id",
+        "pathParams": {
+          "id": "agentId"
+        },
+        "status": 200
+      },
+      "mcp": {
+        "tool": "agent_close"
+      },
+      "palette": null,
+      "params": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        }
+      },
+      "readOnly": false,
+      "requires": {
+        "agent": "kill"
+      },
+      "rules": [],
+      "ws": {
+        "type": "agent:kill",
+        "when": {
+          "field": "killSession",
+          "is": false
+        }
+      }
+    },
+    "agent.create": {
+      "destructive": false,
+      "http": {
+        "headerParams": {
+          "Idempotency-Key": "reqId"
+        },
+        "input": "body",
+        "method": "POST",
+        "path": "/api/agents",
+        "status": 201
+      },
+      "mcp": {
+        "tool": "agent_create"
+      },
+      "palette": {
+        "id": "agent.new"
+      },
+      "params": {
+        "backend": {
+          "kind": "token",
+          "max": 64,
+          "required": false
+        },
+        "initialCmd": {
+          "kind": "string",
+          "max": 4096,
+          "min": 0,
+          "required": false
+        },
+        "mode": {
+          "kind": "enum",
+          "required": true,
+          "values": [
+            "tmux",
+            "ssh"
+          ]
+        },
+        "name": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "noControl": true,
+          "required": true,
+          "trim": true
+        },
+        "params": {
+          "keyMax": 64,
+          "kind": "map",
+          "maxEntries": 32,
+          "required": false,
+          "value": {
+            "kind": "scalar",
+            "maxString": 1024
+          }
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        },
+        "targetHost": {
+          "kind": "string",
+          "max": 255,
+          "min": 1,
+          "noControl": true,
+          "required": true
+        }
+      },
+      "readOnly": false,
+      "requires": {},
+      "rules": [],
+      "ws": {
+        "type": "agent:create"
+      }
+    },
+    "agent.history": {
+      "destructive": false,
+      "http": null,
+      "mcp": null,
+      "palette": null,
+      "params": {
+        "afterSeq": {
+          "kind": "integer",
+          "max": 9007199254740991,
+          "min": 0,
+          "required": false
+        },
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "beforeSeq": {
+          "kind": "integer",
+          "max": 9007199254740991,
+          "min": 0,
+          "required": false
+        },
+        "limit": {
+          "kind": "integer",
+          "max": 1000,
+          "min": 1,
+          "required": false
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        }
+      },
+      "readOnly": true,
+      "requires": {
+        "agent": "history",
+        "gateway": "history"
+      },
+      "rules": [
+        {
+          "fields": [
+            "beforeSeq",
+            "afterSeq"
+          ],
+          "kind": "exactlyOne"
+        }
+      ],
+      "ws": {
+        "type": "agent:history"
+      }
+    },
+    "agent.input": {
+      "destructive": false,
+      "http": null,
+      "mcp": {
+        "tool": "agent_input"
+      },
+      "palette": null,
+      "params": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "data": {
+          "kind": "string",
+          "max": 65536,
+          "maxBytes": 65536,
+          "min": 0,
+          "required": true
+        }
+      },
+      "readOnly": false,
+      "requires": {
+        "agent": "input",
+        "gateway": "terminal"
+      },
+      "rules": [],
+      "ws": {
+        "type": "agent:input"
+      }
+    },
+    "agent.kill": {
+      "confirmParam": "confirm",
+      "destructive": true,
+      "http": null,
+      "mcp": {
+        "tool": "agent_kill"
+      },
+      "palette": null,
+      "params": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "confirm": {
+          "kind": "boolean",
+          "required": false
+        },
+        "killSession": {
+          "kind": "boolean",
+          "required": false
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        }
+      },
+      "readOnly": false,
+      "requires": {
+        "agent": "kill"
+      },
+      "rules": [],
+      "ws": {
+        "row": true,
+        "type": "agent:kill",
+        "when": {
+          "field": "killSession",
+          "is": true
+        }
+      }
+    },
+    "agent.list": {
+      "destructive": false,
+      "http": {
+        "input": "none",
+        "method": "GET",
+        "path": "/api/agents",
+        "status": 200
+      },
+      "mcp": {
+        "tool": "agent_list"
+      },
+      "palette": null,
+      "params": {},
+      "readOnly": true,
+      "requires": {},
+      "rules": [],
+      "ws": null
+    },
+    "agent.logs": {
+      "destructive": false,
+      "http": {
+        "input": "query",
+        "method": "GET",
+        "path": "/api/agents/:id/logs",
+        "pathParams": {
+          "id": "agentId"
+        },
+        "status": 200
+      },
+      "mcp": {
+        "tool": "agent_logs"
+      },
+      "palette": null,
+      "params": {
+        "afterSeq": {
+          "kind": "integer",
+          "max": 9007199254740991,
+          "min": 0,
+          "required": false
+        },
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "beforeSeq": {
+          "kind": "integer",
+          "max": 9007199254740991,
+          "min": 0,
+          "required": false
+        },
+        "limit": {
+          "kind": "integer",
+          "max": 2000,
+          "min": 1,
+          "required": false
+        }
+      },
+      "readOnly": true,
+      "requires": {
+        "gateway": "history"
+      },
+      "rules": [],
+      "ws": null
+    },
+    "agent.resize": {
+      "destructive": false,
+      "http": null,
+      "mcp": null,
+      "palette": null,
+      "params": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "cols": {
+          "kind": "integer",
+          "max": 1000,
+          "min": 1,
+          "required": true
+        },
+        "rows": {
+          "kind": "integer",
+          "max": 1000,
+          "min": 1,
+          "required": true
+        }
+      },
+      "readOnly": false,
+      "requires": {
+        "agent": "resize",
+        "gateway": "terminal"
+      },
+      "rules": [],
+      "ws": {
+        "type": "agent:resize"
+      }
+    },
+    "agent.update": {
+      "destructive": false,
+      "http": null,
+      "mcp": {
+        "tool": "agent_update"
+      },
+      "palette": null,
+      "params": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "group": {
+          "kind": "string",
+          "max": 64,
+          "min": 1,
+          "noControl": true,
+          "required": false
+        },
+        "name": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "noControl": true,
+          "required": false,
+          "trim": true
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        },
+        "tags": {
+          "item": {
+            "kind": "string",
+            "max": 64,
+            "min": 1,
+            "noControl": true
+          },
+          "kind": "array",
+          "maxItems": 32,
+          "minItems": 0,
+          "required": false
+        }
+      },
+      "readOnly": false,
+      "requires": {},
+      "rules": [
+        {
+          "fields": [
+            "name",
+            "tags",
+            "group"
+          ],
+          "kind": "atLeastOne"
+        }
+      ],
+      "ws": {
+        "type": "agent:update"
+      }
+    },
+    "search.query": {
+      "destructive": false,
+      "http": {
+        "input": "query",
+        "method": "GET",
+        "path": "/api/search",
+        "status": 200
+      },
+      "mcp": {
+        "tool": "search_output"
+      },
+      "palette": {
+        "id": "search.open"
+      },
+      "params": {
+        "agentId": {
+          "item": {
+            "kind": "string",
+            "max": 128,
+            "min": 1
+          },
+          "kind": "array",
+          "maxItems": 64,
+          "minItems": 1,
+          "required": false
+        },
+        "caseSensitive": {
+          "kind": "boolean",
+          "required": false
+        },
+        "context": {
+          "kind": "integer",
+          "max": 5,
+          "min": 0,
+          "required": false
+        },
+        "cursor": {
+          "kind": "string",
+          "max": 512,
+          "min": 1,
+          "required": false
+        },
+        "from": {
+          "kind": "number",
+          "required": false
+        },
+        "limit": {
+          "kind": "integer",
+          "max": 1000,
+          "min": 1,
+          "required": false
+        },
+        "q": {
+          "kind": "string",
+          "max": 256,
+          "min": 1,
+          "required": true
+        },
+        "regex": {
+          "kind": "boolean",
+          "required": false
+        },
+        "to": {
+          "kind": "number",
+          "required": false
+        },
+        "wholeWord": {
+          "kind": "boolean",
+          "required": false
+        }
+      },
+      "readOnly": true,
+      "requires": {
+        "gateway": "search"
+      },
+      "rules": [],
+      "ws": null
+    }
+  },
   "server": {
     "agent:ack": {
       "fields": {
