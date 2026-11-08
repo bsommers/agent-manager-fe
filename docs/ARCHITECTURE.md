@@ -148,11 +148,21 @@ The frontend store implements three layout auto-arrange functions:
 ### 4.1 Component Breakdown
 
 #### `SessionManager.ts`
-Central registry mapping `agentId` to `TmuxDriver` or `SshDriver` instances.
-- Maintains active connected WebSocket client set (`clients: Set<WebSocket>`).
-- Routes incoming client messages to the appropriate driver instance.
-- Broadcasts server events (`agent:output`, `agent:status_change`, `agent:init_list`) to all connected clients.
+The WebSocket side of the gateway. It no longer owns agents or drivers.
+- Maintains the connected client set (`clients: Set<WebSocket>`) and sends the `agent:init_list` snapshot on connect.
+- Fans every published server event (`agent:output`, `agent:status_change`, `agent:init_list`, `agent:updated`) out to all connected clients; it is the `publish` callback of its `AgentService`.
+- Maps legacy client messages (`agent:create|input|resize|kill|broadcast`) to `AgentService` calls and turns destroy refusals into `agent:error` frames through `errorFrame`. It exposes the service as a readonly `service` property.
+
+#### `AgentService.ts`
+Transport-agnostic agent operations (ADR-010). It imports no WebSocket, Express or HTTP type.
+- Owns the agent registry, the driver map and the in-flight session-kill map, and exposes `initialize`, `list`, `get`, `count`, `driverOf`, `create`, `close`, `destroy`, `input`, `resize`, `broadcast` and `update`.
+- Every operation that can fail in an expected way returns a `ServiceResult` (see `serviceResult.ts`); state changes leave through one injected `publish` callback.
+- `close` removes an agent and never touches tmux. `destroy` is the explicit tmux session kill; its confirm gate (`confirm` must be exactly `true`) is the first statement, before any lookup, driver call or process, so no surface can skip it by calling the service.
+- `create` registers an agent only after its driver was constructed (a failed start answers `BACKEND_DOWN` and announces nothing) and refuses past `LIMITS.MAX_AGENTS` with `CONFLICT`.
 - Implements lazy driver attachment for sessions discovered at startup upon first client input or window resize.
+
+#### `serviceResult.ts`
+`ServiceError { code, message, retryable, agentId? }`, `ServiceResult<T>`, the `ok` and `fail` helpers and `errorFrame`, the single builder of `agent:error` frames. Every service error message is a fixed string; underlying error text goes only to the server log.
 
 #### `TmuxDriver.ts`
 Pty process wrapper built on `node-pty`.
@@ -178,6 +188,8 @@ Startup auto-discovery engine.
 ## 5. WebSocket Protocol Specification
 
 The WebSocket server listens on `/ws` using JSON-encoded message schemas defined in `server/src/protocol/wsProtocol.ts`.
+
+WebSocket handlers are thin: they map a frame to an `AgentService` call and a `ServiceResult` back to a frame. The HTTP handlers (Phase 6) and the later MCP handler call the same service methods.
 
 ### 5.1 Client to Server Messages (`WSMessageClient`)
 

@@ -190,3 +190,28 @@ The destructive safety modal was `z-50` while floating panes carried an inline z
 - **Pros**: Overlays can never be covered by a pane; the scale has one source of truth; the numeric ordering is asserted in `overlayLayering.test.tsx` after 10 000 raises.
 - **Cons**: One extra wrapper element per overlay; jsdom does no layout, so hit-testing is not unit tested and QA step 5 in `qa/` remains the live check.
 - **Rule for new overlays**: use `OverlayPortal` with a layer from `Z_LAYERS`; never add a z-index class to an overlay.
+
+---
+
+## ADR-010: Gateway Agent Service Layer (Phase 6)
+
+### Status
+Accepted on 2026-11-08 (GW-04, first half).
+
+### Context
+`SessionManager` mixed four jobs: the WebSocket client set, the agent registry, the driver lifecycle and the message switch, including the kill-session flow. An HTTP API and an MCP surface were coming, and each would have had to reach the same logic through a WebSocket-shaped class. A driver that failed to start also left a registered but unannounced agent.
+
+### Decision
+- A transport-agnostic `AgentService` owns the registry, the drivers and every agent operation. It imports no WebSocket, Express or HTTP type and publishes state changes through one injected callback.
+- Expected failures are values: every operation returns a `ServiceResult` carrying a contract `ErrorCode`, a fixed message and a `retryable` flag. Handlers map the error to `agent:error` or the HTTP error envelope without inspecting exception text.
+- The destructive confirm gate lives inside `AgentService.destroy` as its first statement and is tested by calling the service directly.
+- `SessionManager` keeps the client set, the snapshot on connect, the fan-out and a legacy message mapping, and exposes the service.
+
+### Consequences
+- **Pros**: one implementation behind WS, HTTP and MCP; the confirm gate cannot be skipped by a new surface; a failed spawn leaves nothing behind; update, per-target broadcast results and an agent cap exist for the next plans.
+- **Cons**: one more layer; two legacy shims in `SessionManager` (an unknown id on a kill answers an unchanged snapshot) are removed by plan 06-02.
+- **Closing never kills tmux**: `close` and `destroy` are separate methods and only `destroy` touches tmux.
+
+### Alternatives considered
+- Leave the logic in `SessionManager` and add HTTP beside it: duplicates the confirm gate and the exit race per surface.
+- An event-emitter service: hides the publish contract and makes ordering of snapshots and replies harder to test.
