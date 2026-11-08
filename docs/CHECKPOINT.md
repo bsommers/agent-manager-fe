@@ -33,3 +33,10 @@
 - Close leaves tmux running (confirmed). Headless page logs xterm `reading 'dimensions'` pageerrors (not investigated; likely headless fit-addon, unverified).
 - Not covered: 1a (gateway down + New Agent), 1d, broadcast/destructive modal, ack timeout paths. User's gateway :8089/vite :3000/nginx :8088 and tmux qa-agent-1/2 untouched.
 - Next: wave 10 (06-07); close-out; worktree cleanup; push needs go-ahead.
+
+## Update: Phase 6 COMPLETE (all 7 plans merged), pushed through d23d42f (06-07 merge + close-out NOT yet pushed)
+- 06-07 merged. Gate: root 92 files / 1832 tests, server 25 / 587, tsc, builds, build:protocol, contract:check additive (agent.kill http binding). tmuxKill count 0.
+- INT-03, GW-04 ticked; GW-05 left unticked (MCP surface = Phase 21). ROADMAP 06-0x ticked. Merged worktrees cleaned.
+- Push: use `GH_TOKEN=$(gh auth token --user bsommers) git push origin master` (active gh account nonont1010 has no write access). Needs user go-ahead each time.
+- Review findings (unverified, from sonnet reviewer, wave 8-9): (1) no Host-header check on /api (DNS rebinding read of roster) apiRouter.ts:94; (2) replayed create ack resurrects deleted agent agentStore.ts:172; (3) replayed update ack overwrites newer state agentStore.ts:423; (4) idempotency eviction by any client idempotency.ts:55; (5) dispatch.ts:67 swallows exceptions unlogged; (6) AgentService onError/onData act on removed agents :92-107; (7) untracked 500ms initialCmd timer; (8) HTTP DELETE ignores Idempotency-Key; (9) settleCreate drops pending pane layout. xterm 'dimensions' pageerror unexplained (TerminalView.tsx:67,131 fit() unguarded).
+- Next: verify+fix review findings (follow-up pass), plan 05-04, Phase 1 close, Phase 8 (auth), Phase 7.

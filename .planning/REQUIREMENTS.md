@@ -21,7 +21,7 @@ ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides 
 ### Integration
 - [ ] INT-01: Transport layer with reconnect (jittered backoff, heartbeat), visible connection state, no silent mock fallback, explicit Demo mode, single `VITE_BACKEND_URL` (in progress: transport done in 03-01; visible state and docs in 03-02)
 - [ ] INT-02: Token auth and secure transport (`hello` handshake, `auth_failed`, wss for non-local, logout clears state)
-- [ ] INT-03: Server-confirmed agent lifecycle (required `reqId` correlation, `agent:ack`/`agent:error`, added/removed/updated, `/api/agents`)
+- [x] INT-03: Server-confirmed agent lifecycle (required `reqId` correlation, `agent:ack`/`agent:error`, added/removed/updated, `/api/agents`)
 - [ ] INT-04: Lossless ordered output (`seq`, `epoch`, resume, gap markers, LogStore, history, logs endpoint)
 - [ ] INT-05: Acked broadcast and input API (per-target results, idempotency, size and rate limits)
 - [ ] INT-06: Server-side history search (`/api/search`, cursor pagination, cancellation, local merge)
@@ -32,8 +32,8 @@ ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides 
 
 ### Gateway
 - [x] GW-01: Gateway baseline hardening (loopback default bind, Origin allowlist, frame cap, ping/pong, liveness) (Phase 4, plan 04-01)
-- [ ] GW-04: Gateway agent service layer (create, close, destroy, broadcast, input) behind thin WS, HTTP and MCP handlers (Phase 6)
-- [ ] GW-05: Gateway-enforced destructive policy driven by the catalog's destructive flag (confirm token or refuse); the FE modal is UX only (Phases 6 and 21)
+- [x] GW-04: Gateway agent service layer (create, close, destroy, broadcast, input) behind thin WS, HTTP and MCP handlers (Phase 6)
+- [ ] GW-05: Gateway-enforced destructive policy driven by the catalog's destructive flag (confirm token or refuse); the FE modal is UX only (Phases 6 and 21) — Phase 6 part done (WS + HTTP, policy from catalog); MCP surface pending Phase 21
 
 ### UX
 - [ ] UX-01: Resilient shell (pane states, error boundary, failure toasts)
