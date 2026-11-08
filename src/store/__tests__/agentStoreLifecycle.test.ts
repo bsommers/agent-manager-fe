@@ -511,4 +511,124 @@ describe('request-driven agent lifecycle', () => {
       expect(state().agents.map((a) => a.id)).toEqual(['agent-9']);
     });
   });
+
+  describe('uncorrelated gateway errors and notice hygiene', () => {
+    it('an agent:error without a reqId becomes one gateway_error notice "(CODE) text"', () => {
+      fail(undefined, 'BACKEND_DOWN', 'tmux server is not running', true);
+      const n = state().rosterNotices;
+      expect(n).toHaveLength(1);
+      expect(n[0].kind).toBe('gateway_error');
+      expect(n[0].title).toBe('The backend reported an error');
+      expect(n[0].message).toBe('(BACKEND_DOWN) tmux server is not running');
+    });
+
+    it('an agent:error with an unknown reqId also becomes a notice', () => {
+      fail('never-sent', 'INTERNAL', 'oops');
+      expect(state().rosterNotices.map((x) => x.message)).toEqual(['(INTERNAL) oops']);
+    });
+
+    it('strips control characters, collapses whitespace and caps the text at 200 characters', () => {
+      fail(undefined, 'INTERNAL', 'a\u0000b\u001b[31m  c\n\n\td\u0085e\u007f' + 'x'.repeat(1000));
+      const m = state().rosterNotices[0].message;
+      expect(m.startsWith('(INTERNAL) ab[31m c de')).toBe(true);
+      // eslint-disable-next-line no-control-regex
+      expect(/[\u0000-\u001f\u007f-\u009f]/.test(m)).toBe(false);
+      expect(m.length).toBeLessThanOrEqual(200);
+    });
+
+    it('truncates a 1024-character message', () => {
+      fail(undefined, 'INTERNAL', 'y'.repeat(1024));
+      expect(state().rosterNotices[0].message.length).toBeLessThanOrEqual(200);
+    });
+
+    it('does not repeat an identical consecutive gateway_error, but pushes a different one', () => {
+      fail(undefined, 'INTERNAL', 'same');
+      fail(undefined, 'INTERNAL', 'same');
+      expect(state().rosterNotices).toHaveLength(1);
+      fail(undefined, 'INTERNAL', 'different');
+      fail(undefined, 'INTERNAL', 'same');
+      expect(state().rosterNotices.map((x) => x.message)).toEqual([
+        '(INTERNAL) same',
+        '(INTERNAL) different',
+        '(INTERNAL) same',
+      ]);
+    });
+
+    it('caps the notice list at 20, dropping the oldest', () => {
+      for (let i = 0; i < 25; i++) fail(undefined, 'INTERNAL', `error ${i}`);
+      const n = state().rosterNotices;
+      expect(n).toHaveLength(20);
+      expect(n[0].message).toBe('(INTERNAL) error 5');
+      expect(n[19].message).toBe('(INTERNAL) error 24');
+    });
+
+    it('caps notices of every kind, not only gateway errors', () => {
+      send.mockReturnValue(false);
+      for (let i = 0; i < 30; i++) state().addAgent(`A${i}`, 'tmux', 'h:a');
+      expect(state().rosterNotices).toHaveLength(20);
+    });
+
+    it('a stray agent:ack for an unknown reqId changes nothing and raises no notice', async () => {
+      const before = state().agents;
+      ack('unknown-req', BUILD);
+      await flush();
+      expect(state().agents).toBe(before);
+      expect(state().rosterNotices).toEqual([]);
+    });
+
+    it('an agent:error for a request settled earlier raises no notice', async () => {
+      state().addAgent('Build', 'tmux', 'localhost:build');
+      const id = reqIdOf(0);
+      ack(id, BUILD);
+      await flush();
+      fail(id, 'INTERNAL', 'late');
+      await flush();
+      expect(state().rosterNotices).toEqual([]);
+    });
+
+    it('typed copy for create, kill and update failures names the code and a sanitized text', async () => {
+      state().addAgent('Build', 'tmux', 'localhost:build');
+      fail(reqIdOf(0), 'CONFLICT', 'name\u0000 is\n taken');
+      state().removeAgent('agent-9');
+      fail(reqIdOf(1), 'FORBIDDEN', 'read\tonly');
+      const p = state().updateAgent('agent-9', { name: 'Z' });
+      fail(reqIdOf(2), 'RATE_LIMITED', 'slow down', true);
+      await p;
+      await flush();
+      expect(state().rosterNotices.map((x) => x.message)).toEqual([
+        'The backend rejected the request (CONFLICT): name is taken',
+        'The backend rejected the request (FORBIDDEN): read only',
+        'The backend rejected the request (RATE_LIMITED): slow down',
+      ]);
+    });
+
+    it('malformed frames are dropped without throwing or a notice, warning by count only', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      expect(() => {
+        notify({ type: 'agent:error', code: 'INTERNAL', message: 42, retryable: false });
+        notify({ type: 'agent:ack', op: 'create', ok: true });
+        notify({ type: 'agent:error', code: 'SECRET-CODE', message: 'secret <b>', retryable: false });
+      }).not.toThrow();
+      expect(state().rosterNotices).toEqual([]);
+      expect(warn.mock.calls.length).toBeLessThanOrEqual(3);
+      const logged = warn.mock.calls.map((c) => c.join(' ')).join(' ');
+      expect(logged).not.toContain('secret');
+      expect(logged).not.toContain('SECRET-CODE');
+    });
+
+    it('renders a hostile gateway message as plain text', async () => {
+      const { render, screen, cleanup } = await import('@testing-library/react');
+      const React = await import('react');
+      const { NotificationToastManager } = await import('../../components/layout/NotificationToastManager');
+      const hostile = '<img src=x onerror=alert(1)><script>alert(2)</script>';
+      fail(undefined, 'INTERNAL', hostile);
+      const { container } = render(React.createElement(NotificationToastManager));
+      const notice = screen.getByTestId('roster-notice-gateway_error');
+      expect(notice.textContent).toContain('<img src=x onerror=alert(1)>');
+      expect(container.querySelector('img')).toBeNull();
+      expect(document.querySelector('img')).toBeNull();
+      expect(document.querySelector('script')).toBeNull();
+      cleanup();
+    });
+  });
 });

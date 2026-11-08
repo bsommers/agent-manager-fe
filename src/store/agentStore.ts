@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { Agent, LayoutMode } from '../types/agent';
 import { agentSocket } from '../services/agentSocket';
 import { AgentRequestError, REQUEST_TIMEOUT_MS, type AckResult } from '../services/agentRequests';
-import { parseAgent, type AgentStatus, type WSMessageClient } from '../services/wsProtocol';
+import { parseAgent, parseServerMessage, type AgentStatus, type WSMessageClient } from '../services/wsProtocol';
 import type { BackendMode } from '../services/adapters/types';
 import { useConnectionStore } from './connectionStore';
 import { reconcileSnapshot, type PendingMap } from './rosterReconcile';
@@ -66,7 +66,7 @@ export const ROSTER_REQUEST_TIMEOUT_MS = REQUEST_TIMEOUT_MS;
 
 export interface RosterNotice {
   id: string;
-  kind: 'create_failed' | 'kill_failed' | 'update_failed';
+  kind: 'create_failed' | 'kill_failed' | 'update_failed' | 'gateway_error';
   title: string;
   message: string;
   createdAt: number;
@@ -75,6 +75,26 @@ export interface RosterNotice {
 let pendingCounter = 0;
 let noticeCounter = 0;
 const isLive = () => useConnectionStore.getState().mode === 'live';
+
+/** The notice list never grows past this; the oldest notice is dropped first. */
+export const MAX_ROSTER_NOTICES = 20;
+const MAX_NOTICE_TEXT = 200;
+
+/**
+ * Gateway-provided text is untrusted: control characters removed (tabs and line breaks become spaces),
+ * whitespace collapsed, cut at maxChars. It is only ever rendered as a text node.
+ */
+export function sanitizeGatewayText(text: unknown, maxChars: number = MAX_NOTICE_TEXT): string {
+  if (typeof text !== 'string') return '';
+  const cleaned = text
+    .replace(/[\t\n\r\v\f]/g, ' ')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const chars = Array.from(cleaned);
+  return chars.length > maxChars ? chars.slice(0, maxChars).join('').trimEnd() : cleaned;
+}
 
 interface FailureCopy {
   notConnected: string;
@@ -86,7 +106,7 @@ function failureMessage(err: unknown, copy: FailureCopy): string {
   if (err instanceof AgentRequestError) {
     if (err.code === 'TIMEOUT') return copy.timeout;
     if (err.code === 'NOT_CONNECTED') return copy.notConnected;
-    return `The backend rejected the request (${err.code}): ${err.message}`;
+    return `The backend rejected the request (${err.code}): ${sanitizeGatewayText(err.message)}`;
   }
   return 'The request failed unexpectedly.';
 }
@@ -110,6 +130,8 @@ export interface AgentStoreState {
   applyRosterSnapshot: (agents: unknown) => void;
   applyStatusChange: (agentId: string, status: AgentStatus) => void;
   dismissRosterNotice: (id: string) => void;
+  /** Shows an agent:error that matched no request; message is already sanitized "(CODE) text". */
+  pushGatewayError: (message: string) => void;
   toggleUndock: (id: string) => void;
   updateFloatingPosition: (id: string, x: number, y: number) => void;
   updateFloatingBounds: (id: string, x: number, y: number, width: number, height: number) => void;
@@ -122,8 +144,11 @@ export interface AgentStoreState {
 
 export const useAgentStore = create<AgentStoreState>((set, get) => {
   const pushRosterNotice = (kind: RosterNotice['kind'], title: string, message: string) => {
+    const last = get().rosterNotices[get().rosterNotices.length - 1];
+    // A faulty gateway repeating itself must not stack identical notices.
+    if (kind === 'gateway_error' && last && last.kind === kind && last.message === message) return;
     const notice: RosterNotice = { id: `roster-notice-${++noticeCounter}`, kind, title, message, createdAt: Date.now() };
-    set((state) => ({ rosterNotices: [...state.rosterNotices, notice] }));
+    set((state) => ({ rosterNotices: [...state.rosterNotices, notice].slice(-MAX_ROSTER_NOTICES) }));
   };
 
   /** A create's ack arrived: the pending pane becomes the server agent (or an ordinary agent when the pane is gone). */
@@ -449,6 +474,10 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       });
     },
 
+    pushGatewayError: (message) => {
+      pushRosterNotice('gateway_error', 'The backend reported an error', message);
+    },
+
     dismissRosterNotice: (id) => {
       set((state) => ({ rosterNotices: state.rosterNotices.filter((n) => n.id !== id) }));
     },
@@ -638,5 +667,20 @@ agentSocket.subscribe((msg) => {
     useAgentStore.getState().applyRosterSnapshot(msg.agents);
   } else if (msg.type === 'agent:status_change') {
     useAgentStore.getState().applyStatusChange(msg.agentId, msg.status);
+  } else if (msg.type === 'agent:error' || msg.type === 'agent:ack') {
+    // Only answers that no request claimed reach this listener. A valid ack is simply stray; an
+    // error is shown, sanitized. An invalid frame is dropped, logging only that it happened.
+    const parsed = parseServerMessage(msg);
+    if (!parsed.ok) {
+      console.warn(`agentStore: dropped an invalid ${msg.type} frame`);
+      return;
+    }
+    if (parsed.msg.type === 'agent:error') {
+      const { code, message } = parsed.msg;
+      const prefix = `(${code}) `;
+      useAgentStore
+        .getState()
+        .pushGatewayError(`${prefix}${sanitizeGatewayText(message, MAX_NOTICE_TEXT - prefix.length)}`);
+    }
   }
 });
