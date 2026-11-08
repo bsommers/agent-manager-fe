@@ -1,6 +1,6 @@
 // Characterization tests for the roster messages the frontend depends on
-// (phase 10, plan 10-02). They run against the unmodified gateway; Phase 6
-// replaces the snapshot semantics pinned here, and must update these on purpose.
+// (phase 10, plan 10-02). Plan 06-02 updated the unknown-id and agent:update
+// cases on purpose (NOT_FOUND replies, agent:updated announcements).
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { AddressInfo } from 'net';
 
@@ -196,7 +196,7 @@ describe('gateway roster contract (what the frontend reconciles against)', () =>
     expect(capturedDrivers()[0].close).not.toHaveBeenCalled();
   });
 
-  it('answers a kill of an unknown id with an unchanged snapshot to every client', async () => {
+  it('answers a kill of an unknown id with NOT_FOUND to the requester and no snapshot to anyone', async () => {
     const known = handle.sessionManager.createAgent('stay', 'tmux', 'qa_stay');
     const a = await connect();
     const b = await connect();
@@ -204,13 +204,21 @@ describe('gateway roster contract (what the frontend reconciles against)', () =>
     const baseB = b.frames.length;
 
     send(a, { type: 'agent:kill', agentId: 'agent-does-not-exist' });
+    send(a, { type: 'ping', t: 7 });
+    send(b, { type: 'ping', t: 8 });
 
     await vi.waitFor(() => {
-      expect(snapshotsAfter(a, baseA)).toHaveLength(1);
-      expect(snapshotsAfter(b, baseB)).toHaveLength(1);
+      expect(a.frames.slice(baseA).some((f) => f.type === 'pong')).toBe(true);
+      expect(b.frames.slice(baseB).some((f) => f.type === 'pong')).toBe(true);
     });
-    expect(snapshotsAfter(a, baseA)[0].agents.map((x: any) => x.id)).toEqual([known.id]);
-    expect(snapshotsAfter(b, baseB)[0].agents.map((x: any) => x.id)).toEqual([known.id]);
+    const errs = a.frames.slice(baseA).filter((f) => f.type === 'agent:error');
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toMatchObject({ code: 'NOT_FOUND', agentId: 'agent-does-not-exist', retryable: false });
+    expect(snapshotsAfter(a, baseA)).toHaveLength(0);
+    expect(snapshotsAfter(b, baseB)).toHaveLength(0);
+    expect(b.frames.slice(baseB).some((f) => f.type === 'agent:error')).toBe(false);
+    const late = await connect();
+    expect(late.frames[0].agents.map((x: any) => x.id)).toEqual([known.id]);
   });
 
   it('resyncs a reconnecting client with the roster exactly once, with unique ids', async () => {
@@ -251,26 +259,24 @@ describe('gateway roster contract (what the frontend reconciles against)', () =>
     expect(seen.status).toBe('disconnected');
   });
 
-  it('ignores agent:update today (pins the Phase 6 deferral of rename, tags and group)', async () => {
+  it('announces an agent:update rename as agent:updated to every client, visible in a fresh connection', async () => {
     const agent = handle.sessionManager.createAgent('original', 'tmux', 'qa_orig');
     const a = await connect();
-    const base = a.frames.length;
+    const b = await connect();
+    const baseA = a.frames.length;
+    const baseB = b.frames.length;
 
-    // No timing window: send the update, then an unknown-id kill as a sentinel, then a
-    // ping. The gateway handles one socket's frames in order and replies synchronously,
-    // so the pong proves every frame caused by the first two has already arrived.
     send(a, { type: 'agent:update', agentId: agent.id, name: 'Renamed' });
-    send(a, { type: 'agent:kill', agentId: 'agent-sentinel-unknown' });
-    send(a, { type: 'ping', t: 42 });
 
-    await vi.waitFor(() => expect(a.frames.slice(base).some((f) => f.type === 'pong')).toBe(true));
-    const between = a.frames.slice(base);
-    expect(between.map((f) => f.type)).toEqual(['agent:init_list', 'pong']);
-    // The one snapshot is the one caused by the sentinel kill, and the name is unchanged.
-    expect(between[0].agents).toHaveLength(1);
-    expect(between[0].agents[0]).toMatchObject({ id: agent.id, name: 'original' });
+    const updates = (c: Client, base: number) => c.frames.slice(base).filter((f) => f.type === 'agent:updated');
+    await vi.waitFor(() => {
+      expect(updates(a, baseA)).toHaveLength(1);
+      expect(updates(b, baseB)).toHaveLength(1);
+    });
+    expect(updates(a, baseA)[0]).toMatchObject({ agentId: agent.id, patch: { name: 'Renamed' } });
+    expect(updates(b, baseB)[0]).toMatchObject({ agentId: agent.id, patch: { name: 'Renamed' } });
 
     const late = await connect();
-    expect(late.frames[0].agents[0].name).toBe('original');
+    expect(late.frames[0].agents[0].name).toBe('Renamed');
   });
 });

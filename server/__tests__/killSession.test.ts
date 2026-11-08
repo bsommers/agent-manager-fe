@@ -73,12 +73,20 @@ const snapshotsAfter = (c: Client, from: number) =>
 const errorsAfter = (c: Client, from: number) =>
   c.frames.slice(from).filter((f) => f.type === 'agent:error');
 
-// Sentinel: a plain kill of an unknown id yields a snapshot of the current roster.
-async function rosterNow(c: Client): Promise<Frame> {
-  const base = c.frames.length;
-  send(c, { type: 'agent:kill', agentId: 'no-such-agent' });
-  await vi.waitFor(() => expect(snapshotsAfter(c, base)).toHaveLength(1), { timeout: 2000 });
-  return snapshotsAfter(c, base)[0];
+// Sentinel: a fresh connection's first frame is the current roster (agent:init_list).
+async function rosterNow(): Promise<Frame> {
+  const fresh = await connect();
+  return fresh.frames[0];
+}
+
+// Ping on c: the gateway answers one socket's frames in order, so the pong proves earlier replies arrived.
+let pingSeq = 1000;
+async function pong(c: Client): Promise<void> {
+  const t = ++pingSeq;
+  send(c, { type: 'ping', t });
+  await vi.waitFor(() => expect(c.frames.some((f) => f.type === 'pong' && f.t === t)).toBe(true), {
+    timeout: 2000,
+  });
 }
 
 beforeEach(async () => {
@@ -148,11 +156,12 @@ describe('agent:kill with killSession over a real WebSocket', () => {
     expect(parseServerMessage(err).ok).toBe(true);
 
     // The sentinel proves nothing changed and gives the second client time to receive anything stray.
-    const snap = await rosterNow(c1);
+    const snap = await rosterNow();
+    await pong(c2);
     expect(snap.agents.map((x: any) => x.id)).toEqual([a.id]);
     expect(errorsAfter(c1, base1)).toHaveLength(1);
     expect(errorsAfter(c2, base2)).toHaveLength(0);
-    expect(snapshotsAfter(c1, base1)).toHaveLength(1); // only the sentinel's
+    expect(snapshotsAfter(c1, base1)).toHaveLength(0); // nothing was announced
     expect(killMock).not.toHaveBeenCalled();
     expect(capturedDrivers()[0].close).not.toHaveBeenCalled();
   });
@@ -184,15 +193,17 @@ describe('agent:kill with killSession over a real WebSocket', () => {
     expect(capturedDrivers()[0].close).toHaveBeenCalledTimes(1);
   });
 
-  it('confirmed killSession for an unknown agent id calls no tmux and answers with an unchanged snapshot', async () => {
+  it('confirmed killSession for an unknown agent id calls no tmux and answers NOT_FOUND to the requester', async () => {
     const a = handle.sessionManager.createAgent('alpha', 'tmux', 'qa_a');
     const c1 = await connect();
     const base = c1.frames.length;
 
     send(c1, { type: 'agent:kill', agentId: 'ghost', killSession: true, confirm: true });
 
-    await vi.waitFor(() => expect(snapshotsAfter(c1, base)).toHaveLength(1), { timeout: 2000 });
-    expect(snapshotsAfter(c1, base)[0].agents.map((x: any) => x.id)).toEqual([a.id]);
+    await vi.waitFor(() => expect(errorsAfter(c1, base)).toHaveLength(1), { timeout: 2000 });
+    expect(errorsAfter(c1, base)[0]).toMatchObject({ code: 'NOT_FOUND', agentId: 'ghost', retryable: false });
+    expect(snapshotsAfter(c1, base)).toHaveLength(0);
+    expect((await rosterNow()).agents.map((x: any) => x.id)).toEqual([a.id]);
     expect(killMock).not.toHaveBeenCalled();
   });
 });
