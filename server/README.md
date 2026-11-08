@@ -66,5 +66,54 @@ replies to the requesting client only: `UNSUPPORTED` for non-tmux agents, `USAGE
 unkillable session name, `INTERNAL` when tmux fails. A session that is already gone counts as success. To kill a
 session the gateway refuses, run `tmux kill-session -t <name>` by hand.
 
+## HTTP API
+
+The same operations are reachable over HTTP under `/api`. Each handler parses its input into the validated client
+message the WebSocket uses, runs it through the same dispatch path and maps the outcome to the contract's bodies;
+no handler touches the registry, a driver or tmux. The legacy `GET /health` is unchanged.
+
+| Route                    | Request                                   | Success                                  | Notes |
+| ------------------------ | ----------------------------------------- | ---------------------------------------- | ----- |
+| `GET /api/health`        | none                                      | `200 { ok, contract, epoch, backends, agents }` | `backends` is `[{ "id": "local", "up": true }]`; `epoch` is a random id per process; `agents` is an integer count. |
+| `GET /api/agents`        | none                                      | `200 { ok: true, agents: Agent[] }`      | The current roster. |
+| `POST /api/agents`       | JSON body: `name`, `mode`, `targetHost`, optional `initialCmd`; optional `Idempotency-Key` header | `201 { ok: true, agent }` | Same validation as `agent:create`. |
+| `DELETE /api/agents/:id` | none                                      | `200 { ok: true }`                       | Closes the agent and leaves its tmux session running. |
+| `GET /api/agents/:id/logs`, `GET /api/search` | none                         | `422` `UNSUPPORTED`                      | Catalogued for a later phase; answered with a fixed message so a client can tell "not in this build" from "no such path". |
+
+Any other `/api` path or method answers `404 NOT_FOUND`. There is no HTTP form of `agent.kill` (ending a tmux
+session) yet, so nothing destructive is reachable over HTTP.
+
+Failures use one envelope, `{ "ok": false, "error": { "code", "message", "retryable" } }`, with the status taken from
+the contract: `USAGE` 400, `UNAUTHENTICATED` 401, `FORBIDDEN` 403, `NOT_FOUND` 404, `CONFLICT` 409,
+`PAYLOAD_TOO_LARGE` 413, `UNSUPPORTED` 422, `RATE_LIMITED` 429, `INTERNAL` 500, `BACKEND_DOWN` 503, `TIMEOUT` 504.
+Messages are fixed strings or name a field only (`invalid field: name`); they never echo request values, stack
+traces or internal error text.
+
+`Idempotency-Key` is the `reqId`: 1 to 128 printable ASCII characters (no spaces), and a `reqId` in the body is
+ignored. A repeated `POST /api/agents` with the same key and body returns the original `201` body and creates one
+agent; the same key with a different body is `409 CONFLICT`. The cache is the one the WebSocket uses (1024 entries
+for 5 minutes), so a key used on one surface is honoured on the other. Failures are not cached.
+
+Guards, in order, on `POST` and `DELETE`: an `Origin` header outside `ALLOWED_ORIGINS` is `403 FORBIDDEN` before
+anything else is read (requests with no `Origin` are local tools and pass); `POST` requires
+`Content-Type: application/json` (otherwise `400 USAGE`); bodies are capped at 64 KiB (`413 PAYLOAD_TOO_LARGE`);
+malformed JSON or a non-object body is `400 USAGE`. No CORS headers are ever sent, so a cross-origin page cannot
+read these routes or pass a preflight; the frontend talks to the gateway over WebSocket. Responses carry
+`Cache-Control: no-store`, no `X-Powered-By`, and no cookies are used. The first browser consumer of these routes
+must add a CORS policy with the same allowlist.
+
+```bash
+# PORT is the port the gateway listens on.
+curl -s http://127.0.0.1:$PORT/api/health
+curl -s http://127.0.0.1:$PORT/api/agents
+curl -s -X POST -H 'Content-Type: application/json' -H 'Idempotency-Key: demo-1' \
+  -d '{"name":"demo","mode":"tmux","targetHost":"demo"}' http://127.0.0.1:$PORT/api/agents   # run twice: same agent id
+curl -s -X DELETE http://127.0.0.1:$PORT/api/agents/<agent-id>
+```
+
+Not yet: logs and search (Phases 11 and 16), ending a tmux session over HTTP, authentication and Host-header
+checks (Phase 8; until then the API has the same trust model as the WebSocket, loopback plus the Origin gate, and
+a DNS-rebinding page could read the roster), rate limits (Phase 12), CORS (Phase 16).
+
 The authoritative wire contract is in
 [docs/superpowers/specs/2026-11-07-fe-be-contract.md](../docs/superpowers/specs/2026-11-07-fe-be-contract.md).
