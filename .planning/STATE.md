@@ -2,9 +2,9 @@
 
 ## Current Position
 Milestone: v1.1 Fan-out Close-out (active, open only for a human QA checkpoint); v2.0 Live-Connected Command Center and v2.1 Multi-Backend and Fleet defined in ROADMAP.md
-Phase: waves 1 and 2 merged; Phase 10 slice (10-01, 10-02) pulled forward into wave 3 and merged; remaining wave 3: 02-03 (planned), 05-02/05-03 (to plan; 05-03 shares AgentPane.tsx with 10-01, now merged)
+Phase: waves 1-3 merged (wave 3: 02-03, 05-02, 05-03, plus pulled-forward Phase 10 slice 10-01/10-02); next is wave 4 (02-04 planned; Phase 6 plans to write)
 Status: Wave 2 merged and green. Phase 3 (transport + connection UI) is complete pending manual QA. Phase 1 stays open for the human QA checkpoint only.
-Last activity: 2026-11-07 - Phase 10 roster slice executed in parallel worktrees, merged, merge gate passed (root 44 files / 498 tests, server 9 / 107)
+Last activity: 2026-11-07 - wave 3 executed in parallel worktrees, merged, merge gate passed (root 58 files / 753 tests, server 10 / 108)
 
 ## Wave 1 results (merged, green)
 
@@ -28,6 +28,16 @@ Not verified end to end: the FE heartbeat (03-01) and the gateway `pong` (04-01)
 | 05-01 | Complete: `useModalFocus` focus trap/restore; DestructiveSafetyModal as alertdialog (initial focus Cancel), AddAgentModal and GlobalSearchModal dialog semantics |
 
 Merged gate (master d17af86): root 39 files / 439 tests, server 8 files / 98 tests, tsc clean, build:protocol, root build and server build pass.
+
+## Wave 3 results (merged, green)
+
+| Plan | Result |
+|------|--------|
+| 02-03 | Gateway-to-client messages, additive Agent fields, HTTP shapes (`http.json` fixtures), full spec section 8 `LIMITS`, FE and gateway drift guards (`contractConstants.test.ts`); `AGENT_SPEC` exported |
+| 05-02 | `uiStore`, shortcut registry (`src/keyboard`), Ctrl+K command palette, Ctrl+/ help overlay, xterm custom key handler for registered chords, `docs/KEYBOARD.md` |
+| 05-03 | Keyboard move/resize of floating panes (10 px, Shift 50 px; no focus steal), named pane controls, status as text |
+
+Merged gate (master after 05-02 merge): root 58 files / 753 tests, server 10 / 108, tsc, build:protocol, builds, collision check pass. Watch: `server/__tests__/hardening.test.ts` "never terminates a responsive client" flaked once under load in a worktree.
 
 ## Phase 10 slice results (pulled forward 2026-11-07, merged, green)
 
