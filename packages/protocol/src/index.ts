@@ -14,3 +14,4 @@ export type {
   Rule,
 } from './fieldspec.js';
 export { validateObject } from './fieldspec.js';
+export * from './surface.js';
