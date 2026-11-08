@@ -7,6 +7,13 @@ import { useConnectionStore } from './connectionStore';
 import { reconcileSnapshot, type PendingMap } from './rosterReconcile';
 import { stackPanes } from '../styles/zLayers';
 
+export interface RemoveAgentOptions {
+  /** Also end the backend's persistent (tmux) session. Only set after an explicit user confirmation. */
+  killSession?: boolean;
+  /** Forwarded as given; the gateway refuses a session kill without confirm: true. */
+  confirm?: boolean;
+}
+
 const SEED_AGENTS = (): Agent[] => [
   {
     id: 'agent-1',
@@ -98,7 +105,7 @@ export interface AgentStoreState {
   setLayoutMode: (mode: LayoutMode) => void;
   setSearchQuery: (query: string) => void;
   addAgent: (name: string, mode: 'tmux' | 'ssh', targetHost: string, initialCmd?: string) => void;
-  removeAgent: (id: string) => void;
+  removeAgent: (id: string, options?: RemoveAgentOptions) => void;
   applyRosterSnapshot: (agents: unknown) => void;
   applyStatusChange: (agentId: string, status: AgentStatus) => void;
   dismissRosterNotice: (id: string) => void;
@@ -202,7 +209,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       agentSocket.startMockStream(newAgent.id, newAgent.name, newAgent.mode, newAgent.targetHost);
     },
 
-    removeAgent: (id) => {
+    removeAgent: (id, options) => {
       if (isLive()) {
         const st = get();
         if (Object.prototype.hasOwnProperty.call(st.pending, id)) {
@@ -219,7 +226,15 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
         if (Object.prototype.hasOwnProperty.call(st.killing, id)) return;
         const target = st.agents.find((a) => a.id === id);
         if (!target) return;
-        if (!agentSocket.send({ type: 'agent:kill', agentId: id })) {
+        // Forward exactly the options that are true; confirm is never invented here
+        // (the gateway refuses a session kill without it).
+        const killMsg: Extract<WSMessageClient, { type: 'agent:kill' }> = {
+          type: 'agent:kill',
+          agentId: id,
+          ...(options?.killSession === true ? { killSession: true } : {}),
+          ...(options?.confirm === true ? { confirm: true } : {}),
+        };
+        if (!agentSocket.send(killMsg)) {
           pushRosterNotice(
             'kill_failed',
             `Could not close "${target.name}"`,

@@ -10,6 +10,13 @@ export interface DestructiveSafetyModalProps {
   targetAgents: Agent[];
   onConfirm: () => void;
   onCancel: () => void;
+  /** Optional copy overrides; omitted props render the broadcast-warning copy. */
+  title?: string;
+  subtitle?: string;
+  body?: React.ReactNode;
+  commandLabel?: string;
+  targetsLabel?: string;
+  confirmLabel?: string;
 }
 
 export const DestructiveSafetyModal: React.FC<DestructiveSafetyModalProps> = ({
@@ -18,6 +25,12 @@ export const DestructiveSafetyModal: React.FC<DestructiveSafetyModalProps> = ({
   targetAgents,
   onConfirm,
   onCancel,
+  title = 'Destructive Command Warning',
+  subtitle = 'Potentially destructive operations detected in broadcast payload',
+  body,
+  commandLabel = 'Command Payload',
+  targetsLabel,
+  confirmLabel = 'Confirm Broadcast',
 }) => {
   const cancelRef = React.useRef<HTMLButtonElement>(null);
   const dialogRef = useModalFocus<HTMLDivElement>({
@@ -48,10 +61,10 @@ export const DestructiveSafetyModal: React.FC<DestructiveSafetyModalProps> = ({
             </div>
             <div>
               <h2 id={titleId} className="text-sm font-bold text-red-200 tracking-wide flex items-center gap-2">
-                Destructive Command Warning
+                {title}
               </h2>
               <p className="text-xs text-red-400/80">
-                Potentially destructive operations detected in broadcast payload
+                {subtitle}
               </p>
             </div>
           </div>
@@ -71,16 +84,22 @@ export const DestructiveSafetyModal: React.FC<DestructiveSafetyModalProps> = ({
           <div className="flex items-start gap-2.5 p-3 rounded-lg bg-red-950/30 border border-red-900/50 text-red-300">
             <AlertTriangle className="w-4 h-4 shrink-0 text-red-400 mt-0.5" />
             <span id={descId}>
-              This command will be sent simultaneously to{' '}
-              <strong className="text-red-200 font-bold">{targetAgents.length}</strong>{' '}
-              targeted agent session{targetAgents.length === 1 ? '' : 's'}. Are you sure you want to execute?
+              {body !== undefined ? (
+                body
+              ) : (
+                <>
+                  This command will be sent simultaneously to{' '}
+                  <strong className="text-red-200 font-bold">{targetAgents.length}</strong>{' '}
+                  targeted agent session{targetAgents.length === 1 ? '' : 's'}. Are you sure you want to execute?
+                </>
+              )}
             </span>
           </div>
 
           {/* Raw Command Code Box */}
           <div>
             <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-              Command Payload
+              {commandLabel}
             </div>
             <pre className="p-3 bg-[#070b14] border border-red-900/40 rounded-lg text-red-300 font-mono text-xs overflow-x-auto whitespace-pre-wrap break-all select-all">
               {command}
@@ -90,7 +109,7 @@ export const DestructiveSafetyModal: React.FC<DestructiveSafetyModalProps> = ({
           {/* Target Agents List */}
           <div>
             <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-              Targeted Sessions ({targetAgents.length})
+              {targetsLabel ?? `Targeted Sessions (${targetAgents.length})`}
             </div>
             <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-2 bg-[#070b14]/60 border border-slate-800 rounded-lg">
               {targetAgents.map((agent) => (
@@ -122,7 +141,7 @@ export const DestructiveSafetyModal: React.FC<DestructiveSafetyModalProps> = ({
             onClick={onConfirm}
             className="px-4 py-1.5 rounded-lg text-xs font-bold text-white bg-red-600 hover:bg-red-500 shadow-md shadow-red-950/60 transition active:scale-95"
           >
-            Confirm Broadcast
+            {confirmLabel}
           </button>
         </div>
       </div>
