@@ -27,3 +27,9 @@
 - Merged --no-ff onto master, no conflicts. Gate green: root 90 files / 1765 tests, server 23 / 520, tsc, both builds, contract:check; tmuxKill count 0.
 - Deviations: 06-04 edited index.test.ts (waits for agent:added, not post-create init_list); SessionManager.ts untouched. 06-06: error handler maps any 4xx to 400 USAGE (413 PAYLOAD_TOO_LARGE); index.ts +15 lines (router mount, BootstrapOptions.epoch). One unrecorded root flake seen once by 06-06 pre-change.
 - Next: wave 10 (06-07 destructive policy); live QA of W8+W9 (QA step 1e, two tabs); then tick INT-03/GW-04/GW-05, STATE/ROADMAP; worktree cleanup (now ~25); push needs user go-ahead. Local master NOT pushed.
+
+## Update: live QA of W8+W9 done (own ports 18090/13000, Playwright in scratchpad)
+- PASS: 1e two-tab create/close live sync, no dups; HTTP POST/DELETE reflected live in open tab; 1b reload no dups; 1c gateway restart -> Reconnecting banner, reconnect to snapshot (agents come back as `Tmux: <session>`), banner clears; HTTP: 201, idempotent replay, 409 key reuse, 403 bad Origin, 400 ctype/body, 422 unsupported, 404.
+- Close leaves tmux running (confirmed). Headless page logs xterm `reading 'dimensions'` pageerrors (not investigated; likely headless fit-addon, unverified).
+- Not covered: 1a (gateway down + New Agent), 1d, broadcast/destructive modal, ack timeout paths. User's gateway :8089/vite :3000/nginx :8088 and tmux qa-agent-1/2 untouched.
+- Next: wave 10 (06-07); close-out; worktree cleanup; push needs go-ahead.
