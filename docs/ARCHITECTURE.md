@@ -60,9 +60,11 @@ sequenceDiagram
     participant Driver as TmuxDriver / SshDriver
 
     User->>UI: Fills form (Name, Mode, Target Host) & clicks "Create Agent"
-    UI->>Socket: send({ type: 'agent:create', name, mode, targetHost })
-    Socket->>WS: JSON payload (agent:create)
-    WS->>Session: handleClientMessage(agent:create)
+    UI->>Store: addAgent(name, mode, targetHost)
+    Store-->>User: pending pane in a Starting state
+    Store->>Socket: request() with a fresh reqId
+    Socket->>WS: { type: 'agent:create', name, mode, targetHost, reqId }
+    WS->>Session: dispatch(agent:create)
     
     alt Mode == 'tmux'
         Session->>Driver: new TmuxDriver("tmux new-session -A -s <name>")
@@ -72,13 +74,16 @@ sequenceDiagram
         Driver-->>Session: sshClient shell connected & listening stream
     end
 
-    Session->>WS: broadcast({ type: 'agent:init_list', agents })
-    WS->>Socket: agent:init_list
-    Socket->>Store: validates the snapshot and reconciles the pending pane to the server agent
-    Store-->>User: UI renders the reconciled AgentPane in Workspace
+    Session->>WS: publish agent:added { agent } to every connection
+    Session->>WS: answer the requester with agent:ack { reqId, op: 'create', ok: true, agent }
+    WS->>Socket: agent:added (all clients) and agent:ack (requester)
+    Socket->>Store: the request layer resolves the pending request from the ack
+    Store-->>User: the pending pane becomes the server agent (layout kept)
 ```
 
-**Roster reconciliation.** The gateway assigns agent ids and announces creates, kills and new connections as a full `agent:init_list` snapshot. The frontend replaces its roster by id while keeping each pane's layout, and matches a pending create to the new agent by name, mode and targetHost. Phase 6 replaces this with `reqId` acks and `agent:added/removed` messages.
+**Roster reconciliation (Phase 6).** Every create, close, kill and update the frontend sends carries a `reqId`. `src/services/agentRequests.ts` (the request layer, owned by `AgentSocketService`) keeps the open requests, and the gateway's `agent:ack` (success) or `agent:error` with the same `reqId` (typed failure) settles them. A request unanswered for 10 seconds fails locally with `TIMEOUT`, and a request made while the socket is not open fails at once with `NOT_CONNECTED`. When the connection returns, requests still in flight are re-sent with the same `reqId` (at most three transmissions); the gateway deduplicates by `reqId`, so a repeat is safe. A pending create is therefore matched by its `reqId`, never by name, mode or targetHost.
+
+The roster itself follows the gateway: `agent:added { agent }` appends an agent (a known id takes the server fields and keeps the local layout and unread flag), `agent:removed { agentId, reason }` drops one, and `agent:updated { agentId, patch }` merges the supplied `name`, `tags`, `group`, `meta` and `capabilities`. The gateway sends `agent:init_list` only once per connection, as the connect snapshot; on a reconnect the new snapshot replaces whatever the events built, and no event replay is expected. Every event passes `parseServerMessage` before it touches the store, unknown ids on `removed` and `updated` are ignored, the roster never grows past `LIMITS.MAX_AGENTS`, and Demo mode ignores all of them. Events, acks and snapshots are idempotent and order-insensitive: an ack that arrives after the matching `agent:added` drops the pending pane instead of duplicating it, and the reverse order replaces the pane in place. The decision is recorded in [ADR-011](RATIONALE_AND_DESIGN_DECISIONS.md#adr-011-request-correlation-by-reqid-and-roster-events-phase-6).
 
 ### 2.2 Terminal Stream IO Flow (Input & Output)
 
@@ -149,8 +154,8 @@ The frontend store implements three layout auto-arrange functions:
 
 #### `SessionManager.ts`
 The WebSocket side of the gateway. It no longer owns agents or drivers.
-- Maintains the connected client set (`clients: Set<WebSocket>`) and sends the `agent:init_list` snapshot on connect.
-- Fans every published server event (`agent:output`, `agent:status_change`, `agent:init_list`, `agent:updated`) out to all connected clients; it is the `publish` callback of its `AgentService`.
+- Maintains the connected client set (`clients: Set<WebSocket>`) and sends the `agent:init_list` snapshot on connect (the only snapshot; later changes leave as events).
+- Fans every published server event (`agent:output`, `agent:status_change`, `agent:added`, `agent:removed`, `agent:updated`) out to all connected clients; it is the `publish` callback of its `AgentService`.
 - Maps legacy client messages (`agent:create|input|resize|kill|broadcast`) to `AgentService` calls and turns destroy refusals into `agent:error` frames through `errorFrame`. It exposes the service as a readonly `service` property.
 
 #### `AgentService.ts`
@@ -191,6 +196,8 @@ The WebSocket server listens on `/ws` using JSON-encoded message schemas defined
 
 WebSocket handlers are thin: they map a frame to an `AgentService` call and a `ServiceResult` back to a frame. The HTTP handlers (Phase 6) and the later MCP handler call the same service methods.
 
+Frames are validated at the gateway. A frame with an unknown `type` is ignored, and a frame with an invalid field is answered with `agent:error` (`USAGE`) to the sender only. Mutating client frames (`agent:create`, `agent:kill`, `agent:update`) may carry an optional `reqId`; when present, the reply to the requester is an `agent:ack` or an `agent:error` with the same `reqId`. The field is optional on the wire so older clients keep working; the frontend always sends it.
+
 ### 5.1 Client to Server Messages (`WSMessageClient`)
 
 #### `agent:create`
@@ -201,9 +208,11 @@ Requests creation of a new agent session.
   "name": "Code Refactor Agent",
   "mode": "tmux",
   "targetHost": "localhost:dev_session",
-  "initialCmd": "htop\r"
+  "initialCmd": "htop\r",
+  "reqId": "8d1f0c1e-6b7a-4f43-9a52-2f5f6f1d8a10"
 }
 ```
+The requester receives `agent:ack` with the new agent; every connection receives `agent:added`.
 
 #### `agent:input`
 Sends terminal stdin data.
@@ -227,12 +236,13 @@ Notifies backend of terminal dimensions change.
 ```
 
 #### `agent:kill`
-Closes an agent: the gateway detaches its pty and removes it from the roster (one `agent:init_list`). Closing
+Closes an agent: the gateway detaches its pty and removes it from the roster (`agent:removed` to every connection, `agent:ack` to the requester when a `reqId` was sent). Closing
 **leaves the tmux session running**.
 ```json
 {
   "type": "agent:kill",
-  "agentId": "agent-1723700000000"
+  "agentId": "agent-1723700000000",
+  "reqId": "0b7a2d56-3f0e-4d0b-8f0d-1f7b6c9e2a11"
 }
 ```
 
@@ -252,6 +262,19 @@ a tmux failure gets `INTERNAL`). The session name is derived server-side and the
 `tmux kill-session -t =<name>` through `execFile` with an argument array, never a shell. A session that is
 already gone counts as success.
 
+#### `agent:update`
+Renames, retags or regroups an agent. Only the supplied keys change; the gateway answers the requester with `agent:ack` (carrying the updated agent) and every connection with `agent:updated`. The frontend reaches it through the store's `updateAgent` action only; there is no UI for it yet.
+```json
+{
+  "type": "agent:update",
+  "agentId": "agent-1723700000000",
+  "name": "Renamed",
+  "tags": ["prod"],
+  "group": "ops",
+  "reqId": "5c0f7b9a-2d44-4e1c-b0a1-77a2d9e04f12"
+}
+```
+
 #### `agent:broadcast`
 Fans a single input payload out to several agents. The server writes `data` to the driver of each agent listed in `targetAgentIds`.
 ```json
@@ -267,8 +290,7 @@ Fans a single input payload out to several agents. The server writes `data` to t
 ### 5.2 Server to Client Messages (`WSMessageServer`)
 
 #### `agent:init_list`
-Initial or updated agent roster sent upon connection or agent creation/removal.
-Clients treat it as an idempotent full snapshot.
+The agent roster, sent once to a connection when it connects or reconnects. It is the connect snapshot and the source of truth at that moment: clients treat it as an idempotent full snapshot that replaces what events built. Later roster changes arrive as `agent:added`, `agent:removed` and `agent:updated`.
 ```json
 {
   "type": "agent:init_list",
@@ -287,6 +309,21 @@ Clients treat it as an idempotent full snapshot.
   ]
 }
 ```
+
+#### `agent:added`, `agent:removed`, `agent:updated`
+Roster events, sent to every connection after the matching change.
+```json
+{ "type": "agent:added", "agent": { "id": "agent-1723700000000", "name": "Build", "mode": "tmux", "targetHost": "localhost:build", "status": "running", "unreadOutput": false, "layout": { "isFloating": false }, "createdAt": 1723700000000, "lastActivity": 1723700000000 } }
+{ "type": "agent:removed", "agentId": "agent-1723700000000", "reason": "killed" }
+{ "type": "agent:updated", "agentId": "agent-1723700000000", "patch": { "name": "Renamed", "tags": ["prod"] } }
+```
+`patch` contains only the keys that changed (`name`, `tags`, `group`, `meta`, `capabilities`).
+
+#### `agent:ack`
+Answers one request: `{ "type": "agent:ack", "reqId": "...", "op": "create" | "kill" | "update" | ..., "ok": true, "agent"?: { ... } }`. It goes to the requester only. A repeated `reqId` is answered from the gateway's cache without repeating the operation.
+
+#### `agent:error`
+A typed failure: `{ "type": "agent:error", "reqId"?: "...", "code": "USAGE" | "NOT_FOUND" | "CONFLICT" | "UNSUPPORTED" | "BACKEND_DOWN" | "INTERNAL" | ..., "message": "...", "retryable": false }`. It goes to the requester only, and carries the `reqId` of the failed request when there was one. An error without a `reqId` shows up in the frontend as a notice.
 
 #### `agent:output`
 Streams stdout/stderr data from PTY or SSH stream.
