@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { Agent, LayoutMode } from '../types/agent';
 import { agentSocket } from '../services/agentSocket';
 import { AgentRequestError, REQUEST_TIMEOUT_MS, type AckResult } from '../services/agentRequests';
-import { parseAgent, parseServerMessage, type AgentStatus, type WSMessageClient } from '../services/wsProtocol';
+import { LIMITS, parseAgent, parseServerMessage, type AgentStatus, type WSMessageClient } from '../services/wsProtocol';
 import type { BackendMode } from '../services/adapters/types';
 import { useConnectionStore } from './connectionStore';
 import { reconcileSnapshot, type PendingMap } from './rosterReconcile';
@@ -129,6 +129,8 @@ export interface AgentStoreState {
   updateAgent: (id: string, patch: AgentUpdatePatch) => Promise<boolean>;
   applyRosterSnapshot: (agents: unknown) => void;
   applyStatusChange: (agentId: string, status: AgentStatus) => void;
+  /** Live only. An agent:added event, already validated: append a new agent or refresh a known one's server fields. */
+  applyAgentAdded: (agent: Agent) => void;
   dismissRosterNotice: (id: string) => void;
   /** Shows an agent:error that matched no request; message is already sanitized "(CODE) text". */
   pushGatewayError: (message: string) => void;
@@ -474,6 +476,26 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       });
     },
 
+    applyAgentAdded: (agent) => {
+      if (!isLive()) return;
+      const st = get();
+      // Pending panes carry client-made ids; a server id can never claim one.
+      if (Object.prototype.hasOwnProperty.call(st.pending, agent.id)) return;
+      const idx = st.agents.findIndex((a) => a.id === agent.id);
+      if (idx !== -1) {
+        const known = st.agents[idx];
+        const next = st.agents.slice();
+        next[idx] = { ...agent, layout: known.layout, unreadOutput: known.unreadOutput };
+        set({ agents: next });
+        return;
+      }
+      if (st.agents.length >= LIMITS.MAX_AGENTS) return;
+      set({
+        agents: [...st.agents, { ...agent, unreadOutput: false, layout: { isFloating: false } }],
+        activeAgentId: st.activeAgentId ?? agent.id,
+      });
+    },
+
     pushGatewayError: (message) => {
       pushRosterNotice('gateway_error', 'The backend reported an error', message);
     },
@@ -667,6 +689,17 @@ agentSocket.subscribe((msg) => {
     useAgentStore.getState().applyRosterSnapshot(msg.agents);
   } else if (msg.type === 'agent:status_change') {
     useAgentStore.getState().applyStatusChange(msg.agentId, msg.status);
+  } else if (msg.type === 'agent:added' || msg.type === 'agent:removed' || msg.type === 'agent:updated') {
+    if (!isLive()) return;
+    // Events are untrusted: validate first, log only that a frame was dropped.
+    const parsed = parseServerMessage(msg);
+    if (!parsed.ok) {
+      console.warn(`agentStore: dropped an invalid ${msg.type} event`);
+      return;
+    }
+    if (parsed.msg.type === 'agent:added') {
+      useAgentStore.getState().applyAgentAdded(parsed.msg.agent);
+    }
   } else if (msg.type === 'agent:error' || msg.type === 'agent:ack') {
     // Only answers that no request claimed reach this listener. A valid ack is simply stray; an
     // error is shown, sanitized. An invalid frame is dropped, logging only that it happened.
