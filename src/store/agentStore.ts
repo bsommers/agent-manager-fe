@@ -234,11 +234,17 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
           ...(options?.killSession === true ? { killSession: true } : {}),
           ...(options?.confirm === true ? { confirm: true } : {}),
         };
+        const sessionKill = options?.killSession === true;
+        const failTitle = sessionKill
+          ? `Could not kill the tmux session of "${target.name}"`
+          : `Could not close "${target.name}"`;
         if (!agentSocket.send(killMsg)) {
           pushRosterNotice(
             'kill_failed',
-            `Could not close "${target.name}"`,
-            'The backend is not connected, so the agent was left running.',
+            failTitle,
+            sessionKill
+              ? 'The backend is not connected, so the session was left running.'
+              : 'The backend is not connected, so the agent was left running.',
           );
           return;
         }
@@ -251,8 +257,10 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
           if (cur.agents.some((a) => a.id === id)) {
             pushRosterNotice(
               'kill_failed',
-              `Could not close "${target.name}"`,
-              'The backend did not confirm within 10 s, so the agent is still listed.',
+              failTitle,
+              sessionKill
+                ? 'The backend did not confirm within 10 s, so the session may still be running and the agent is still listed.'
+                : 'The backend did not confirm within 10 s, so the agent is still listed.',
             );
           }
         });
