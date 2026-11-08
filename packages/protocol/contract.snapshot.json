@@ -1,0 +1,2094 @@
+{
+  "agentCapabilities": [
+    "input",
+    "resize",
+    "kill",
+    "history",
+    "broadcast",
+    "approve",
+    "snapshot"
+  ],
+  "client": {
+    "agent:approve": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "decision": {
+          "kind": "enum",
+          "required": true,
+          "values": [
+            "approve",
+            "deny"
+          ]
+        },
+        "gateId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        }
+      },
+      "rules": []
+    },
+    "agent:broadcast": {
+      "fields": {
+        "data": {
+          "kind": "string",
+          "max": 65536,
+          "maxBytes": 65536,
+          "min": 0,
+          "required": true
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        },
+        "targetAgentIds": {
+          "item": {
+            "kind": "string",
+            "max": 128,
+            "min": 1
+          },
+          "kind": "array",
+          "maxItems": 64,
+          "minItems": 1,
+          "required": true
+        }
+      },
+      "rules": []
+    },
+    "agent:create": {
+      "fields": {
+        "backend": {
+          "kind": "token",
+          "max": 64,
+          "required": false
+        },
+        "initialCmd": {
+          "kind": "string",
+          "max": 4096,
+          "min": 0,
+          "required": false
+        },
+        "mode": {
+          "kind": "enum",
+          "required": true,
+          "values": [
+            "tmux",
+            "ssh"
+          ]
+        },
+        "name": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "noControl": true,
+          "required": true,
+          "trim": true
+        },
+        "params": {
+          "keyMax": 64,
+          "kind": "map",
+          "maxEntries": 32,
+          "required": false,
+          "value": {
+            "kind": "scalar",
+            "maxString": 1024
+          }
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        },
+        "targetHost": {
+          "kind": "string",
+          "max": 255,
+          "min": 1,
+          "noControl": true,
+          "required": true
+        }
+      },
+      "rules": []
+    },
+    "agent:history": {
+      "fields": {
+        "afterSeq": {
+          "kind": "integer",
+          "max": 9007199254740991,
+          "min": 0,
+          "required": false
+        },
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "beforeSeq": {
+          "kind": "integer",
+          "max": 9007199254740991,
+          "min": 0,
+          "required": false
+        },
+        "limit": {
+          "kind": "integer",
+          "max": 1000,
+          "min": 1,
+          "required": false
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        }
+      },
+      "rules": [
+        {
+          "fields": [
+            "beforeSeq",
+            "afterSeq"
+          ],
+          "kind": "exactlyOne"
+        }
+      ]
+    },
+    "agent:input": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "data": {
+          "kind": "string",
+          "max": 65536,
+          "maxBytes": 65536,
+          "min": 0,
+          "required": true
+        }
+      },
+      "rules": []
+    },
+    "agent:kill": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "confirm": {
+          "kind": "boolean",
+          "required": false
+        },
+        "killSession": {
+          "kind": "boolean",
+          "required": false
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        }
+      },
+      "rules": []
+    },
+    "agent:resize": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "cols": {
+          "kind": "integer",
+          "max": 1000,
+          "min": 1,
+          "required": true
+        },
+        "rows": {
+          "kind": "integer",
+          "max": 1000,
+          "min": 1,
+          "required": true
+        }
+      },
+      "rules": []
+    },
+    "agent:update": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "group": {
+          "kind": "string",
+          "max": 64,
+          "min": 1,
+          "noControl": true,
+          "required": false
+        },
+        "name": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "noControl": true,
+          "required": false,
+          "trim": true
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        },
+        "tags": {
+          "item": {
+            "kind": "string",
+            "max": 64,
+            "min": 1,
+            "noControl": true
+          },
+          "kind": "array",
+          "maxItems": 32,
+          "minItems": 0,
+          "required": false
+        }
+      },
+      "rules": [
+        {
+          "fields": [
+            "name",
+            "tags",
+            "group"
+          ],
+          "kind": "atLeastOne"
+        }
+      ]
+    },
+    "hello": {
+      "fields": {
+        "client": {
+          "fields": {
+            "name": {
+              "kind": "string",
+              "max": 64,
+              "min": 1,
+              "required": true
+            },
+            "version": {
+              "kind": "string",
+              "max": 32,
+              "min": 1,
+              "required": true
+            }
+          },
+          "kind": "object",
+          "required": false
+        },
+        "contract": {
+          "kind": "integer",
+          "max": 9007199254740991,
+          "min": 1,
+          "required": true
+        },
+        "epoch": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        },
+        "resumeFrom": {
+          "keyMax": 128,
+          "kind": "map",
+          "maxEntries": 1000,
+          "required": false,
+          "value": {
+            "kind": "integer",
+            "max": 9007199254740991,
+            "min": 0
+          }
+        },
+        "token": {
+          "kind": "string",
+          "max": 512,
+          "min": 0,
+          "noControl": true,
+          "required": false
+        }
+      },
+      "rules": []
+    },
+    "ping": {
+      "fields": {
+        "t": {
+          "kind": "number",
+          "required": true
+        }
+      },
+      "rules": []
+    }
+  },
+  "contract": 1,
+  "errorCodes": {
+    "BACKEND_DOWN": 503,
+    "CONFLICT": 409,
+    "FORBIDDEN": 403,
+    "INTERNAL": 500,
+    "NOT_FOUND": 404,
+    "PAYLOAD_TOO_LARGE": 413,
+    "RATE_LIMITED": 429,
+    "TIMEOUT": 504,
+    "UNAUTHENTICATED": 401,
+    "UNSUPPORTED": 422,
+    "USAGE": 400
+  },
+  "gatewayCapabilities": [
+    "terminal",
+    "broadcast",
+    "search",
+    "history",
+    "tasks",
+    "cost",
+    "quota",
+    "sandbox",
+    "pipeline",
+    "gates",
+    "route"
+  ],
+  "http": {
+    "agent": {
+      "fields": {
+        "agent": {
+          "fields": {
+            "backend": {
+              "kind": "token",
+              "max": 64,
+              "required": false
+            },
+            "capabilities": {
+              "kind": "enumList",
+              "maxItems": 64,
+              "required": false,
+              "values": [
+                "input",
+                "resize",
+                "kill",
+                "history",
+                "broadcast",
+                "approve",
+                "snapshot"
+              ]
+            },
+            "createdAt": {
+              "kind": "number",
+              "required": true
+            },
+            "group": {
+              "kind": "string",
+              "max": 64,
+              "min": 1,
+              "noControl": true,
+              "required": false
+            },
+            "id": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "kind": {
+              "dropUnknown": true,
+              "kind": "enum",
+              "required": false,
+              "values": [
+                "terminal",
+                "sandbox",
+                "pipeline"
+              ]
+            },
+            "lastActivity": {
+              "kind": "number",
+              "required": true
+            },
+            "layout": {
+              "fields": {
+                "height": {
+                  "kind": "number",
+                  "required": false
+                },
+                "isFloating": {
+                  "kind": "boolean",
+                  "required": true
+                },
+                "isMinimized": {
+                  "kind": "boolean",
+                  "required": false
+                },
+                "width": {
+                  "kind": "number",
+                  "required": false
+                },
+                "x": {
+                  "kind": "number",
+                  "required": false
+                },
+                "y": {
+                  "kind": "number",
+                  "required": false
+                },
+                "zIndex": {
+                  "kind": "number",
+                  "required": false
+                }
+              },
+              "kind": "object",
+              "required": true
+            },
+            "meta": {
+              "kind": "json",
+              "maxChars": 65536,
+              "maxDepth": 8,
+              "objectOnly": true,
+              "required": false
+            },
+            "mode": {
+              "kind": "token",
+              "max": 64,
+              "required": true
+            },
+            "name": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "status": {
+              "kind": "enum",
+              "required": true,
+              "values": [
+                "idle",
+                "running",
+                "thinking",
+                "error",
+                "disconnected"
+              ]
+            },
+            "tags": {
+              "item": {
+                "kind": "string",
+                "max": 64,
+                "min": 1,
+                "noControl": true
+              },
+              "kind": "array",
+              "maxItems": 32,
+              "minItems": 0,
+              "required": false
+            },
+            "targetHost": {
+              "kind": "string",
+              "max": 255,
+              "min": 1,
+              "required": true
+            },
+            "unreadOutput": {
+              "kind": "boolean",
+              "required": true
+            }
+          },
+          "kind": "object",
+          "required": true
+        },
+        "ok": {
+          "kind": "literal",
+          "required": true,
+          "value": true
+        }
+      },
+      "rules": []
+    },
+    "agents": {
+      "fields": {
+        "agents": {
+          "fields": {
+            "backend": {
+              "kind": "token",
+              "max": 64,
+              "required": false
+            },
+            "capabilities": {
+              "kind": "enumList",
+              "maxItems": 64,
+              "required": false,
+              "values": [
+                "input",
+                "resize",
+                "kill",
+                "history",
+                "broadcast",
+                "approve",
+                "snapshot"
+              ]
+            },
+            "createdAt": {
+              "kind": "number",
+              "required": true
+            },
+            "group": {
+              "kind": "string",
+              "max": 64,
+              "min": 1,
+              "noControl": true,
+              "required": false
+            },
+            "id": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "kind": {
+              "dropUnknown": true,
+              "kind": "enum",
+              "required": false,
+              "values": [
+                "terminal",
+                "sandbox",
+                "pipeline"
+              ]
+            },
+            "lastActivity": {
+              "kind": "number",
+              "required": true
+            },
+            "layout": {
+              "fields": {
+                "height": {
+                  "kind": "number",
+                  "required": false
+                },
+                "isFloating": {
+                  "kind": "boolean",
+                  "required": true
+                },
+                "isMinimized": {
+                  "kind": "boolean",
+                  "required": false
+                },
+                "width": {
+                  "kind": "number",
+                  "required": false
+                },
+                "x": {
+                  "kind": "number",
+                  "required": false
+                },
+                "y": {
+                  "kind": "number",
+                  "required": false
+                },
+                "zIndex": {
+                  "kind": "number",
+                  "required": false
+                }
+              },
+              "kind": "object",
+              "required": true
+            },
+            "meta": {
+              "kind": "json",
+              "maxChars": 65536,
+              "maxDepth": 8,
+              "objectOnly": true,
+              "required": false
+            },
+            "mode": {
+              "kind": "token",
+              "max": 64,
+              "required": true
+            },
+            "name": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "status": {
+              "kind": "enum",
+              "required": true,
+              "values": [
+                "idle",
+                "running",
+                "thinking",
+                "error",
+                "disconnected"
+              ]
+            },
+            "tags": {
+              "item": {
+                "kind": "string",
+                "max": 64,
+                "min": 1,
+                "noControl": true
+              },
+              "kind": "array",
+              "maxItems": 32,
+              "minItems": 0,
+              "required": false
+            },
+            "targetHost": {
+              "kind": "string",
+              "max": 255,
+              "min": 1,
+              "required": true
+            },
+            "unreadOutput": {
+              "kind": "boolean",
+              "required": true
+            }
+          },
+          "kind": "array",
+          "maxItems": 1000,
+          "required": true
+        },
+        "ok": {
+          "kind": "literal",
+          "required": true,
+          "value": true
+        }
+      },
+      "rules": []
+    },
+    "error": {
+      "fields": {
+        "error": {
+          "fields": {
+            "code": {
+              "kind": "enum",
+              "required": true,
+              "values": [
+                "USAGE",
+                "UNAUTHENTICATED",
+                "FORBIDDEN",
+                "NOT_FOUND",
+                "CONFLICT",
+                "UNSUPPORTED",
+                "RATE_LIMITED",
+                "PAYLOAD_TOO_LARGE",
+                "BACKEND_DOWN",
+                "TIMEOUT",
+                "INTERNAL"
+              ]
+            },
+            "detail": {
+              "kind": "json",
+              "maxChars": 65536,
+              "maxDepth": 8,
+              "required": false
+            },
+            "message": {
+              "kind": "string",
+              "max": 1024,
+              "min": 0,
+              "required": true
+            },
+            "retryable": {
+              "kind": "boolean",
+              "required": true
+            }
+          },
+          "kind": "object",
+          "required": true
+        },
+        "ok": {
+          "kind": "literal",
+          "required": true,
+          "value": false
+        }
+      },
+      "rules": []
+    },
+    "health": {
+      "fields": {
+        "agents": {
+          "kind": "integer",
+          "max": 9007199254740991,
+          "min": 0,
+          "required": false
+        },
+        "backends": {
+          "fields": {
+            "id": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "up": {
+              "kind": "boolean",
+              "required": true
+            }
+          },
+          "kind": "array",
+          "maxItems": 16,
+          "required": true
+        },
+        "contract": {
+          "kind": "integer",
+          "max": 9007199254740991,
+          "min": 1,
+          "required": true
+        },
+        "epoch": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "ok": {
+          "kind": "literal",
+          "required": true,
+          "value": true
+        }
+      },
+      "rules": []
+    },
+    "logs": {
+      "fields": {
+        "hasMore": {
+          "kind": "boolean",
+          "required": true
+        },
+        "lines": {
+          "fields": {
+            "agentId": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "line": {
+              "kind": "integer",
+              "max": 9007199254740991,
+              "min": 0,
+              "required": true
+            },
+            "seq": {
+              "kind": "integer",
+              "max": 9007199254740991,
+              "min": 1,
+              "required": true
+            },
+            "text": {
+              "kind": "string",
+              "max": 1048576,
+              "maxBytes": 1048576,
+              "min": 0,
+              "required": true
+            },
+            "ts": {
+              "kind": "number",
+              "required": true
+            }
+          },
+          "kind": "array",
+          "maxItems": 2000,
+          "required": true
+        },
+        "ok": {
+          "kind": "literal",
+          "required": true,
+          "value": true
+        }
+      },
+      "rules": []
+    },
+    "ok": {
+      "fields": {
+        "ok": {
+          "kind": "literal",
+          "required": true,
+          "value": true
+        }
+      },
+      "rules": []
+    },
+    "search": {
+      "fields": {
+        "nextCursor": {
+          "kind": "string",
+          "max": 512,
+          "min": 1,
+          "required": false
+        },
+        "ok": {
+          "kind": "literal",
+          "required": true,
+          "value": true
+        },
+        "results": {
+          "fields": {
+            "after": {
+              "item": {
+                "kind": "string",
+                "max": 1048576,
+                "maxBytes": 1048576,
+                "min": 0
+              },
+              "kind": "array",
+              "maxItems": 5,
+              "minItems": 0,
+              "required": false
+            },
+            "agentId": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "before": {
+              "item": {
+                "kind": "string",
+                "max": 1048576,
+                "maxBytes": 1048576,
+                "min": 0
+              },
+              "kind": "array",
+              "maxItems": 5,
+              "minItems": 0,
+              "required": false
+            },
+            "line": {
+              "kind": "integer",
+              "max": 9007199254740991,
+              "min": 0,
+              "required": true
+            },
+            "matchIndex": {
+              "kind": "integer",
+              "max": 9007199254740991,
+              "min": 0,
+              "required": true
+            },
+            "matchLength": {
+              "kind": "integer",
+              "max": 9007199254740991,
+              "min": 0,
+              "required": true
+            },
+            "seq": {
+              "kind": "integer",
+              "max": 9007199254740991,
+              "min": 1,
+              "required": true
+            },
+            "text": {
+              "kind": "string",
+              "max": 1048576,
+              "maxBytes": 1048576,
+              "min": 0,
+              "required": true
+            },
+            "ts": {
+              "kind": "number",
+              "required": true
+            }
+          },
+          "kind": "array",
+          "maxItems": 1000,
+          "required": true
+        },
+        "truncated": {
+          "kind": "boolean",
+          "required": false
+        }
+      },
+      "rules": []
+    }
+  },
+  "limits": {
+    "HEARTBEAT": {
+      "intervalMs": 15000,
+      "timeoutMs": 10000
+    },
+    "MAX_AGENTS": 1000,
+    "MAX_BROADCAST_TARGETS": 64,
+    "MAX_FRAME_BYTES": 1048576,
+    "MAX_ID_LENGTH": 128,
+    "MAX_INITIAL_CMD_LENGTH": 4096,
+    "MAX_INPUT_BYTES": 65536,
+    "MAX_MODE_LENGTH": 64,
+    "MAX_NAME_LENGTH": 128,
+    "MAX_SEARCH_QUERY_LENGTH": 256,
+    "MAX_TARGET_HOST_LENGTH": 255,
+    "RECONNECT": {
+      "baseMs": 500,
+      "capMs": 15000,
+      "factor": 2
+    }
+  },
+  "server": {
+    "agent:ack": {
+      "fields": {
+        "agent": {
+          "fields": {
+            "backend": {
+              "kind": "token",
+              "max": 64,
+              "required": false
+            },
+            "capabilities": {
+              "kind": "enumList",
+              "maxItems": 64,
+              "required": false,
+              "values": [
+                "input",
+                "resize",
+                "kill",
+                "history",
+                "broadcast",
+                "approve",
+                "snapshot"
+              ]
+            },
+            "createdAt": {
+              "kind": "number",
+              "required": true
+            },
+            "group": {
+              "kind": "string",
+              "max": 64,
+              "min": 1,
+              "noControl": true,
+              "required": false
+            },
+            "id": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "kind": {
+              "dropUnknown": true,
+              "kind": "enum",
+              "required": false,
+              "values": [
+                "terminal",
+                "sandbox",
+                "pipeline"
+              ]
+            },
+            "lastActivity": {
+              "kind": "number",
+              "required": true
+            },
+            "layout": {
+              "fields": {
+                "height": {
+                  "kind": "number",
+                  "required": false
+                },
+                "isFloating": {
+                  "kind": "boolean",
+                  "required": true
+                },
+                "isMinimized": {
+                  "kind": "boolean",
+                  "required": false
+                },
+                "width": {
+                  "kind": "number",
+                  "required": false
+                },
+                "x": {
+                  "kind": "number",
+                  "required": false
+                },
+                "y": {
+                  "kind": "number",
+                  "required": false
+                },
+                "zIndex": {
+                  "kind": "number",
+                  "required": false
+                }
+              },
+              "kind": "object",
+              "required": true
+            },
+            "meta": {
+              "kind": "json",
+              "maxChars": 65536,
+              "maxDepth": 8,
+              "objectOnly": true,
+              "required": false
+            },
+            "mode": {
+              "kind": "token",
+              "max": 64,
+              "required": true
+            },
+            "name": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "status": {
+              "kind": "enum",
+              "required": true,
+              "values": [
+                "idle",
+                "running",
+                "thinking",
+                "error",
+                "disconnected"
+              ]
+            },
+            "tags": {
+              "item": {
+                "kind": "string",
+                "max": 64,
+                "min": 1,
+                "noControl": true
+              },
+              "kind": "array",
+              "maxItems": 32,
+              "minItems": 0,
+              "required": false
+            },
+            "targetHost": {
+              "kind": "string",
+              "max": 255,
+              "min": 1,
+              "required": true
+            },
+            "unreadOutput": {
+              "kind": "boolean",
+              "required": true
+            }
+          },
+          "kind": "object",
+          "required": false
+        },
+        "ok": {
+          "kind": "literal",
+          "required": true,
+          "value": true
+        },
+        "op": {
+          "kind": "enum",
+          "required": true,
+          "values": [
+            "create",
+            "kill",
+            "update",
+            "broadcast"
+          ]
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "results": {
+          "fields": {
+            "agentId": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "code": {
+              "kind": "enum",
+              "required": false,
+              "values": [
+                "USAGE",
+                "UNAUTHENTICATED",
+                "FORBIDDEN",
+                "NOT_FOUND",
+                "CONFLICT",
+                "UNSUPPORTED",
+                "RATE_LIMITED",
+                "PAYLOAD_TOO_LARGE",
+                "BACKEND_DOWN",
+                "TIMEOUT",
+                "INTERNAL"
+              ]
+            },
+            "message": {
+              "kind": "string",
+              "max": 512,
+              "min": 0,
+              "required": false
+            },
+            "status": {
+              "kind": "enum",
+              "required": true,
+              "values": [
+                "sent",
+                "failed",
+                "offline",
+                "unsupported"
+              ]
+            }
+          },
+          "kind": "array",
+          "maxItems": 64,
+          "required": false
+        }
+      },
+      "rules": []
+    },
+    "agent:added": {
+      "fields": {
+        "agent": {
+          "fields": {
+            "backend": {
+              "kind": "token",
+              "max": 64,
+              "required": false
+            },
+            "capabilities": {
+              "kind": "enumList",
+              "maxItems": 64,
+              "required": false,
+              "values": [
+                "input",
+                "resize",
+                "kill",
+                "history",
+                "broadcast",
+                "approve",
+                "snapshot"
+              ]
+            },
+            "createdAt": {
+              "kind": "number",
+              "required": true
+            },
+            "group": {
+              "kind": "string",
+              "max": 64,
+              "min": 1,
+              "noControl": true,
+              "required": false
+            },
+            "id": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "kind": {
+              "dropUnknown": true,
+              "kind": "enum",
+              "required": false,
+              "values": [
+                "terminal",
+                "sandbox",
+                "pipeline"
+              ]
+            },
+            "lastActivity": {
+              "kind": "number",
+              "required": true
+            },
+            "layout": {
+              "fields": {
+                "height": {
+                  "kind": "number",
+                  "required": false
+                },
+                "isFloating": {
+                  "kind": "boolean",
+                  "required": true
+                },
+                "isMinimized": {
+                  "kind": "boolean",
+                  "required": false
+                },
+                "width": {
+                  "kind": "number",
+                  "required": false
+                },
+                "x": {
+                  "kind": "number",
+                  "required": false
+                },
+                "y": {
+                  "kind": "number",
+                  "required": false
+                },
+                "zIndex": {
+                  "kind": "number",
+                  "required": false
+                }
+              },
+              "kind": "object",
+              "required": true
+            },
+            "meta": {
+              "kind": "json",
+              "maxChars": 65536,
+              "maxDepth": 8,
+              "objectOnly": true,
+              "required": false
+            },
+            "mode": {
+              "kind": "token",
+              "max": 64,
+              "required": true
+            },
+            "name": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "status": {
+              "kind": "enum",
+              "required": true,
+              "values": [
+                "idle",
+                "running",
+                "thinking",
+                "error",
+                "disconnected"
+              ]
+            },
+            "tags": {
+              "item": {
+                "kind": "string",
+                "max": 64,
+                "min": 1,
+                "noControl": true
+              },
+              "kind": "array",
+              "maxItems": 32,
+              "minItems": 0,
+              "required": false
+            },
+            "targetHost": {
+              "kind": "string",
+              "max": 255,
+              "min": 1,
+              "required": true
+            },
+            "unreadOutput": {
+              "kind": "boolean",
+              "required": true
+            }
+          },
+          "kind": "object",
+          "required": true
+        }
+      },
+      "rules": []
+    },
+    "agent:error": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        },
+        "code": {
+          "kind": "enum",
+          "required": true,
+          "values": [
+            "USAGE",
+            "UNAUTHENTICATED",
+            "FORBIDDEN",
+            "NOT_FOUND",
+            "CONFLICT",
+            "UNSUPPORTED",
+            "RATE_LIMITED",
+            "PAYLOAD_TOO_LARGE",
+            "BACKEND_DOWN",
+            "TIMEOUT",
+            "INTERNAL"
+          ]
+        },
+        "detail": {
+          "kind": "json",
+          "maxChars": 65536,
+          "maxDepth": 8,
+          "required": false
+        },
+        "message": {
+          "kind": "string",
+          "max": 1024,
+          "min": 0,
+          "required": true
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        },
+        "retryable": {
+          "kind": "boolean",
+          "required": true
+        }
+      },
+      "rules": []
+    },
+    "agent:gap": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "fromSeq": {
+          "kind": "integer",
+          "max": 9007199254740991,
+          "min": 1,
+          "required": true
+        },
+        "toSeq": {
+          "kind": "integer",
+          "max": 9007199254740991,
+          "min": 1,
+          "required": true
+        }
+      },
+      "rules": [
+        {
+          "field": "toSeq",
+          "kind": "gte",
+          "other": "fromSeq"
+        }
+      ]
+    },
+    "agent:gate": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "expiresAt": {
+          "kind": "number",
+          "required": false
+        },
+        "gateId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "prompt": {
+          "kind": "string",
+          "max": 4096,
+          "min": 0,
+          "required": true
+        }
+      },
+      "rules": []
+    },
+    "agent:history_chunk": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "chunks": {
+          "fields": {
+            "data": {
+              "kind": "string",
+              "max": 1048576,
+              "maxBytes": 1048576,
+              "min": 0,
+              "required": true
+            },
+            "seq": {
+              "kind": "integer",
+              "max": 9007199254740991,
+              "min": 1,
+              "required": true
+            },
+            "ts": {
+              "kind": "number",
+              "required": true
+            }
+          },
+          "kind": "array",
+          "maxItems": 1000,
+          "required": true
+        },
+        "hasMore": {
+          "kind": "boolean",
+          "required": true
+        },
+        "reqId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": false
+        }
+      },
+      "rules": []
+    },
+    "agent:init_list": {
+      "fields": {
+        "agents": {
+          "fields": {
+            "backend": {
+              "kind": "token",
+              "max": 64,
+              "required": false
+            },
+            "capabilities": {
+              "kind": "enumList",
+              "maxItems": 64,
+              "required": false,
+              "values": [
+                "input",
+                "resize",
+                "kill",
+                "history",
+                "broadcast",
+                "approve",
+                "snapshot"
+              ]
+            },
+            "createdAt": {
+              "kind": "number",
+              "required": true
+            },
+            "group": {
+              "kind": "string",
+              "max": 64,
+              "min": 1,
+              "noControl": true,
+              "required": false
+            },
+            "id": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "kind": {
+              "dropUnknown": true,
+              "kind": "enum",
+              "required": false,
+              "values": [
+                "terminal",
+                "sandbox",
+                "pipeline"
+              ]
+            },
+            "lastActivity": {
+              "kind": "number",
+              "required": true
+            },
+            "layout": {
+              "fields": {
+                "height": {
+                  "kind": "number",
+                  "required": false
+                },
+                "isFloating": {
+                  "kind": "boolean",
+                  "required": true
+                },
+                "isMinimized": {
+                  "kind": "boolean",
+                  "required": false
+                },
+                "width": {
+                  "kind": "number",
+                  "required": false
+                },
+                "x": {
+                  "kind": "number",
+                  "required": false
+                },
+                "y": {
+                  "kind": "number",
+                  "required": false
+                },
+                "zIndex": {
+                  "kind": "number",
+                  "required": false
+                }
+              },
+              "kind": "object",
+              "required": true
+            },
+            "meta": {
+              "kind": "json",
+              "maxChars": 65536,
+              "maxDepth": 8,
+              "objectOnly": true,
+              "required": false
+            },
+            "mode": {
+              "kind": "token",
+              "max": 64,
+              "required": true
+            },
+            "name": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "status": {
+              "kind": "enum",
+              "required": true,
+              "values": [
+                "idle",
+                "running",
+                "thinking",
+                "error",
+                "disconnected"
+              ]
+            },
+            "tags": {
+              "item": {
+                "kind": "string",
+                "max": 64,
+                "min": 1,
+                "noControl": true
+              },
+              "kind": "array",
+              "maxItems": 32,
+              "minItems": 0,
+              "required": false
+            },
+            "targetHost": {
+              "kind": "string",
+              "max": 255,
+              "min": 1,
+              "required": true
+            },
+            "unreadOutput": {
+              "kind": "boolean",
+              "required": true
+            }
+          },
+          "kind": "array",
+          "maxItems": 1000,
+          "required": true
+        }
+      },
+      "rules": []
+    },
+    "agent:meta": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "data": {
+          "kind": "byTag",
+          "required": true,
+          "tag": "scope",
+          "variants": {
+            "cost": {
+              "cap": {
+                "kind": "number",
+                "required": false
+              },
+              "currency": {
+                "kind": "string",
+                "max": 16,
+                "min": 1,
+                "required": false
+              },
+              "spent": {
+                "kind": "number",
+                "required": true
+              },
+              "tokens": {
+                "fields": {
+                  "in": {
+                    "kind": "number",
+                    "required": true
+                  },
+                  "out": {
+                    "kind": "number",
+                    "required": true
+                  }
+                },
+                "kind": "object",
+                "required": false
+              }
+            },
+            "pipeline": {
+              "stage": {
+                "kind": "string",
+                "max": 128,
+                "min": 1,
+                "required": true
+              },
+              "state": {
+                "kind": "enum",
+                "required": false,
+                "values": [
+                  "running",
+                  "passed",
+                  "failed",
+                  "waiting_gate"
+                ]
+              },
+              "wave": {
+                "kind": "string",
+                "max": 128,
+                "min": 1,
+                "required": false
+              }
+            },
+            "quota": {
+              "limit": {
+                "kind": "number",
+                "required": true
+              },
+              "resetAt": {
+                "kind": "number",
+                "required": false
+              },
+              "used": {
+                "kind": "number",
+                "required": true
+              },
+              "window": {
+                "kind": "string",
+                "max": 64,
+                "min": 1,
+                "required": false
+              }
+            },
+            "sandbox": {
+              "detail": {
+                "kind": "string",
+                "max": 1024,
+                "min": 0,
+                "required": false
+              },
+              "state": {
+                "kind": "enum",
+                "required": true,
+                "values": [
+                  "creating",
+                  "running",
+                  "stopped",
+                  "snapshotting",
+                  "deleting",
+                  "error"
+                ]
+              }
+            },
+            "task": {
+              "exitCode": {
+                "kind": "integer",
+                "max": 2147483647,
+                "min": -2147483648,
+                "required": false
+              },
+              "id": {
+                "kind": "string",
+                "max": 128,
+                "min": 1,
+                "required": true
+              },
+              "state": {
+                "kind": "enum",
+                "required": true,
+                "values": [
+                  "queued",
+                  "running",
+                  "done",
+                  "failed"
+                ]
+              },
+              "title": {
+                "kind": "string",
+                "max": 256,
+                "min": 0,
+                "required": false
+              }
+            }
+          }
+        },
+        "scope": {
+          "kind": "string",
+          "max": 32,
+          "min": 1,
+          "required": true
+        }
+      },
+      "rules": []
+    },
+    "agent:output": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "data": {
+          "kind": "string",
+          "max": 1048576,
+          "maxBytes": 1048576,
+          "min": 0,
+          "required": true
+        },
+        "replay": {
+          "kind": "boolean",
+          "required": false
+        },
+        "seq": {
+          "kind": "integer",
+          "max": 9007199254740991,
+          "min": 1,
+          "required": false
+        }
+      },
+      "rules": []
+    },
+    "agent:removed": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "reason": {
+          "kind": "enum",
+          "required": false,
+          "values": [
+            "killed",
+            "exited",
+            "gone",
+            "backend_down"
+          ]
+        }
+      },
+      "rules": []
+    },
+    "agent:status_change": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "exitCode": {
+          "kind": "integer",
+          "max": 2147483647,
+          "min": -2147483648,
+          "required": false
+        },
+        "reason": {
+          "kind": "string",
+          "max": 256,
+          "min": 0,
+          "required": false
+        },
+        "status": {
+          "kind": "enum",
+          "required": true,
+          "values": [
+            "idle",
+            "running",
+            "thinking",
+            "error",
+            "disconnected"
+          ]
+        }
+      },
+      "rules": []
+    },
+    "agent:updated": {
+      "fields": {
+        "agentId": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "patch": {
+          "fields": {
+            "capabilities": {
+              "kind": "enumList",
+              "maxItems": 64,
+              "required": false,
+              "values": [
+                "input",
+                "resize",
+                "kill",
+                "history",
+                "broadcast",
+                "approve",
+                "snapshot"
+              ]
+            },
+            "group": {
+              "kind": "string",
+              "max": 64,
+              "min": 1,
+              "noControl": true,
+              "required": false
+            },
+            "meta": {
+              "kind": "json",
+              "maxChars": 65536,
+              "maxDepth": 8,
+              "objectOnly": true,
+              "required": false
+            },
+            "name": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": false
+            },
+            "tags": {
+              "item": {
+                "kind": "string",
+                "max": 64,
+                "min": 1,
+                "noControl": true
+              },
+              "kind": "array",
+              "maxItems": 32,
+              "minItems": 0,
+              "required": false
+            }
+          },
+          "kind": "object",
+          "required": true
+        }
+      },
+      "rules": []
+    },
+    "hello_ack": {
+      "fields": {
+        "auth": {
+          "fields": {
+            "required": {
+              "kind": "boolean",
+              "required": true
+            }
+          },
+          "kind": "object",
+          "required": true
+        },
+        "backends": {
+          "fields": {
+            "agentSpecs": {
+              "fields": {
+                "fields": {
+                  "fields": {
+                    "label": {
+                      "kind": "string",
+                      "max": 128,
+                      "min": 1,
+                      "required": true
+                    },
+                    "name": {
+                      "kind": "string",
+                      "max": 64,
+                      "min": 1,
+                      "required": true
+                    },
+                    "options": {
+                      "item": {
+                        "kind": "string",
+                        "max": 256,
+                        "min": 1
+                      },
+                      "kind": "array",
+                      "maxItems": 64,
+                      "minItems": 0,
+                      "required": false
+                    },
+                    "required": {
+                      "kind": "boolean",
+                      "required": false
+                    },
+                    "type": {
+                      "kind": "enum",
+                      "required": true,
+                      "values": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "enum"
+                      ]
+                    }
+                  },
+                  "kind": "array",
+                  "maxItems": 32,
+                  "required": true
+                },
+                "kind": {
+                  "kind": "enum",
+                  "required": true,
+                  "values": [
+                    "terminal",
+                    "sandbox",
+                    "pipeline"
+                  ]
+                },
+                "mode": {
+                  "kind": "token",
+                  "max": 64,
+                  "required": true
+                },
+                "title": {
+                  "kind": "string",
+                  "max": 128,
+                  "min": 1,
+                  "required": true
+                }
+              },
+              "kind": "array",
+              "maxItems": 16,
+              "required": false
+            },
+            "capabilities": {
+              "kind": "enumList",
+              "maxItems": 64,
+              "required": true,
+              "values": [
+                "terminal",
+                "broadcast",
+                "search",
+                "history",
+                "tasks",
+                "cost",
+                "quota",
+                "sandbox",
+                "pipeline",
+                "gates",
+                "route"
+              ]
+            },
+            "id": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "label": {
+              "kind": "string",
+              "max": 128,
+              "min": 1,
+              "required": true
+            },
+            "up": {
+              "kind": "boolean",
+              "required": true
+            }
+          },
+          "kind": "array",
+          "maxItems": 16,
+          "required": true
+        },
+        "contract": {
+          "kind": "integer",
+          "max": 9007199254740991,
+          "min": 1,
+          "required": true
+        },
+        "epoch": {
+          "kind": "string",
+          "max": 128,
+          "min": 1,
+          "required": true
+        },
+        "limits": {
+          "fields": {
+            "maxBroadcastTargets": {
+              "kind": "integer",
+              "max": 9007199254740991,
+              "min": 1,
+              "required": true
+            },
+            "maxFrameBytes": {
+              "kind": "integer",
+              "max": 9007199254740991,
+              "min": 1,
+              "required": true
+            },
+            "maxInputBytes": {
+              "kind": "integer",
+              "max": 9007199254740991,
+              "min": 1,
+              "required": true
+            }
+          },
+          "kind": "object",
+          "required": true
+        },
+        "server": {
+          "fields": {
+            "name": {
+              "kind": "string",
+              "max": 64,
+              "min": 1,
+              "required": true
+            },
+            "version": {
+              "kind": "string",
+              "max": 32,
+              "min": 1,
+              "required": true
+            }
+          },
+          "kind": "object",
+          "required": true
+        }
+      },
+      "rules": []
+    },
+    "pong": {
+      "fields": {
+        "t": {
+          "kind": "number",
+          "required": true
+        }
+      },
+      "rules": []
+    }
+  }
+}
