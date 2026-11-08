@@ -436,6 +436,67 @@ describe('the confirm gate through the validator', () => {
   });
 });
 
+describe('hostile frames over a real WebSocket', () => {
+  it('stays usable after a stream of 50 invalid frames and raises no unhandled rejection', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const a = await connect();
+      const base = a.frames.length;
+      for (let i = 0; i < 50; i++) {
+        send(a, { type: 'agent:resize', agentId: 'a1', cols: -i, rows: 24, reqId: `bad-${i}` });
+      }
+      await settle(a);
+
+      expect(errorsAfter(a, base)).toHaveLength(50);
+      expect(errorsAfter(a, base).every((e) => e.code === 'USAGE')).toBe(true);
+      expect(a.ws.readyState).toBe(WebSocket.OPEN);
+      await new Promise((r) => setImmediate(r));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  it('answers an oversized input with PAYLOAD_TOO_LARGE to the requester only, and writes nothing', async () => {
+    const x = handle.sessionManager.createAgent('x', 'tmux', 'qa_x');
+    const a = await connect();
+    const b = await connect();
+    const baseA = a.frames.length;
+    const baseB = b.frames.length;
+
+    send(a, { type: 'agent:input', agentId: x.id, data: 'y'.repeat(65537) });
+    await vi.waitFor(() => expect(errorsAfter(a, baseA)).toHaveLength(1));
+    await settle(b);
+
+    expect(errorsAfter(a, baseA)[0]).toMatchObject({
+      code: 'PAYLOAD_TOO_LARGE',
+      message: 'invalid field: data',
+      agentId: x.id,
+      retryable: false,
+    });
+    expect(errorsAfter(b, baseB)).toHaveLength(0);
+    expect(capturedDrivers()[0].write).not.toHaveBeenCalled();
+  });
+
+  it('counts rejected frames on the API stats', async () => {
+    const a = await connect();
+    send(a, { type: 'agent:resize', agentId: 'a1', cols: 0, rows: 24 });
+    send(a, { type: 'agent:unknown' });
+    await settle(a);
+    expect(handle.sessionManager.api.stats.invalidFrames).toBe(1);
+  });
+
+  it('never echoes extra fields of an accepted frame into the service', async () => {
+    const a = await connect();
+    const base = a.frames.length;
+    send(a, { type: 'agent:create', name: 'ok', mode: 'tmux', targetHost: 'qa_ok', reqId: 'x1', evil: '<b>', backend: undefined });
+    await vi.waitFor(() => expect(acksAfter(a, base)).toHaveLength(1));
+    expect(JSON.stringify(acksAfter(a, base)[0])).not.toContain('<b>');
+  });
+});
+
 describe('idempotent reqId over real WebSockets', () => {
   const createFrame = { type: 'agent:create', name: 'once', mode: 'tmux', targetHost: 'qa_once', reqId: 'same' };
 

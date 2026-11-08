@@ -1,3 +1,4 @@
+import { LIMITS } from '../protocol/wsProtocol.js';
 import type { ParseResult, WSMessageClient, WSMessageServer } from '../protocol/wsProtocol.js';
 import { errorFrame, fail } from '../services/serviceResult.js';
 import type { DispatchOutcome } from './dispatch.js';
@@ -57,9 +58,19 @@ export function rejectionFor(
   const field = typeof failure.field === 'string' && SAFE_FIELD.test(failure.field) ? failure.field : undefined;
   const message = field ? `invalid field: ${field}` : 'invalid frame';
 
+  // Terminal input over the byte limit is PAYLOAD_TOO_LARGE (contract 6.2): dropping it as a generic
+  // USAGE would hide that the client should chunk. Only a failure on `data` itself qualifies.
+  const rawType = ownString(raw, 'type');
+  const rawData = ownString(raw, 'data');
+  const oversizedInput =
+    field === 'data' &&
+    (rawType === 'agent:input' || rawType === 'agent:broadcast') &&
+    rawData !== undefined &&
+    Buffer.byteLength(rawData, 'utf8') > LIMITS.MAX_INPUT_BYTES;
+
   const reqId = ownString(raw, 'reqId');
   const agentId = ownString(raw, 'agentId');
-  const result = fail('USAGE', message, {
+  const result = fail(oversizedInput ? 'PAYLOAD_TOO_LARGE' : 'USAGE', message, {
     retryable: false,
     ...(isWireId(agentId) ? { agentId } : {}),
   });

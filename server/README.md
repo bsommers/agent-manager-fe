@@ -34,9 +34,26 @@ Protocol pings are sent every 30 s; sockets that do not answer are terminated.
 
 ## Messages
 
-Client to server: `agent:create`, `agent:input`, `agent:resize`, `agent:kill`, and `ping` (`{"type":"ping","t":<number>}`,
-answered with `{"type":"pong","t":<same number>}`). Server to client: `agent:init_list` and the agent
-output/status messages. Frames that are not JSON objects with a string `type` are ignored and logged.
+Client to server: `agent:create`, `agent:input`, `agent:resize`, `agent:kill`, `agent:update` (rename, tags, group),
+`agent:broadcast`, and `ping` (`{"type":"ping","t":<number>}`, answered with `{"type":"pong","t":<same number>}`).
+Server to client: `agent:init_list`, the agent output/status messages, `agent:updated`, `agent:ack` and `agent:error`.
+
+Every client frame is validated against the shared protocol package before anything acts on it. A frame of a
+known type with an invalid field is answered with `agent:error` `USAGE` to the sender only; the message names the
+field (`invalid field: name`) and never the value. Oversized `agent:input` or `agent:broadcast` data (over 65536
+UTF-8 bytes) is answered with `PAYLOAD_TOO_LARGE`. An unknown `type` is ignored without any output, and frames that
+are not JSON objects with a string `type` are ignored and logged once.
+
+`reqId` is an optional string of 1 to 128 characters on `agent:create`, `agent:kill` and `agent:update`. With it the
+sender gets exactly one `agent:ack` `{ reqId, op, ok: true, agent? }` on success, or one `agent:error` carrying the
+same `reqId` on failure; without it nothing is acknowledged and behavior is as before (the 10 s client timeout is
+the frontend's, not the gateway's). `reqId` is also the idempotency key: a repeated `reqId` with an identical
+request returns the original ack and performs no side effect, the same `reqId` with a different request is refused
+with `CONFLICT`, and failures are not cached so a retry executes again. The window is 1024 entries for 5 minutes,
+shared by the WebSocket and HTTP surfaces. An unknown agent id is refused with `NOT_FOUND` (no snapshot is
+broadcast). Fields the gateway cannot honour are refused with `UNSUPPORTED`: `agent:create` with a `backend` or
+non-empty `params`, and `agent:history` and `agent:approve`. `agent:input` and `agent:resize` never produce a reply
+for a failure other than validation, and `agent:broadcast` is not acknowledged.
 
 `agent:kill` takes the optional booleans `killSession` and `confirm`. Without `killSession` it only closes the
 agent: the gateway detaches its pty and the tmux session keeps running. With `killSession: true` the gateway
