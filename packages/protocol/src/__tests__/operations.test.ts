@@ -227,6 +227,42 @@ describe('operations catalog: MCP tools', () => {
   });
 });
 
+describe('contract spec section 4.3 operations table', () => {
+  const spec = read('../../../../docs/superpowers/specs/2026-11-07-fe-be-contract.md');
+  const start = spec.indexOf('### 4.3 Operations catalog');
+  const section = start < 0 ? '' : spec.slice(start, spec.indexOf('## 5.', start));
+  const rows = [...section.matchAll(/^\| `([a-z]+\.[a-z]+)` \|(.*)\|\s*$/gm)].map((m) => ({
+    name: m[1],
+    cells: m[2].split('|').map((c) => c.trim()),
+  }));
+
+  it('has a twelve-row table whose operation names equal the OPERATIONS keys', () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(rows).toHaveLength(12);
+    expect(rows.map((r) => r.name).sort()).toEqual([...NAMES].sort());
+  });
+
+  it('flags match the catalog: destructive exactly for agent.kill, read-only exactly for the readOnly operations', () => {
+    for (const r of rows) {
+      const flags = r.cells[r.cells.length - 1];
+      const op = OPERATIONS[r.name as OperationName];
+      expect(flags.includes('destructive'), `${r.name} destructive`).toBe(op.destructive);
+      expect(flags.includes('read-only'), `${r.name} read-only`).toBe(op.readOnly);
+    }
+    const destructive = rows.filter((r) => r.cells[r.cells.length - 1].includes('destructive')).map((r) => r.name);
+    expect(destructive).toEqual(['agent.kill']);
+  });
+
+  it('MCP tool and palette cells match the catalog bindings', () => {
+    for (const r of rows) {
+      const op = OPERATIONS[r.name as OperationName];
+      const [, , mcp, palette] = r.cells;
+      expect(mcp, `${r.name} mcp`).toBe('tool' in op.mcp ? `\`${op.mcp.tool}\`` : 'none');
+      expect(palette, `${r.name} palette`).toBe('id' in op.palette ? `\`${op.palette.id}\`` : 'none');
+    }
+  });
+});
+
 describe('surface coverage', () => {
   it('real WS surface is covered', () => {
     const r = checkSurfaceCoverage('ws', Object.keys(CLIENT_TABLE), UNCATALOGUED_CLIENT_MESSAGES);

@@ -172,6 +172,34 @@ Rules:
   - `reqId` is 1..128 characters wherever it appears.
 - Responses go only to the requesting connection (`agent:ack`, `agent:history_chunk`); state changes (`agent:added`, `agent:removed`, `agent:updated`, `agent:status_change`, `agent:output`) go to every connection.
 
+### 4.3 Operations catalog
+
+Every thing a client can ask the gateway to do is one entry of `OPERATIONS` in `packages/protocol/src/operations.ts`. The WS validator rows of the client messages, the HTTP route list, the MCP tool list and the command palette identities derive from it, and tests fail when a surface disagrees with the catalog in either direction. A "none" cell means the operation deliberately has no binding on that surface; the catalog records the reason.
+
+| Operation | WS | HTTP | MCP tool | Palette | Requires | Flags |
+|---|---|---|---|---|---|---|
+| `agent.list` | none | `GET /api/agents` | `agent_list` | none | - | read-only |
+| `agent.create` | `agent:create` | `POST /api/agents` | `agent_create` | `agent.new` | - | - |
+| `agent.close` | `agent:kill` (`killSession` not true) | `DELETE /api/agents/:id` | `agent_close` | none | agent:kill | - |
+| `agent.kill` | `agent:kill` (`killSession` = true) | none | `agent_kill` | none | agent:kill | destructive |
+| `agent.update` | `agent:update` | none | `agent_update` | none | - | - |
+| `agent.input` | `agent:input` | none | `agent_input` | none | gateway:terminal, agent:input | - |
+| `agent.resize` | `agent:resize` | none | none | none | gateway:terminal, agent:resize | - |
+| `agent.broadcast` | `agent:broadcast` | none | `agent_broadcast` | `broadcast.open` | gateway:broadcast, agent:broadcast | - |
+| `agent.history` | `agent:history` | none | none | none | gateway:history, agent:history | read-only |
+| `agent.logs` | none | `GET /api/agents/:id/logs` | `agent_logs` | none | gateway:history | read-only |
+| `agent.approve` | `agent:approve` | none | none | none | gateway:gates, agent:approve | - |
+| `search.query` | none | `GET /api/search` | `search_output` | `search.open` | gateway:search | read-only |
+
+Rules:
+
+- Each message type, HTTP route, MCP tool and palette command belongs to exactly one operation, except `agent:kill`, which carries two (`agent.close` and `agent.kill`, selected by `killSession`). No operation requires a reason to exist outside this table; every "none" carries one in the catalog.
+- `destructive` plus `confirmParam` is the gateway-enforced policy (the gateway refuses a destructive operation unless the confirm parameter is exactly `true`); the enforcement is Phase 6. A destructive operation never has a palette binding.
+- MCP tool annotations (`readOnlyHint`, `destructiveHint`) derive from the `read-only` and `destructive` flags.
+- The palette binding is the command id only. Titles, keywords and hints are FE-owned and live in `src/keyboard/commands.ts`.
+- Connection handshake and heartbeat messages (`hello`, `ping`) and the liveness probes (`GET /health`, `GET /api/health`) are not operations and are exempt from coverage.
+- The generated JSON Schema of the surface is `packages/protocol/contract.schema.json`, described in `packages/protocol/SCHEMA.md`.
+
 ---
 
 ## 5. Sequencing, replay and history
@@ -362,7 +390,11 @@ Breaking = removing or renaming a message type, a field, an error code or a capa
 packages/protocol/            @agent-manager/protocol
   src/                        types, validators, limits, surface (TypeScript)
   fixtures/{client,server,invalid}.json   golden messages (language-neutral)
+  src/operations.ts           operations catalog (section 4.3)
+  src/jsonschema.ts           JSON Schema generator
   contract.snapshot.json      surface snapshot for the breaking-change check
+  contract.schema.json        generated JSON Schema of the surface (language-neutral)
+  SCHEMA.md                   how the schema is generated and consumed
 ```
 
 - FE resolves the package by a Vite alias and TypeScript `paths` entry pointing at `packages/protocol/src/index.ts`; no build step in FE dev/test.
@@ -388,6 +420,7 @@ packages/protocol/            @agent-manager/protocol
 | 19 | `backends`/capabilities in `hello_ack`, `Agent.capabilities`, `agent:meta`. |
 | 20 | Gateway `BackendAdapter` interface; tmux/ssh become adapters. |
 | 24-26 | cvm, climah, mads/mad adapters; `agent:gate`/`agent:approve`. |
+| 2.1 | Operations catalog (section 4.3) and generated JSON Schema (`contract.schema.json`); WS rows, HTTP routes, MCP tools and palette ids derive from the catalog. |
 
 ---
 
@@ -412,3 +445,4 @@ packages/protocol/            @agent-manager/protocol
 | 15 | - | INT-10 and INT-7 share a wave | INT-10 depends on INT-1..7, so it follows INT-7. |
 | 16 | - | requirement keys `UI-01..10` | `UI-01` already exists (v1 windows); v2 UI keys are `UX-01..10`. |
 | 17 | - | Closing an agent must not kill its tmux session; an explicit kill control is needed | `agent:kill` gains optional `killSession` and `confirm` instead of a new `tmux:kill_session` message: the session name stays server-side (only sessions the gateway knows), one atomic roster operation, backend-agnostic (other adapters answer `UNSUPPORTED`), and additive (no `CONTRACT_VERSION` bump). The gateway, not the browser, enforces `confirm: true`. |
+| 18 | - | - | `agent:kill` carries two catalogued operations, `agent.close` (killSession absent or false) and `agent.kill` (killSession true, destructive, requires `confirm`). The HTTP kill form is left to Phase 6, which adds it additively. |
