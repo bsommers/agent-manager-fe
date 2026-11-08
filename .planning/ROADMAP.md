@@ -152,6 +152,25 @@ Plans: 3 of 4 planned (split by file ownership; 05-01 ran in wave 2, 05-02 and 0
 2. A React error boundary renders a fallback instead of a blank screen
 3. Failed create and kill produce toasts with typed messages
 
+### Phase 9.1: QA Bug Fixes (inserted 2026-11-07)
+**Goal:** The live manual-QA run (`qa/QA-REPORT.md`: 12 PASS, 4 FAIL, 2 FIXME) passes: terminal-query replies never reach the shell, every modal and toast renders above the panes, and a tmux session can be killed deliberately while closing an agent keeps it running.
+**Depends on:** Phase 3 and Phase 5 (merged); coordinates with plan 02-04 (wave 4) on the protocol surface snapshot
+**Requirements:** QA-01 (xterm-generated terminal reports are never forwarded to the shell), QA-02 (one z-index scale, all overlays above all panes), QA-03 (explicit, gateway-confirmed tmux session kill; closing does not kill). These IDs are defined here; they are not yet in `REQUIREMENTS.md`.
+**Success criteria:**
+1. After a tmux agent attaches, the prompt is clean and the first command runs unmodified: DA, DSR/CPR, mode, DCS-status and OSC 4/10/11/12 queries produce no `agent:input`, while arrows, Escape, Alt sequences, Shift+F3, paste and application-requested focus reports still reach the shell (unit tests use the exact QA byte sequences; QA steps 1d and 3 pass)
+2. The destructive safety modal's Cancel is clickable; every modal, the palette, the help overlay and the toasts render in a portal above any pane, from one z-index scale, and a test asserts the overlay z-index exceeds every pane z-index after thousands of `bringToFront` calls (QA step 5 passes)
+3. Closing an agent leaves its tmux session running (QA step 12b); a "Kill tmux session..." control behind `DestructiveSafetyModal` sends `agent:kill {killSession: true, confirm: true}`; the gateway refuses a kill without `confirm`, derives the session name itself, uses `execFile` with an argument array and a strict name check, and only acts on agents it manages; the session is gone afterwards (QA step 13); `tmux kill-session -t <name>` is documented
+4. The merge gate stays green (counts only grow from root 58 files / 753 tests, server 10 / 108) and the contract check classifies the `agent:kill` change as additive
+
+Plans: 4 plans, disjoint file ownership (checked with `node .planning/tools/check-wave-collisions.mjs --pending`)
+- [ ] 09.1-01-PLAN.md - xterm parser handlers consume terminal queries so no reply is generated (not a byte filter on `onData`; Shift+F3 equals a CPR reply), wired in `TerminalView`, real-xterm tests with the QA bytes and negative tests for user input, RUNNING.md Issue 6 (wave 4; QA-01)
+- [ ] 09.1-02-PLAN.md - `src/styles/zLayers.ts` scale, `OverlayPortal`, all five overlays and the toasts moved into it, `bringToFront` re-ranks panes into a bounded range, render-time clamp, layering tests, ADR-009 (wave 4; QA-02)
+- [ ] 09.1-03-PLAN.md - `agent:kill` gains `killSession` and `confirm`; gateway `tmuxKill.ts` (execFile argv, strict name, exact-match target), confirm gate with typed `agent:error`, exit-race handling, fixtures, spec and ARCHITECTURE docs (wave 4; QA-03 gateway half)
+- [ ] 09.1-04-PLAN.md - "Kill tmux session..." control and confirmation copy in `DestructiveSafetyModal`, store option and notices, RUNNING.md and QA plan, driver steps 12b (survive) and 13 (kill through the control) (wave 5; depends on 09.1-01, 09.1-02 and 09.1-03; QA-03 UI half)
+
+Schedule: 09.1-01, 09.1-02 and 09.1-03 join wave 4 next to 02-04; 09.1-04 is wave 5. 09.1-04 is not in wave 4 because it edits `DestructiveSafetyModal.tsx` and `agentStore.ts` (also edited by 09.1-02), `docs/RUNNING.md` (also edited by 09.1-01) and needs the protocol fields from 09.1-03.
+Ordering versus 02-04: 02-04 owns the root `package.json`, CI, `packages/protocol/src/{surface,index}.ts` and the surface snapshot. 09.1-03 changes only the `agent:kill` validator row, message type and fixtures (disjoint files), but 02-04 builds the snapshot from the tables at its base commit. Merge 09.1-03 before 02-04; after 02-04, run `npm run contract:update`, check the snapshot diff is only the two optional booleans on `agent:kill`, commit it, run `npm run contract:check -- --base <wave-3 head>` (expect additive), then the merge gate. 09.1-03 also owns one line of `server/src/index.ts` (the reply argument), so Phase 6 and Phase 8 plans that edit that file go after it.
+
 ### Phase 10: Server-Authoritative Agent Roster
 **Goal:** The roster reflects backend truth.
 **Depends on:** Phase 6, Phase 8
