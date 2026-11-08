@@ -16,12 +16,25 @@ schema lives in this package.
 Dev tooling (TypeScript, vitest, vite-node) comes from the repository root install; the package has no
 dependencies of its own.
 
+## Operations catalog
+
+`src/operations.ts` holds `OPERATIONS`, one entry per thing a client can ask the gateway to do (twelve today,
+contract spec section 4.3). Each entry has its parameters, requirements, `readOnly` and `destructive` flags
+and one binding per surface: WebSocket message, HTTP route, MCP tool and command palette id (or a `none` with
+a reason). The client validator rows (`CLIENT_TABLE`), the HTTP route list, the MCP tool list and the palette
+identities derive from it. Only `agent.kill` is destructive, and a destructive operation never has a palette
+binding. The FE builds its three operation palette commands from it (`src/keyboard/commands.ts`); titles and
+other UI strings stay in the FE.
+
 ## Adding or changing a message
 
-1. Add the type to `src/messages.ts` and a row to `CLIENT_TABLE` or `SERVER_TABLE` in `src/validate.ts`
-   (or `HTTP_TABLE` in `src/http.ts`). The `satisfies` clauses make a missing row a compile error.
+1. An operation message is added or changed in its `OPERATIONS` entry in `src/operations.ts` (its `CLIENT_TABLE`
+   row derives from it), and the operations table in contract spec section 4.3 gets the matching row. Any other
+   message gets its type in `src/messages.ts` and a row in `SERVER_TABLE` in `src/validate.ts` (or `HTTP_TABLE`
+   in `src/http.ts`). The `satisfies` clauses make a missing row a compile error.
 2. Add valid and invalid cases to `fixtures/*.json`.
-3. Run `npm run contract:update`, review the diff of `contract.snapshot.json`, and commit it with the change.
+3. Run `npm run contract:update` and the schema generator (see Commands), review the diffs of
+   `contract.snapshot.json` and `contract.schema.json`, and commit them with the change.
 4. Update the contract spec so the prose and the tables stay in step.
 
 ## Breaking and additive changes
@@ -48,6 +61,10 @@ Run from the repository root:
 | `npx vitest run packages/protocol` | Package tests (validators, fixtures, surface, contract check, CI policy) |
 | `npm run contract:check -- --base <ref>` | Fail if the snapshot is stale or the surface breaks relative to `<ref>` (default `HEAD`) |
 | `npm run contract:update` | Regenerate `contract.snapshot.json` |
+| `npx vite-node packages/protocol/scripts/generate-schema.ts` | Regenerate `contract.schema.json` (see `SCHEMA.md`) |
+
+`SCHEMA.md` explains the generated JSON Schema in `contract.schema.json`; `contract:check` also fails when that
+file is stale.
 
 `contract:check` exit codes: 0 ok, 1 stale snapshot or breaking change without a version bump, 2 usage error
 (unsafe ref such as `--evil`, unknown argument, ref that does not resolve).

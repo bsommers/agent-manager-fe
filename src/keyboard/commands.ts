@@ -1,3 +1,5 @@
+import { OPERATIONS } from '@agent-manager/protocol';
+import type { OperationName, PaletteOperationName } from '@agent-manager/protocol';
 import { useAgentStore } from '../store/agentStore';
 import { useUiStore } from '../store/uiStore';
 import { SHORTCUTS, formatKeys } from './shortcuts';
@@ -7,6 +9,8 @@ export interface Command {
   title: string;
   keywords: string;
   hint?: string;
+  /** The catalog operation this command performs; absent for UI-only commands. */
+  operation?: OperationName;
   run: () => void;
 }
 
@@ -17,38 +21,53 @@ function hintFor(shortcutId: string): string | undefined {
   return entry ? formatKeys(entry.keys) : undefined;
 }
 
+type OperationCommandText = Omit<Command, 'id' | 'operation'>;
+
 /**
- * Builds the palette command list from live store state. Deliberately contains no
- * destructive command: nothing kills or closes an agent, sends terminal input or
- * sends a broadcast (threat T-05-05).
+ * FE-owned text and behavior of the palette commands that perform a catalog operation. Keyed by the operations
+ * that have a palette binding, so adding a binding in the catalog without a command here is a compile error.
+ * The command id comes from the catalog binding.
+ */
+const OPERATION_COMMANDS: Record<PaletteOperationName, OperationCommandText> = {
+  'agent.create': {
+    title: 'New agent',
+    keywords: 'add create',
+    run: () => useUiStore.getState().openOverlay('addAgent'),
+  },
+  'agent.broadcast': {
+    title: 'Broadcast to agents',
+    keywords: 'fan-out send command all',
+    run: () => {
+      const ui = useUiStore.getState;
+      ui().setBroadcastOpen(true);
+      ui().requestFocus('broadcast');
+    },
+  },
+  'search.query': {
+    title: 'Search agent output',
+    keywords: 'global logs output find',
+    hint: hintFor('search.toggle'),
+    run: () => useUiStore.getState().openOverlay('search'),
+  },
+};
+
+function operationCommand(operation: PaletteOperationName): Command {
+  const binding = OPERATIONS[operation].palette;
+  return { id: binding.id, operation, ...OPERATION_COMMANDS[operation] };
+}
+
+/**
+ * Builds the palette command list from live store state. Destructive operations are excluded by the catalog
+ * invariant (a destructive operation has no palette binding), not by convention (threat T-05-05).
  */
 export function buildCommands(): Command[] {
   const agentState = useAgentStore.getState();
   const ui = useUiStore.getState;
 
   const commands: Command[] = [
-    {
-      id: 'agent.new',
-      title: 'New agent',
-      keywords: 'add create',
-      run: () => ui().openOverlay('addAgent'),
-    },
-    {
-      id: 'broadcast.open',
-      title: 'Broadcast to agents',
-      keywords: 'fan-out send command all',
-      run: () => {
-        ui().setBroadcastOpen(true);
-        ui().requestFocus('broadcast');
-      },
-    },
-    {
-      id: 'search.open',
-      title: 'Search agent output',
-      keywords: 'global logs output find',
-      hint: hintFor('search.toggle'),
-      run: () => ui().openOverlay('search'),
-    },
+    operationCommand('agent.create'),
+    operationCommand('agent.broadcast'),
+    operationCommand('search.query'),
     {
       id: 'filter.focus',
       title: 'Filter agents',
