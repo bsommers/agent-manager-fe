@@ -193,5 +193,162 @@
     },
     "reason": "unknown_type",
     "field": "type"
+  },
+  {
+    "name": "ack-ok-false",
+    "direction": "server",
+    "input": {
+      "type": "agent:ack",
+      "reqId": "r",
+      "op": "create",
+      "ok": false
+    },
+    "reason": "invalid_field",
+    "field": "ok"
+  },
+  {
+    "name": "ack-op-history",
+    "direction": "server",
+    "input": {
+      "type": "agent:ack",
+      "reqId": "r",
+      "op": "history",
+      "ok": true
+    },
+    "reason": "invalid_field",
+    "field": "op"
+  },
+  {
+    "name": "error-unknown-code",
+    "direction": "server",
+    "input": {
+      "type": "agent:error",
+      "code": "NOPE",
+      "message": "m",
+      "retryable": false
+    },
+    "reason": "invalid_field",
+    "field": "code"
+  },
+  {
+    "name": "gap-to-below-from",
+    "direction": "server",
+    "input": {
+      "type": "agent:gap",
+      "agentId": "a",
+      "fromSeq": 5,
+      "toSeq": 4
+    },
+    "reason": "invalid_field",
+    "field": "toSeq"
+  },
+  {
+    "name": "history-chunk-missing-seq",
+    "direction": "server",
+    "input": {
+      "type": "agent:history_chunk",
+      "agentId": "a",
+      "chunks": [
+        {
+          "ts": 1,
+          "data": "x"
+        }
+      ],
+      "hasMore": false
+    },
+    "reason": "invalid_field",
+    "field": "chunks[0].seq"
+  },
+  {
+    "name": "output-seq-zero",
+    "direction": "server",
+    "input": {
+      "type": "agent:output",
+      "agentId": "a",
+      "data": "x",
+      "seq": 0
+    },
+    "reason": "invalid_field",
+    "field": "seq"
+  },
+  {
+    "name": "status-change-fractional-exit-code",
+    "direction": "server",
+    "input": {
+      "type": "agent:status_change",
+      "agentId": "a",
+      "status": "error",
+      "exitCode": 1.5
+    },
+    "reason": "invalid_field",
+    "field": "exitCode"
+  },
+  {
+    "name": "removed-reason-nope",
+    "direction": "server",
+    "input": {
+      "type": "agent:removed",
+      "agentId": "a",
+      "reason": "nope"
+    },
+    "reason": "invalid_field",
+    "field": "reason"
+  },
+  {
+    "name": "meta-unknown-scope",
+    "direction": "server",
+    "input": {
+      "type": "agent:meta",
+      "agentId": "a",
+      "scope": "billing",
+      "data": {}
+    },
+    "reason": "unknown_type",
+    "field": "scope"
+  },
+  {
+    "name": "meta-cost-spent-string",
+    "direction": "server",
+    "input": {
+      "type": "agent:meta",
+      "agentId": "a",
+      "scope": "cost",
+      "data": {
+        "spent": "1"
+      }
+    },
+    "reason": "invalid_field",
+    "field": "data.spent"
+  },
+  {
+    "name": "error-detail-nested-nine-deep",
+    "direction": "server",
+    "input": {
+      "type": "agent:error",
+      "code": "USAGE",
+      "message": "m",
+      "retryable": false,
+      "detail": {
+        "a": {
+          "a": {
+            "a": {
+              "a": {
+                "a": {
+                  "a": {
+                    "a": {
+                      "a": {
+                        "a": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "reason": "invalid_field",
+    "field": "detail"
   }
 ]

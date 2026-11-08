@@ -18,7 +18,14 @@ export type FieldSpec = Optionality &
     | { kind: 'integer'; min: number; max: number }
     | { kind: 'number' }
     | { kind: 'boolean' }
-    | { kind: 'enum'; values: readonly string[] }
+    /** `dropUnknown`: on an optional field an unknown value yields an absent field instead of a failure. */
+    | { kind: 'enum'; values: readonly string[]; dropUnknown?: boolean }
+    /** Exactly this value (e.g. `ok: true`). */
+    | { kind: 'literal'; value: string | number | boolean }
+    /** Any JSON value, bounded by container depth, serialized size and forbidden keys; the result is a deep copy. */
+    | { kind: 'json'; maxDepth: number; maxChars: number; objectOnly?: boolean }
+    /** Object whose field set depends on the value of the sibling field `tag`. */
+    | { kind: 'byTag'; tag: string; variants: Readonly<Record<string, ObjectSpec>> }
     | { kind: 'token'; max: number }
     | { kind: 'stringArray'; minItems: number; maxItems: number; item: FieldSpec }
     | { kind: 'objectArray'; maxItems: number; fields: ObjectSpec }
@@ -39,9 +46,15 @@ export type MessageSpec = {
   readonly rules?: readonly Rule[];
 };
 
-export type Rule = { kind: 'exactlyOne' | 'atLeastOne'; fields: readonly string[] };
+export type Rule =
+  | { kind: 'exactlyOne' | 'atLeastOne'; fields: readonly string[] }
+  /** Numeric field `field` must be at least numeric field `other` (checked when both are present). */
+  | { kind: 'gte'; field: string; other: string };
 
-export type FieldResult = { ok: true; value: unknown } | { ok: false; field: string; detail: string };
+/** `reason` is set only for failures that are an unknown discriminator rather than an invalid value. */
+export type FieldResult =
+  | { ok: true; value: unknown }
+  | { ok: false; field: string; detail: string; reason?: 'unknown_type' };
 
 const fail = (field: string, detail: string): FieldResult => ({ ok: false, field, detail });
 
@@ -83,7 +96,63 @@ function isLowerToken(s: string): boolean {
   return s.length > 0;
 }
 
-function validateValue(spec: FieldSpec, value: unknown, path: string): FieldResult {
+type JsonBudget = { left: number };
+
+/**
+ * Deep-copies a JSON value. `left` is a lower bound on the serialized size, spent while copying so an
+ * oversized input is rejected early; the caller then checks the exact size.
+ */
+function copyJson(value: unknown, depth: number, maxDepth: number, budget: JsonBudget, path: string): FieldResult {
+  const spend = (n: number): boolean => {
+    budget.left -= n;
+    return budget.left >= 0;
+  };
+  if (value === null) return spend(4) ? { ok: true, value: null } : fail(path, 'is too large');
+  switch (typeof value) {
+    case 'string':
+      return spend(value.length + 2) ? { ok: true, value } : fail(path, 'is too large');
+    case 'boolean':
+      return spend(4) ? { ok: true, value } : fail(path, 'is too large');
+    case 'number':
+      if (!Number.isFinite(value)) return fail(path, 'must be a finite number');
+      return spend(1) ? { ok: true, value } : fail(path, 'is too large');
+    case 'object':
+      break;
+    default:
+      return fail(path, 'must be a JSON value');
+  }
+  if (depth > maxDepth) return fail(path, `must be nested at most ${maxDepth} levels deep`);
+  if (Array.isArray(value)) {
+    if (!spend(2)) return fail(path, 'is too large');
+    const out: unknown[] = [];
+    for (let i = 0; i < value.length; i++) {
+      if (!spend(1)) return fail(path, 'is too large');
+      const r = copyJson(value[i], depth + 1, maxDepth, budget, `${path}[${i}]`);
+      if (!r.ok) return r;
+      out.push(r.value);
+    }
+    return { ok: true, value: out };
+  }
+  if (!spend(2)) return fail(path, 'is too large');
+  const src = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(src)) {
+    if (RESERVED_KEYS.has(key)) return fail(path, 'must not contain a reserved key');
+    if (!spend(key.length + 4)) return fail(path, 'is too large');
+    const r = copyJson(src[key], depth + 1, maxDepth, budget, `${path}.${key}`);
+    if (!r.ok) return r;
+    out[key] = r.value;
+  }
+  return { ok: true, value: out };
+}
+
+function validateValue(
+  spec: FieldSpec,
+  value: unknown,
+  path: string,
+  parent?: Record<string, unknown>,
+  parentPath = '',
+): FieldResult {
   switch (spec.kind) {
     case 'string': {
       if (typeof value !== 'string') return fail(path, 'must be a string');
@@ -119,6 +188,27 @@ function validateValue(spec: FieldSpec, value: unknown, path: string): FieldResu
         return fail(path, `must be one of ${spec.values.join(', ')}`);
       }
       return { ok: true, value };
+    }
+    case 'literal': {
+      if (value !== spec.value) return fail(path, `must be ${JSON.stringify(spec.value)}`);
+      return { ok: true, value };
+    }
+    case 'json': {
+      if (spec.objectOnly && !isPlainObjectLike(value)) return fail(path, 'must be an object');
+      const r = copyJson(value, 1, spec.maxDepth, { left: spec.maxChars }, path);
+      // Report the field itself, never a path built from attacker-chosen keys.
+      if (!r.ok) return fail(path, r.detail);
+      const size = JSON.stringify(r.value).length;
+      if (size > spec.maxChars) return fail(path, `must serialize to at most ${spec.maxChars} characters`);
+      return r;
+    }
+    case 'byTag': {
+      const tagPath = parentPath ? `${parentPath}.${spec.tag}` : spec.tag;
+      const tag = parent ? parent[spec.tag] : undefined;
+      if (typeof tag !== 'string' || !hasOwn(spec.variants, tag)) {
+        return { ok: false, field: tagPath, detail: `unrecognised ${spec.tag}`, reason: 'unknown_type' };
+      }
+      return validateObject(spec.variants[tag], value, path);
     }
     case 'token': {
       if (typeof value !== 'string') return fail(path, 'must be a string');
@@ -200,7 +290,11 @@ export function validateObject(fields: ObjectSpec, value: unknown, path: string)
       if (spec.optional) continue;
       return fail(fieldPath, 'is required');
     }
-    const r = validateValue(spec, value[key], fieldPath);
+    if (spec.kind === 'enum' && spec.dropUnknown && spec.optional) {
+      const v = value[key];
+      if (typeof v !== 'string' || !spec.values.includes(v)) continue;
+    }
+    const r = validateValue(spec, value[key], fieldPath, value, path);
     if (!r.ok) return r;
     out[key] = r.value;
   }
@@ -215,6 +309,14 @@ export function evaluateRules(
 ): { field: string; detail: string } | null {
   if (!rules) return null;
   for (const rule of rules) {
+    if (rule.kind === 'gte') {
+      const a = value[rule.field];
+      const b = value[rule.other];
+      if (typeof a === 'number' && typeof b === 'number' && a < b) {
+        return { field: rule.field, detail: `must be at least ${rule.other}` };
+      }
+      continue;
+    }
     const present = rule.fields.filter((f) => hasOwn(value, f)).length;
     if (rule.kind === 'exactlyOne' && present !== 1) {
       return { field: rule.fields[0], detail: `exactly one of ${rule.fields.join(', ')} is required` };

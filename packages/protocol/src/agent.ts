@@ -1,4 +1,7 @@
+import type { AgentCapability } from './capabilities.js';
+
 export type AgentMode = 'tmux' | 'ssh';
+export type AgentKind = 'terminal' | 'sandbox' | 'pipeline';
 export type AgentStatus = 'idle' | 'running' | 'thinking' | 'error' | 'disconnected';
 
 export interface AgentLayout {
@@ -21,4 +24,11 @@ export interface Agent {
   layout: AgentLayout;
   createdAt: number;
   lastActivity: number;
+  /** Additive, all optional. */
+  kind?: AgentKind;
+  backend?: string;
+  capabilities?: AgentCapability[];
+  tags?: string[];
+  group?: string;
+  meta?: Record<string, unknown>;
 }

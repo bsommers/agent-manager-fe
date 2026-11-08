@@ -94,5 +94,448 @@
       },
       "backends": []
     }
+  },
+  {
+    "name": "pong",
+    "message": {
+      "type": "pong",
+      "t": 1700000000000
+    }
+  },
+  {
+    "name": "agent-added",
+    "message": {
+      "type": "agent:added",
+      "agent": {
+        "id": "a2",
+        "name": "sandbox one",
+        "mode": "tmux",
+        "targetHost": "localhost",
+        "status": "idle",
+        "unreadOutput": false,
+        "layout": {
+          "isFloating": false
+        },
+        "createdAt": 1,
+        "lastActivity": 2,
+        "kind": "sandbox",
+        "backend": "sandbox-1",
+        "capabilities": [
+          "input",
+          "kill",
+          "snapshot"
+        ],
+        "tags": [
+          "demo",
+          "example"
+        ],
+        "group": "examples",
+        "meta": {
+          "image": "example/base:1",
+          "labels": {
+            "team": "demo"
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "agent-removed-with-reason",
+    "message": {
+      "type": "agent:removed",
+      "agentId": "a1",
+      "reason": "killed"
+    }
+  },
+  {
+    "name": "agent-removed-no-reason",
+    "message": {
+      "type": "agent:removed",
+      "agentId": "a1"
+    }
+  },
+  {
+    "name": "agent-updated",
+    "message": {
+      "type": "agent:updated",
+      "agentId": "a1",
+      "patch": {
+        "name": "renamed",
+        "tags": [
+          "x"
+        ],
+        "group": "g",
+        "meta": {
+          "k": 1
+        },
+        "capabilities": [
+          "input"
+        ]
+      }
+    }
+  },
+  {
+    "name": "agent-updated-empty-patch",
+    "message": {
+      "type": "agent:updated",
+      "agentId": "a1",
+      "patch": {}
+    }
+  },
+  {
+    "name": "status-change-with-extras",
+    "message": {
+      "type": "agent:status_change",
+      "agentId": "a1",
+      "status": "disconnected",
+      "reason": "process exited",
+      "exitCode": 137
+    }
+  },
+  {
+    "name": "output-with-seq-replay",
+    "message": {
+      "type": "agent:output",
+      "agentId": "a1",
+      "data": "replayed",
+      "seq": 42,
+      "replay": true
+    }
+  },
+  {
+    "name": "gap",
+    "message": {
+      "type": "agent:gap",
+      "agentId": "a1",
+      "fromSeq": 10,
+      "toSeq": 20
+    }
+  },
+  {
+    "name": "history-chunk",
+    "message": {
+      "type": "agent:history_chunk",
+      "agentId": "a1",
+      "chunks": [
+        {
+          "seq": 1,
+          "ts": 1700000000000,
+          "data": "first"
+        },
+        {
+          "seq": 2,
+          "ts": 1700000000001,
+          "data": "second"
+        }
+      ],
+      "hasMore": true,
+      "reqId": "req-1"
+    }
+  },
+  {
+    "name": "ack-create-with-agent",
+    "message": {
+      "type": "agent:ack",
+      "reqId": "req-1",
+      "op": "create",
+      "ok": true,
+      "agent": {
+        "id": "a2",
+        "name": "sandbox one",
+        "mode": "tmux",
+        "targetHost": "localhost",
+        "status": "idle",
+        "unreadOutput": false,
+        "layout": {
+          "isFloating": false
+        },
+        "createdAt": 1,
+        "lastActivity": 2,
+        "kind": "sandbox",
+        "backend": "sandbox-1",
+        "capabilities": [
+          "input",
+          "kill",
+          "snapshot"
+        ],
+        "tags": [
+          "demo",
+          "example"
+        ],
+        "group": "examples",
+        "meta": {
+          "image": "example/base:1",
+          "labels": {
+            "team": "demo"
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "ack-kill",
+    "message": {
+      "type": "agent:ack",
+      "reqId": "req-2",
+      "op": "kill",
+      "ok": true
+    }
+  },
+  {
+    "name": "ack-broadcast-mixed-results",
+    "message": {
+      "type": "agent:ack",
+      "reqId": "req-3",
+      "op": "broadcast",
+      "ok": true,
+      "results": [
+        {
+          "agentId": "a1",
+          "status": "sent"
+        },
+        {
+          "agentId": "a2",
+          "status": "failed",
+          "code": "BACKEND_DOWN",
+          "message": "backend unavailable"
+        },
+        {
+          "agentId": "a3",
+          "status": "offline"
+        },
+        {
+          "agentId": "a4",
+          "status": "unsupported",
+          "code": "UNSUPPORTED"
+        }
+      ]
+    }
+  },
+  {
+    "name": "error-full",
+    "message": {
+      "type": "agent:error",
+      "reqId": "req-4",
+      "agentId": "a1",
+      "code": "NOT_FOUND",
+      "message": "no such agent",
+      "retryable": false,
+      "detail": {
+        "hint": "example",
+        "attempts": [
+          1,
+          2
+        ],
+        "nested": {
+          "ok": null
+        }
+      }
+    }
+  },
+  {
+    "name": "error-minimal",
+    "message": {
+      "type": "agent:error",
+      "code": "INTERNAL",
+      "message": "boom",
+      "retryable": true
+    }
+  },
+  {
+    "name": "meta-cost",
+    "message": {
+      "type": "agent:meta",
+      "agentId": "a1",
+      "scope": "cost",
+      "data": {
+        "spent": 1.25,
+        "cap": 10,
+        "currency": "USD",
+        "tokens": {
+          "in": 100,
+          "out": 200
+        }
+      }
+    }
+  },
+  {
+    "name": "meta-quota",
+    "message": {
+      "type": "agent:meta",
+      "agentId": "a1",
+      "scope": "quota",
+      "data": {
+        "used": 3,
+        "limit": 10,
+        "window": "1h",
+        "resetAt": 1700000000000
+      }
+    }
+  },
+  {
+    "name": "meta-task",
+    "message": {
+      "type": "agent:meta",
+      "agentId": "a1",
+      "scope": "task",
+      "data": {
+        "id": "task-1",
+        "title": "build",
+        "state": "failed",
+        "exitCode": 2
+      }
+    }
+  },
+  {
+    "name": "meta-pipeline",
+    "message": {
+      "type": "agent:meta",
+      "agentId": "a1",
+      "scope": "pipeline",
+      "data": {
+        "stage": "test",
+        "wave": "w1",
+        "state": "waiting_gate"
+      }
+    }
+  },
+  {
+    "name": "meta-sandbox",
+    "message": {
+      "type": "agent:meta",
+      "agentId": "a1",
+      "scope": "sandbox",
+      "data": {
+        "state": "snapshotting",
+        "detail": "saving"
+      }
+    }
+  },
+  {
+    "name": "gate",
+    "message": {
+      "type": "agent:gate",
+      "agentId": "a1",
+      "gateId": "gate-1",
+      "prompt": "Apply the change?",
+      "expiresAt": 1700000060000
+    }
+  },
+  {
+    "name": "init-list-rich-agent",
+    "message": {
+      "type": "agent:init_list",
+      "agents": [
+        {
+          "id": "a1",
+          "name": "one",
+          "mode": "tmux",
+          "targetHost": "localhost",
+          "status": "idle",
+          "unreadOutput": false,
+          "layout": {
+            "isFloating": false
+          },
+          "createdAt": 1,
+          "lastActivity": 2
+        },
+        {
+          "id": "a2",
+          "name": "sandbox one",
+          "mode": "tmux",
+          "targetHost": "localhost",
+          "status": "idle",
+          "unreadOutput": false,
+          "layout": {
+            "isFloating": false
+          },
+          "createdAt": 1,
+          "lastActivity": 2,
+          "kind": "sandbox",
+          "backend": "sandbox-1",
+          "capabilities": [
+            "input",
+            "kill",
+            "snapshot"
+          ],
+          "tags": [
+            "demo",
+            "example"
+          ],
+          "group": "examples",
+          "meta": {
+            "image": "example/base:1",
+            "labels": {
+              "team": "demo"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "hello-ack-agent-specs",
+    "message": {
+      "type": "hello_ack",
+      "contract": 1,
+      "epoch": "ep-2026-11-07",
+      "server": {
+        "name": "agent-manager-gateway",
+        "version": "2.0.0"
+      },
+      "auth": {
+        "required": false
+      },
+      "limits": {
+        "maxFrameBytes": 1048576,
+        "maxInputBytes": 65536,
+        "maxBroadcastTargets": 64
+      },
+      "backends": [
+        {
+          "id": "sandbox-1",
+          "label": "Example sandbox",
+          "up": true,
+          "capabilities": [
+            "terminal",
+            "sandbox"
+          ],
+          "agentSpecs": [
+            {
+              "mode": "sandbox",
+              "kind": "sandbox",
+              "title": "New sandbox",
+              "fields": [
+                {
+                  "name": "image",
+                  "label": "Image",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "cpus",
+                  "label": "CPUs",
+                  "type": "number"
+                },
+                {
+                  "name": "persist",
+                  "label": "Persistent",
+                  "type": "boolean"
+                },
+                {
+                  "name": "size",
+                  "label": "Size",
+                  "type": "enum",
+                  "options": [
+                    "small",
+                    "large"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
   }
 ]

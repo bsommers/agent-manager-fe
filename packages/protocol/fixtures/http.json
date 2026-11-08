@@ -1,0 +1,343 @@
+{
+  "valid": [
+    {
+      "name": "health-full",
+      "kind": "health",
+      "body": {
+        "ok": true,
+        "contract": 1,
+        "epoch": "ep-2026-11-07",
+        "backends": [
+          {
+            "id": "local",
+            "up": true
+          }
+        ],
+        "agents": 2
+      }
+    },
+    {
+      "name": "health-minimal-unauthenticated",
+      "kind": "health",
+      "body": {
+        "ok": true,
+        "contract": 1,
+        "epoch": "ep-2026-11-07",
+        "backends": [
+          {
+            "id": "local",
+            "up": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "agents-list",
+      "kind": "agents",
+      "body": {
+        "ok": true,
+        "agents": [
+          {
+            "id": "a1",
+            "name": "one",
+            "mode": "tmux",
+            "targetHost": "localhost",
+            "status": "idle",
+            "unreadOutput": false,
+            "layout": {
+              "isFloating": false
+            },
+            "createdAt": 1,
+            "lastActivity": 2,
+            "kind": "terminal",
+            "backend": "local",
+            "capabilities": [
+              "input",
+              "resize",
+              "kill"
+            ],
+            "tags": [
+              "demo"
+            ],
+            "group": "examples",
+            "meta": {
+              "note": "example"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "agents-empty",
+      "kind": "agents",
+      "body": {
+        "ok": true,
+        "agents": []
+      }
+    },
+    {
+      "name": "agent-one",
+      "kind": "agent",
+      "body": {
+        "ok": true,
+        "agent": {
+          "id": "a1",
+          "name": "one",
+          "mode": "tmux",
+          "targetHost": "localhost",
+          "status": "idle",
+          "unreadOutput": false,
+          "layout": {
+            "isFloating": false
+          },
+          "createdAt": 1,
+          "lastActivity": 2,
+          "kind": "terminal",
+          "backend": "local",
+          "capabilities": [
+            "input",
+            "resize",
+            "kill"
+          ],
+          "tags": [
+            "demo"
+          ],
+          "group": "examples",
+          "meta": {
+            "note": "example"
+          }
+        }
+      }
+    },
+    {
+      "name": "ok-bare",
+      "kind": "ok",
+      "body": {
+        "ok": true
+      }
+    },
+    {
+      "name": "logs-page",
+      "kind": "logs",
+      "body": {
+        "ok": true,
+        "lines": [
+          {
+            "agentId": "a1",
+            "seq": 3,
+            "line": 0,
+            "ts": 1700000000000,
+            "text": "hello world"
+          },
+          {
+            "agentId": "a1",
+            "seq": 3,
+            "line": 1,
+            "ts": 1700000000000,
+            "text": "second"
+          }
+        ],
+        "hasMore": true
+      }
+    },
+    {
+      "name": "logs-empty",
+      "kind": "logs",
+      "body": {
+        "ok": true,
+        "lines": [],
+        "hasMore": false
+      }
+    },
+    {
+      "name": "search-with-context",
+      "kind": "search",
+      "body": {
+        "ok": true,
+        "results": [
+          {
+            "agentId": "a1",
+            "seq": 3,
+            "line": 0,
+            "ts": 1700000000000,
+            "text": "hello world",
+            "matchIndex": 6,
+            "matchLength": 5,
+            "before": [
+              "earlier"
+            ],
+            "after": [
+              "later",
+              "latest"
+            ]
+          }
+        ],
+        "nextCursor": "cursor-2",
+        "truncated": false
+      }
+    },
+    {
+      "name": "search-empty",
+      "kind": "search",
+      "body": {
+        "ok": true,
+        "results": []
+      }
+    },
+    {
+      "name": "error-with-detail",
+      "kind": "error",
+      "body": {
+        "ok": false,
+        "error": {
+          "code": "USAGE",
+          "message": "invalid pattern",
+          "retryable": false,
+          "detail": {
+            "field": "q"
+          }
+        }
+      }
+    },
+    {
+      "name": "error-minimal",
+      "kind": "error",
+      "body": {
+        "ok": false,
+        "error": {
+          "code": "RATE_LIMITED",
+          "message": "slow down",
+          "retryable": true
+        }
+      }
+    }
+  ],
+  "malformed": [
+    {
+      "name": "agents-ok-missing",
+      "kind": "agents",
+      "body": {
+        "agents": []
+      },
+      "reason": "invalid_field",
+      "field": "ok"
+    },
+    {
+      "name": "ok-false-on-success-kind",
+      "kind": "ok",
+      "body": {
+        "ok": false
+      },
+      "reason": "invalid_field",
+      "field": "ok"
+    },
+    {
+      "name": "logs-lines-not-array",
+      "kind": "logs",
+      "body": {
+        "ok": true,
+        "lines": "nope",
+        "hasMore": false
+      },
+      "reason": "invalid_field",
+      "field": "lines"
+    },
+    {
+      "name": "logs-has-more-not-boolean",
+      "kind": "logs",
+      "body": {
+        "ok": true,
+        "lines": [],
+        "hasMore": "no"
+      },
+      "reason": "invalid_field",
+      "field": "hasMore"
+    },
+    {
+      "name": "search-hit-missing-match-length",
+      "kind": "search",
+      "body": {
+        "ok": true,
+        "results": [
+          {
+            "agentId": "a1",
+            "seq": 1,
+            "line": 0,
+            "ts": 1,
+            "text": "x",
+            "matchIndex": 0
+          }
+        ]
+      },
+      "reason": "invalid_field",
+      "field": "results[0].matchLength"
+    },
+    {
+      "name": "search-hit-seq-zero",
+      "kind": "search",
+      "body": {
+        "ok": true,
+        "results": [
+          {
+            "agentId": "a1",
+            "seq": 0,
+            "line": 0,
+            "ts": 1700000000000,
+            "text": "hello world",
+            "matchIndex": 0,
+            "matchLength": 1
+          }
+        ]
+      },
+      "reason": "invalid_field",
+      "field": "results[0].seq"
+    },
+    {
+      "name": "error-body-ok-true",
+      "kind": "error",
+      "body": {
+        "ok": true,
+        "error": {
+          "code": "USAGE",
+          "message": "m",
+          "retryable": false
+        }
+      },
+      "reason": "invalid_field",
+      "field": "ok"
+    },
+    {
+      "name": "error-unknown-code",
+      "kind": "error",
+      "body": {
+        "ok": false,
+        "error": {
+          "code": "NOPE",
+          "message": "m",
+          "retryable": false
+        }
+      },
+      "reason": "invalid_field",
+      "field": "error.code"
+    },
+    {
+      "name": "health-agents-fractional",
+      "kind": "health",
+      "body": {
+        "ok": true,
+        "contract": 1,
+        "epoch": "e",
+        "backends": [],
+        "agents": 1.5
+      },
+      "reason": "invalid_field",
+      "field": "agents"
+    },
+    {
+      "name": "ok-body-null",
+      "kind": "ok",
+      "body": null,
+      "reason": "not_object"
+    }
+  ]
+}
