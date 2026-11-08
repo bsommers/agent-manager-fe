@@ -1,0 +1,8 @@
+{
+  "name": "agent-manager-qa",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Playwright QA driver for docs/qa-test-plan.md section 5 (live stack)",
+  "scripts": { "test": "playwright test" },
+  "devDependencies": { "@playwright/test": "1.64.1", "@types/node": "22.10.0" }
+}
