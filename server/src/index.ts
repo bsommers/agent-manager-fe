@@ -1,13 +1,17 @@
 import express from 'express';
 import { createServer, Server } from 'http';
+import { randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { CONFIG, assertLoopbackBind } from './config.js';
 import { SessionManager } from './services/SessionManager.js';
 import { parseClientMessage } from './protocol/wsProtocol.js';
+import { createApiRouter } from './http/apiRouter.js';
 
 export interface BootstrapOptions {
   allowedOrigins?: string[];
   heartbeatMs?: number;
+  /** Identity reported by /api/health; defaults to a random id per process. */
+  epoch?: string;
 }
 
 export async function bootstrap(
@@ -25,6 +29,7 @@ export async function bootstrap(
     (options.allowedOrigins ?? CONFIG.ALLOWED_ORIGINS).map((o) => o.replace(/\/+$/, ''))
   );
   const app = express();
+  app.disable('x-powered-by');
   const server = createServer(app);
   const wss = new WebSocketServer({
     server,
@@ -51,6 +56,16 @@ export async function bootstrap(
       timestamp: new Date().toISOString(),
     });
   });
+
+  app.use(
+    '/api',
+    createApiRouter({
+      api: sessionManager.api,
+      service: sessionManager.service,
+      allowedOrigins,
+      epoch: options.epoch ?? randomUUID(),
+    })
+  );
 
   // Liveness: terminate sockets that stop answering protocol pings.
   const alive = new WeakMap<WebSocket, boolean>();
