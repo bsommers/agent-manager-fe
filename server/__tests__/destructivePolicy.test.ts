@@ -48,9 +48,16 @@ import { bootstrap } from '../src/index.js';
 import { killTmuxSession } from '../src/services/tmuxKill.js';
 import { listOperations } from '@agent-manager/protocol';
 import type { OperationName, OperationSpec } from '@agent-manager/protocol';
+import { destructiveRules } from '../src/gateway/policy.js';
 import { statusFor } from '../src/http/envelope.js';
 import { WebSocket } from 'ws';
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/** The catalog as loaded, to prove no test mutates it. */
+const CATALOG_AT_LOAD = JSON.stringify(listOperations());
 
 type Handle = Awaited<ReturnType<typeof bootstrap>>;
 type Frame = { type: string; [key: string]: any };
@@ -513,5 +520,93 @@ describe('pending surfaces', () => {
       expect(owner).toMatch(/^Phase \d/);
       expect(WALKED_SURFACES).not.toContain(surface);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The policy cannot be bypassed inside the gateway, and it follows the catalog
+// ---------------------------------------------------------------------------
+
+describe('static call-site guarantees', () => {
+  const srcDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
+
+  function sourceFiles(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== '__tests__') out.push(...sourceFiles(full));
+      } else if (entry.name.endsWith('.ts')) {
+        out.push(full);
+      }
+    }
+    return out;
+  }
+
+  const rel = (f: string) => path.relative(srcDir, f).split(path.sep).join('/');
+  const read = (relative: string) => fs.readFileSync(path.join(srcDir, relative), 'utf8');
+
+  it('AgentService.destroy is called only from gateway/dispatch.ts', () => {
+    const callers = sourceFiles(srcDir)
+      .filter((f) => fs.readFileSync(f, 'utf8').includes('.destroy('))
+      .map(rel);
+    expect(callers).toEqual(['gateway/dispatch.ts']);
+  });
+
+  it('the router and the frame layer import no service or driver module as a value', () => {
+    for (const file of ['http/apiRouter.ts', 'gateway/wsFrames.ts']) {
+      const valueImports = read(file)
+        .split('\n')
+        .filter((l) => /^import\s/.test(l) && !/^import\s+type\s/.test(l));
+      for (const line of valueImports) {
+        expect(line, `${file}: ${line}`).not.toMatch(/AgentService|TmuxDriver|SshDriver|tmuxKill|SessionManager/);
+      }
+    }
+  });
+
+  it('SessionManager.ts does not call destroy', () => {
+    expect(read('services/SessionManager.ts')).not.toMatch(/destroy/);
+  });
+
+  it('dispatch.ts applies the policy before any idempotency or service call', () => {
+    const src = read('gateway/dispatch.ts');
+    const policyAt = src.indexOf('checkDestructivePolicy(');
+    expect(policyAt).toBeGreaterThan(-1);
+    expect(policyAt).toBeGreaterThan(src.indexOf('private route('));
+    expect(policyAt).toBeLessThan(src.indexOf('this.idempotent(msg'));
+    expect(policyAt).toBeLessThan(src.indexOf('this.service.'));
+  });
+});
+
+describe('catalog completeness', () => {
+  it('every destructive operation has a confirmParam that is a key of its params', () => {
+    for (const [name, op] of destructive()) {
+      expect(typeof op.confirmParam, name).toBe('string');
+      expect(Object.keys(op.params), name).toContain(op.confirmParam);
+    }
+  });
+
+  it('no destructive operation has a palette binding', () => {
+    for (const [name, op] of destructive()) expect('none' in op.palette, name).toBe(true);
+  });
+
+  it('the destructive set equals the set the policy derives', () => {
+    expect(destructiveRules().map((r) => r.operation).sort()).toEqual(destructive().map(([n]) => n).sort());
+    for (const rule of destructiveRules()) {
+      const op = listOperations().find(([n]) => n === rule.operation)![1];
+      expect(rule.confirmParam).toBe(op.confirmParam);
+    }
+  });
+
+  it('a synthetic catalog copy changes the derived rules without touching the real catalog', () => {
+    const before = JSON.stringify(listOperations());
+    const copy: Record<string, OperationSpec> = Object.fromEntries(listOperations());
+    copy['agent.close'] = { ...copy['agent.close'], destructive: true, confirmParam: 'confirm' };
+    expect(destructiveRules(copy).map((r) => r.operation).sort()).toEqual(['agent.close', 'agent.kill']);
+    expect(JSON.stringify(listOperations())).toBe(before);
+  });
+
+  it('no test in this file mutated the real operations catalog', () => {
+    expect(JSON.stringify(listOperations())).toBe(CATALOG_AT_LOAD);
   });
 });

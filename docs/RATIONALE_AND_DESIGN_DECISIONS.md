@@ -243,3 +243,30 @@ ADR-008 matched a pending create to the roster by name, mode and targetHost, so 
 - Keep key matching: cannot distinguish identical agents created by two clients.
 - A snapshot per mutation: O(n) per change and gives no way to say what changed.
 - Optimistic updates without confirmation: hide failures and make a refused kill look successful.
+
+---
+
+## ADR-012: Catalog-Driven Destructive-Operation Policy at the Gateway (Phase 6)
+
+### Status
+Accepted on 2026-11-08 (GW-05).
+
+### Context
+Phase 09.1 made the gateway refuse `agent:kill { killSession: true }` without `confirm: true`, but the rule lived in one handler and the service. An HTTP form of the kill and an MCP tool were coming, and each would have had to remember the check. The operations catalog (Phase 2.1) already records which operations are destructive and which parameter confirms them.
+
+### Decision
+- One policy stage in `AgentApi.execute`, the dispatch path every surface shares, enforces destructive operations. Its rules are derived from the catalog (`destructive` plus `confirmParam`), not from a second list; a destructive operation without a `confirmParam` makes startup fail closed.
+- The stage runs before idempotency, any lookup and any process. A refusal is `USAGE`, is never cached and writes one warning line with the operation and the agent id truncated to 64 characters.
+- `confirm` means exactly the boolean `true`. The service keeps its identical gate (defense in depth) and `destroy` is called only from dispatch.
+- The destructive operation gets an HTTP form, additively: `POST /api/agents/:id/kill` with body `{ "confirm": true }`. `DELETE /api/agents/:id` remains the non-destructive close.
+- A catalog-walking test exercises every destructive operation on WS and HTTP with side-effect assertions, and an explicit pending-surface record (MCP, Phase 21.1) fails the test when a surface is added without extending the walk.
+
+### Consequences
+- **Pros**: a new destructive operation needs only the catalog flag and a confirm parameter, and the walk test covers it; no surface can skip the check; the FE modal is pure UX.
+- **Cons**: one more route in the public contract and the surface snapshot (a costly-to-reverse addition).
+- **Residual risk**: `confirm` is asserted by the client. It stops accidents, not a caller that can reach the gateway; authentication is Phase 8.
+
+### Alternatives considered
+- Per-handler checks: the shape that already drifted; each new surface repeats the check.
+- A confirmation token round trip (server issues a token, client echoes it): stronger against replays but adds state and a second request for a single-user local tool; revisit with authentication.
+- FE-only confirmation: not a safety boundary, since scripts and other clients bypass the UI.
