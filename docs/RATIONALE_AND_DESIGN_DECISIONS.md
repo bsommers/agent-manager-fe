@@ -154,6 +154,7 @@ ADR-005 silently fell back to the mock generator whenever the WebSocket failed. 
 
 ### Status
 Accepted, delivered ahead of Phases 6 and 8 on 2026-11-07, completed by their typed-lifecycle work.
+Superseded in part by [ADR-011](#adr-011-request-correlation-by-reqid-and-roster-events-phase-6): pending creates are matched by reqId, not by name, mode and targetHost; mutations are announced by events.
 
 ### Context
 Add Agent only built a local agent and never sent `agent:create`, so QA step 1 showed panes with no shell prompt.
@@ -215,3 +216,30 @@ Accepted on 2026-11-08 (GW-04, first half).
 ### Alternatives considered
 - Leave the logic in `SessionManager` and add HTTP beside it: duplicates the confirm gate and the exit race per surface.
 - An event-emitter service: hides the publish contract and makes ordering of snapshots and replies harder to test.
+
+---
+
+## ADR-011: Request Correlation by reqId and Roster Events (Phase 6)
+
+### Status
+Accepted on 2026-11-08 (INT-03). Supersedes the name-based reconciliation of ADR-008 (the Phase 10 slice).
+
+### Context
+ADR-008 matched a pending create to the roster by name, mode and targetHost, so a pane could attach to another client's identical agent. Failures had no types, the gateway answered every mutation with a full `agent:init_list` snapshot, and a request caught by a disconnect was silently lost.
+
+### Decision
+- The frontend always sends a `reqId` on create, kill and update and settles the request from the matching `agent:ack` or `agent:error`; the pending pane becomes the server agent in place. The wire field stays optional, so older clients keep working.
+- Failures are typed with the contract error codes plus two local ones: `TIMEOUT` after 10 seconds and `NOT_CONNECTED` when the socket is closed.
+- Requests in flight at a disconnect are re-sent after the reconnect with the same `reqId` (at most three transmissions); the gateway deduplicates by `reqId`, so a repeat is harmless.
+- `agent:added`, `agent:removed` and `agent:updated` events replace post-mutation snapshots. The connect snapshot (`agent:init_list`) is the single source of truth at connect time and replaces what events built; no event replay is expected.
+- The frontend validates every event with `parseServerMessage` before applying it, ignores unknown ids, caps the roster at `LIMITS.MAX_AGENTS` and applies events idempotently and independent of order relative to acks and snapshots.
+
+### Consequences
+- **Pros**: a pane can no longer attach to somebody else's agent; refusals are visible with their reason; other clients, the HTTP API and scripts show up in the roster live; reconnects neither lose nor duplicate a create.
+- **Cons**: a Phase 10 frontend against a Phase 6 gateway keeps a stale roster until it reconnects, because it ignores the events; the frontend needs a Phase 6 gateway until the Phase 8 `hello_ack` gating exists to negotiate it.
+- Rename, tags and group are reachable through the store action and the gateway only; the UI is left to the remainder of Phase 10, and per-code toast design to Phase 9.
+
+### Alternatives considered
+- Keep key matching: cannot distinguish identical agents created by two clients.
+- A snapshot per mutation: O(n) per change and gives no way to say what changed.
+- Optimistic updates without confirmation: hide failures and make a refused kill look successful.
