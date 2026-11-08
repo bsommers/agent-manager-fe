@@ -186,3 +186,9 @@ npm run build && cd server && npm run build
 ### Issue 5: Unexpected `DEMO` chip
 - **Cause**: `VITE_DEMO_MODE` is set, or the page URL contains `?demo=1`.
 - **Solution**: Unset `VITE_DEMO_MODE` (check `.env` files and your shell) and remove `?demo=1` from the URL.
+
+### Issue 6: Stray characters such as `1;2c` at the prompt, or a mangled first command
+- **Cause**: A program in the shell (tmux at attach, some shells and editors) asks the terminal who it is or what colours it uses. A browser terminal that answers types the answer into the shell, which shows up as text like `1;2c0;276;0c` and corrupts the next command. The app therefore does not answer terminal queries (device attributes, cursor-position and status reports, mode and colour queries).
+- **Solution**: Nothing to configure. If a program insists on an answer it falls back after its own timeout. The table of suppressed queries is in `src/components/agent/terminalReports.ts`.
+  - Real keystrokes and paste are unaffected.
+  - Focus and mouse reports that a program explicitly enabled are unaffected.
