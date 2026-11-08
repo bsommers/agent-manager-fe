@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react';
-import { Cpu, Activity, Search } from 'lucide-react';
+import { Cpu, Activity, Search, Command } from 'lucide-react';
 import { useAgentStore } from '../../store/agentStore';
 import { GlobalSearchModal } from './GlobalSearchModal';
 import { ConnectionStatusChip } from './ConnectionStatusChip';
 import { useUiStore } from '../../store/uiStore';
 import { useGlobalShortcuts } from '../../keyboard/hooks';
+import { formatKeys } from '../../keyboard/shortcuts';
 
 export const Header: React.FC = () => {
   const { agents } = useAgentStore();
@@ -43,6 +44,20 @@ export const Header: React.FC = () => {
         {/* Header Right Actions & Metrics */}
         <div className="flex items-center gap-4">
           <ConnectionStatusChip />
+
+          {/* Command Palette Button */}
+          <button
+            type="button"
+            onClick={() => openOverlay('palette')}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#090d16] hover:bg-slate-900 border border-slate-800 hover:border-cyan-500/50 text-slate-300 hover:text-cyan-300 transition text-xs shadow-sm group"
+            title={`Open the command palette (${formatKeys('Mod+K')}); ${formatKeys('Mod+/')} lists all keyboard shortcuts`}
+          >
+            <Command className="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition-transform" />
+            <span className="font-medium">Commands</span>
+            <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono bg-slate-800/80 text-slate-400 border border-slate-700/80 rounded group-hover:border-slate-600">
+              {formatKeys('Mod+K')}
+            </kbd>
+          </button>
 
           {/* Global Search Button */}
           <button

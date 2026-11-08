@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { SHORTCUTS, matchGlobalShortcut } from './shortcuts';
 import { useUiStore } from '../store/uiStore';
 
@@ -17,4 +17,22 @@ export function useGlobalShortcuts(): void {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+}
+
+/**
+ * Runs `focus` when a focus request for `target` is made after this component mounted.
+ * Render-driven (an effect) so it fires after the commit in which an overlay closed
+ * and focus was restored.
+ */
+export function useFocusRequest(target: string, focus: () => void): void {
+  const request = useUiStore((s) => s.focusRequest);
+  const seenNonce = useRef(request.nonce);
+  const focusRef = useRef(focus);
+  focusRef.current = focus;
+
+  useEffect(() => {
+    if (request.nonce === seenNonce.current) return;
+    seenNonce.current = request.nonce;
+    if (request.target === target) focusRef.current();
+  }, [request, target]);
 }

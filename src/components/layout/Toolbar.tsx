@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { LayoutGrid, Maximize2, Layers, Plus, Search, Radio } from 'lucide-react';
 import { useAgentStore } from '../../store/agentStore';
 import { BroadcastBar } from './BroadcastBar';
+import { useUiStore } from '../../store/uiStore';
+import { useFocusRequest } from '../../keyboard/hooks';
 
 interface ToolbarProps {
   onOpenAddModal: () => void;
@@ -9,7 +11,16 @@ interface ToolbarProps {
 
 export const Toolbar: React.FC<ToolbarProps> = ({ onOpenAddModal }) => {
   const { layoutMode, arrangeGrid, arrangeFocus, arrangeCascade, searchQuery, setSearchQuery } = useAgentStore();
-  const [showBroadcast, setShowBroadcast] = useState(false);
+  const showBroadcast = useUiStore((s) => s.isBroadcastOpen);
+  const setBroadcastOpen = useUiStore((s) => s.setBroadcastOpen);
+  const filterRef = useRef<HTMLInputElement>(null);
+  const broadcastRef = useRef<HTMLDivElement>(null);
+
+  useFocusRequest('agent-filter', () => filterRef.current?.focus());
+  useFocusRequest('broadcast', () => broadcastRef.current?.querySelector<HTMLInputElement>('input[type="text"]')?.focus());
+
+  // Do not leak the broadcast flag across mounts.
+  useEffect(() => () => useUiStore.getState().setBroadcastOpen(false), []);
 
   return (
     <div className="flex flex-col select-none">
@@ -18,7 +29,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenAddModal }) => {
         <div className="relative flex-1 max-w-xs">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
+            ref={filterRef}
             type="text"
+            aria-label="Filter agents by name or host"
             placeholder="Search agents by name or host..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -29,6 +42,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenAddModal }) => {
         {/* Layout Presets */}
         <div className="flex items-center gap-1 bg-[#0d1322] p-1 border border-slate-800 rounded-md">
           <button
+            type="button"
+            aria-pressed={layoutMode === 'grid'}
             onClick={() => arrangeGrid()}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition ${
               layoutMode === 'grid'
@@ -41,6 +56,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenAddModal }) => {
             Grid
           </button>
           <button
+            type="button"
+            aria-pressed={layoutMode === 'focus'}
             onClick={() => arrangeFocus()}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition ${
               layoutMode === 'focus'
@@ -53,6 +70,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenAddModal }) => {
             Focus
           </button>
           <button
+            type="button"
+            aria-pressed={layoutMode === 'cascade'}
             onClick={() => arrangeCascade()}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition ${
               layoutMode === 'cascade'
@@ -70,7 +89,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenAddModal }) => {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setShowBroadcast((prev) => !prev)}
+            aria-pressed={showBroadcast}
+            onClick={() => setBroadcastOpen(!showBroadcast)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition ${
               showBroadcast
                 ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-sm'
@@ -93,7 +113,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onOpenAddModal }) => {
       </div>
 
       {/* Broadcast Bar Collapsible Section */}
-      {showBroadcast && <BroadcastBar />}
+      {showBroadcast && (
+        <div ref={broadcastRef}>
+          <BroadcastBar />
+        </div>
+      )}
     </div>
   );
 };

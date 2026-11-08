@@ -6,6 +6,7 @@ import App from '../../App';
 import { Header } from '../../components/layout/Header';
 import { useAgentStore } from '../../store/agentStore';
 import { useUiStore, resetUiStore } from '../../store/uiStore';
+import type { Agent } from '../../types/agent';
 
 const ctrl = (key: string, extra: KeyboardEventInit = {}) =>
   fireEvent.keyDown(window, { key, ctrlKey: true, ...extra });
@@ -100,5 +101,145 @@ describe('keyboard-first tracer (App)', () => {
     unmount();
     ctrl('k');
     expect(useUiStore.getState().overlay).toBeNull();
+  });
+});
+
+const mkAgent = (id: string, name: string): Agent => ({
+  id,
+  name,
+  mode: 'tmux',
+  targetHost: `host-${id}`,
+  status: 'running',
+  unreadOutput: false,
+  layout: { isFloating: false },
+  createdAt: 1,
+  lastActivity: 1,
+});
+
+const settle = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 80));
+  });
+
+async function runCommand(user: ReturnType<typeof userEvent.setup>, query: string) {
+  ctrl('k');
+  const combo = await screen.findByRole('combobox', { name: 'Type a command' });
+  await user.type(combo, query);
+  await user.keyboard('{Enter}');
+}
+
+describe('palette reaches every surface (App)', () => {
+  beforeEach(() => {
+    resetUiStore();
+    useAgentStore.setState({
+      agents: [mkAgent('a1', 'Alpha'), mkAgent('a2', 'Beta'), mkAgent('a3', 'Gamma')],
+      pending: {},
+      activeAgentId: 'a1',
+      layoutMode: 'grid',
+      searchQuery: '',
+    });
+  });
+
+  it('Go to <name> raises the pane and moves keyboard focus into that terminal', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await settle();
+    await runCommand(user, 'go to gamma');
+    await settle();
+    expect(useAgentStore.getState().activeAgentId).toBe('a3');
+    expect(screen.getByLabelText('Terminal input: Gamma')).toHaveFocus();
+  });
+
+  it('Broadcast to agents opens the bar and focuses its command field', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await settle();
+    expect(screen.queryByPlaceholderText(/Broadcast command/i)).not.toBeInTheDocument();
+    await runCommand(user, 'broadcast to');
+    expect(await screen.findByPlaceholderText(/Broadcast command/i)).toHaveFocus();
+  });
+
+  it('Search agent output opens Global Search', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await settle();
+    await runCommand(user, 'search agent output');
+    expect(await screen.findByRole('dialog', { name: /Global Output Search/i })).toBeInTheDocument();
+  });
+
+  it('Filter agents focuses the toolbar filter', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await settle();
+    await runCommand(user, 'filter agents');
+    expect(screen.getByRole('textbox', { name: 'Filter agents by name or host' })).toHaveFocus();
+  });
+
+  it('New agent opens the add-agent modal', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await settle();
+    await runCommand(user, 'new agent');
+    expect(useUiStore.getState().overlay).toBe('addAgent');
+    expect(await screen.findAllByRole('dialog')).toHaveLength(1);
+  });
+
+  it('the New Agent toolbar button still opens the modal through the store', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /New Agent/i }));
+    expect(useUiStore.getState().overlay).toBe('addAgent');
+  });
+
+  it('the Commands header button opens the palette', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const btn = screen.getByRole('button', { name: /Commands/ });
+    expect(btn.textContent).toContain('Ctrl+K');
+    expect(btn.getAttribute('title')).toContain('Ctrl+/');
+    expect(btn.textContent?.toLowerCase()).not.toContain('global search');
+    await user.click(btn);
+    expect(await screen.findByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
+  });
+
+  it('exposes aria-pressed on layout buttons and the Broadcast toggle', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    expect(screen.getByRole('button', { name: 'Grid' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Cascade' })).toHaveAttribute('aria-pressed', 'false');
+    await user.click(screen.getByRole('button', { name: 'Cascade' }));
+    expect(screen.getByRole('button', { name: 'Cascade' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Grid' })).toHaveAttribute('aria-pressed', 'false');
+
+    const broadcast = screen.getByRole('button', { name: /^Broadcast$/ });
+    expect(broadcast).toHaveAttribute('aria-pressed', 'false');
+    await user.click(broadcast);
+    expect(broadcast).toHaveAttribute('aria-pressed', 'true');
+    expect(useUiStore.getState().isBroadcastOpen).toBe(true);
+  });
+
+  it('Ctrl+K dispatched on the focused terminal opens the palette; Ctrl+C there does not', async () => {
+    render(<App />);
+    await settle();
+    const textarea = screen.getByLabelText('Terminal input: Alpha');
+    textarea.focus();
+    expect(textarea).toHaveFocus();
+
+    fireEvent.keyDown(textarea, { key: 'c', ctrlKey: true });
+    expect(useUiStore.getState().overlay).toBeNull();
+
+    fireEvent.keyDown(textarea, { key: 'k', ctrlKey: true });
+    expect(await screen.findByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
+    expect(textarea).toHaveFocus();
+  });
+
+  it('unmounting the toolbar resets the broadcast flag', () => {
+    const { unmount } = render(<App />);
+    act(() => useUiStore.getState().setBroadcastOpen(true));
+    unmount();
+    expect(useUiStore.getState().isBroadcastOpen).toBe(false);
   });
 });
