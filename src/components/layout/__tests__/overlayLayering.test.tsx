@@ -1,5 +1,17 @@
 import React from 'react';
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+vi.mock('@xterm/xterm', () => ({
+  Terminal: vi.fn().mockImplementation(() => ({
+    loadAddon: vi.fn(),
+    open: vi.fn(),
+    write: vi.fn(),
+    onData: vi.fn(),
+    dispose: vi.fn(),
+  })),
+}));
+vi.mock('@xterm/addon-fit', () => ({ FitAddon: vi.fn().mockImplementation(() => ({ fit: vi.fn() })) }));
+vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: vi.fn() }));
+
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import { Z_LAYERS, clampPaneZ, stackPanes } from '../../../styles/zLayers';
 import { OverlayPortal } from '../OverlayPortal';
@@ -9,6 +21,8 @@ import { AddAgentModal } from '../../agent/AddAgentModal';
 import { GlobalSearchModal } from '../GlobalSearchModal';
 import { CommandPalette } from '../CommandPalette';
 import { ShortcutHelp } from '../ShortcutHelp';
+import { NotificationToastManager } from '../NotificationToastManager';
+import { FloatingPane } from '../FloatingPane';
 import { useUiStore, resetUiStore } from '../../../store/uiStore';
 import { Agent } from '../../../types/agent';
 
@@ -262,5 +276,74 @@ describe('DestructiveSafetyModal layer', () => {
     );
     expect(container).toBeEmptyDOMElement();
     expect(layerWrapper('confirm')).toBeNull();
+  });
+});
+
+describe('toast layer', () => {
+  afterEach(() => {
+    useAgentStore.setState({ rosterNotices: [] });
+  });
+
+  it('renders the toast stack in the toast layer above the confirm layer', () => {
+    useAgentStore.setState({
+      rosterNotices: [
+        { id: 'n1', kind: 'create_failed', title: 'Could not create "Build"', message: 'No confirmation.', createdAt: Date.now() },
+      ],
+    });
+    render(<NotificationToastManager />);
+    const w = layerWrapper('toast')!;
+    expect(w).not.toBeNull();
+    expect(w.parentElement).toBe(document.body);
+    expect(w.querySelector('[data-testid="roster-notice-create_failed"]')).not.toBeNull();
+    expect(Number(w.style.zIndex)).toBe(Z_LAYERS.toast);
+    expect(Number(w.style.zIndex)).toBeGreaterThan(Z_LAYERS.confirm);
+  });
+  it('renders nothing when there is nothing to show', () => {
+    const { container } = render(<NotificationToastManager />);
+    expect(container).toBeEmptyDOMElement();
+    expect(layerWrapper('toast')).toBeNull();
+  });
+});
+
+describe('FloatingPane render-time clamp', () => {
+  const paneZ = (agent: Agent) => {
+    useAgentStore.setState({ agents: [agent] });
+    const { container } = render(<FloatingPane agent={agent} />);
+    return (container.firstElementChild as HTMLElement).style.zIndex;
+  };
+
+  it('clamps an extreme stored z-index to the pane ceiling', () => {
+    expect(paneZ(makeAgent('big', 999999))).toBe(String(Z_LAYERS.paneMax));
+  });
+  it('defaults an undefined z-index to paneBase', () => {
+    expect(paneZ(makeAgent('none', undefined))).toBe(String(Z_LAYERS.paneBase));
+  });
+  it('keeps a modest stored z-index unchanged', () => {
+    expect(paneZ(makeAgent('small', 10))).toBe('10');
+  });
+});
+
+describe('full layer ordering', () => {
+  it('orders pane ceiling < overlay < confirm < toast over rendered wrappers', () => {
+    useAgentStore.setState({
+      agents: seed(),
+      rosterNotices: [{ id: 'n1', kind: 'kill_failed', title: 't', message: 'm', createdAt: Date.now() }],
+    });
+    raiseMany(10000);
+    useUiStore.getState().openOverlay('help');
+    render(
+      <>
+        <ShortcutHelp />
+        <DestructiveSafetyModal isOpen command="x" targetAgents={[]} onConfirm={() => {}} onCancel={() => {}} />
+        <NotificationToastManager />
+      </>,
+    );
+    const zs = ['overlay', 'confirm', 'toast'].map((l) => Number(layerWrapper(l)!.style.zIndex));
+    const ladder = [Z_LAYERS.paneMax, ...zs];
+    expect(ladder).toEqual([...ladder].sort((a, b) => a - b));
+    expect(new Set(ladder).size).toBe(4);
+    expect(maxPaneZ()).toBeLessThanOrEqual(Z_LAYERS.paneMax);
+    resetUiStore();
+    useAgentStore.setState({ rosterNotices: [] });
   });
 });

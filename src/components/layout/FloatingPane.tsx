@@ -2,6 +2,7 @@ import React, { useState, useRef, useId } from 'react';
 import { Agent } from '../../types/agent';
 import { AgentPane } from '../agent/AgentPane';
 import { useAgentStore, agentStore } from '../../store/agentStore';
+import { clampPaneZ } from '../../styles/zLayers';
 import {
   PANE_MIN_X,
   PANE_MIN_Y,
@@ -145,7 +146,7 @@ export const FloatingPane: React.FC<FloatingPaneProps> = ({ agent }) => {
         top: `${agent.layout.y || 120}px`,
         width: `${agent.layout.width || 650}px`,
         height: `${agent.layout.height || 400}px`,
-        zIndex: agent.layout.zIndex || 100,
+        zIndex: clampPaneZ(agent.layout.zIndex),
       }}
       className={`flex flex-col shadow-2xl rounded-lg overflow-hidden border border-cyan-500/40 backdrop-blur-md bg-[#0d1322]/95 relative transition-shadow ${
         isDragging ? 'opacity-90 cursor-grabbing shadow-cyan-500/20' : ''
