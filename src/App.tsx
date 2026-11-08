@@ -6,6 +6,7 @@ import { Workspace } from './components/layout/Workspace';
 import { AddAgentModal } from './components/agent/AddAgentModal';
 import { NotificationToastManager } from './components/layout/NotificationToastManager';
 import { CommandPalette } from './components/layout/CommandPalette';
+import { ShortcutHelp } from './components/layout/ShortcutHelp';
 import { useUiStore } from './store/uiStore';
 
 export default function App() {
@@ -24,6 +25,7 @@ export default function App() {
       <Workspace />
       <AddAgentModal isOpen={isAddModalOpen} onClose={() => closeOverlay('addAgent')} />
       <CommandPalette />
+      <ShortcutHelp />
       <NotificationToastManager />
     </div>
   );

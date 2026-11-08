@@ -54,13 +54,13 @@ describe('CommandPalette', () => {
     openPalette();
     const combo = screen.getByRole('combobox');
     const options = screen.getAllByRole('option');
-    expect(options).toHaveLength(10);
+    expect(options).toHaveLength(11);
     expect(options[0]).toHaveAttribute('aria-selected', 'true');
     expect(combo).toHaveAttribute('aria-activedescendant', options[0].id);
 
     await user.keyboard('{ArrowUp}');
-    expect(screen.getAllByRole('option')[9]).toHaveAttribute('aria-selected', 'true');
-    expect(combo).toHaveAttribute('aria-activedescendant', options[9].id);
+    expect(screen.getAllByRole('option')[10]).toHaveAttribute('aria-selected', 'true');
+    expect(combo).toHaveAttribute('aria-activedescendant', options[10].id);
 
     await user.keyboard('{ArrowDown}');
     expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true');

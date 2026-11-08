@@ -111,7 +111,7 @@ sequenceDiagram
 
 ### 3.1 Directory Structure
 - `src/components/agent/AgentPane.tsx`: Window frame container wrapping terminal header, control bar, and canvas view.
-- `src/components/agent/TerminalView.tsx`: Manages xterm.js lifecycle, canvas fitting via `@xterm/addon-fit`, web links addon, and socket event subscriptions.
+- `src/components/agent/TerminalView.tsx`: Manages xterm.js lifecycle, canvas fitting via `@xterm/addon-fit`, web links addon, and socket event subscriptions. It lets the registered global chords (`Ctrl/Cmd+K`, `Ctrl/Cmd+Shift+F`, `Ctrl/Cmd+/`) bypass xterm through `attachCustomKeyEventHandler` (every other key still reaches the program), names the xterm textarea `Terminal input: <agent name>`, and focuses itself on a `terminal:<id>` focus request.
 - `src/components/layout/FloatingPane.tsx`: Absolute-positioned window container providing header drag handles, bottom-right resize handles, and z-index elevation.
 - `src/components/layout/Workspace.tsx`: Workspace canvas rendering active panes with auto-arrange layout algorithms.
 - `src/store/agentStore.ts`: Zustand application store handling state mutations, layout calculations, and subscriber notifications.
@@ -124,6 +124,12 @@ sequenceDiagram
 - `src/components/layout/BroadcastBar.tsx`: Toolbar command bar that fans one command out to all, filtered, or selected agents via `agent:broadcast`, gating destructive patterns behind a confirmation modal.
 - `src/components/layout/GlobalSearchModal.tsx`: Cross-agent log search (plain text or regex, `Ctrl+Shift+F`) over the buffered output, with jump-to-pane navigation.
 - `src/components/layout/NotificationToastManager.tsx`: Subscribes to `agent:status_change` and shows toasts when an agent becomes `error` or `disconnected`.
+- `src/store/uiStore.ts`: Zustand store for UI state shared across components: one overlay slot (`palette`, `help`, `search`, `addAgent`, only one open at a time), the broadcast bar flag, and focus requests (`requestFocus(target)` with a nonce) consumed by `useFocusRequest`.
+- `src/keyboard/shortcuts.ts`: The single shortcut registry (`SHORTCUTS`), the global chord matcher (`matchGlobalShortcut`, matched on `event.key` only) and `formatKeys`. The help overlay and [KEYBOARD.md](KEYBOARD.md) mirror it.
+- `src/keyboard/hooks.ts`: `useGlobalShortcuts` (one window keydown listener driven by the registry, hosted by `Header`) and `useFocusRequest`.
+- `src/keyboard/commands.ts`: Builds the command palette list from live store state (`buildCommands`) and ranks it (`filterCommands`, capped at 50). It contains no destructive command.
+- `src/components/layout/CommandPalette.tsx`: `Ctrl/Cmd+K` combobox/listbox dialog reaching agents, layouts, broadcast, search and New agent.
+- `src/components/layout/ShortcutHelp.tsx`: `Ctrl/Cmd+/` dialog listing every registry row grouped by group.
 - `src/store/logBufferStore.ts`: Zustand store holding a bounded per-agent ring buffer of ANSI-stripped output lines (10,000 lines per agent) used by global search.
 
 ### 3.2 Layout Algorithms

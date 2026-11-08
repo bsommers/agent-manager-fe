@@ -56,6 +56,13 @@ export function buildCommands(): Command[] {
       run: () => ui().requestFocus('agent-filter'),
     },
     {
+      id: 'help.open',
+      title: 'Show keyboard shortcuts',
+      keywords: 'help keys bindings hotkeys',
+      hint: hintFor('help.toggle'),
+      run: () => ui().openOverlay('help'),
+    },
+    {
       id: 'layout.grid',
       title: 'Layout: Grid',
       keywords: 'arrange tile snap',

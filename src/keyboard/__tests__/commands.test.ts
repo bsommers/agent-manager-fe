@@ -77,6 +77,7 @@ describe('buildCommands', () => {
       'Broadcast to agents',
       'Search agent output',
       'Filter agents',
+      'Show keyboard shortcuts',
       'Layout: Grid',
       'Layout: Focus',
       'Layout: Cascade',
@@ -118,6 +119,13 @@ describe('buildCommands', () => {
     by('Broadcast to agents').run();
     expect(useUiStore.getState().isBroadcastOpen).toBe(true);
     expect(useUiStore.getState().focusRequest.target).toBe('broadcast');
+  });
+
+  it('Show keyboard shortcuts opens the help overlay and shows the chord hint', () => {
+    const help = buildCommands().find((c) => c.title === 'Show keyboard shortcuts')!;
+    expect(help.hint).toBe('Ctrl+/');
+    help.run();
+    expect(useUiStore.getState().overlay).toBe('help');
   });
 
   it('layout commands call the arrange actions like the toolbar buttons', () => {

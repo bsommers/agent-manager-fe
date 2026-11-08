@@ -1,6 +1,7 @@
 import React from 'react';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import { SHORTCUTS } from '../shortcuts';
 import userEvent from '@testing-library/user-event';
 import App from '../../App';
 import { Header } from '../../components/layout/Header';
@@ -234,6 +235,37 @@ describe('palette reaches every surface (App)', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
     expect(textarea).toHaveFocus();
+  });
+
+  it('Ctrl+/ opens the help overlay listing every registry row; Esc closes it and restores focus', async () => {
+    render(<App />);
+    await settle();
+    const filter = screen.getByRole('textbox', { name: 'Filter agents by name or host' });
+    filter.focus();
+
+    ctrl('/');
+    const dialog = await screen.findByRole('dialog', { name: 'Keyboard shortcuts' });
+    for (const s of SHORTCUTS) {
+      expect(within(dialog).getByText(s.description)).toBeInTheDocument();
+    }
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).not.toBeInTheDocument();
+    expect(filter).toHaveFocus();
+  });
+
+  it('the Show keyboard shortcuts command sits after Filter agents and opens the help overlay', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await settle();
+    ctrl('k');
+    await screen.findByRole('dialog', { name: 'Command palette' });
+    const titles = screen.getAllByRole('option').map((o) => o.textContent ?? '');
+    const filterIdx = titles.findIndex((t) => t.startsWith('Filter agents'));
+    expect(titles[filterIdx + 1]).toMatch(/^Show keyboard shortcuts/);
+
+    await user.type(screen.getByRole('combobox'), 'keyboard shortcuts{Enter}');
+    expect(await screen.findByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
   });
 
   it('unmounting the toolbar resets the broadcast flag', () => {
