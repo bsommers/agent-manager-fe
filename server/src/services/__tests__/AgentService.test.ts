@@ -43,6 +43,7 @@ describe('AgentService', () => {
   let log: any;
 
   const snapshots = () => published.filter((f) => f.type === 'agent:init_list');
+  const added = () => published.filter((f) => f.type === 'agent:added');
   const statusChanges = () => published.filter((f) => f.type === 'agent:status_change');
   const mkTmux = (): FakeDriver => ({ write: vi.fn(), resize: vi.fn(), close: vi.fn(), onExit: () => {} });
 
@@ -98,7 +99,7 @@ describe('AgentService', () => {
   });
 
   describe('create', () => {
-    it('creates a tmux agent, registers it and publishes one snapshot containing it', () => {
+    it('creates a tmux agent, registers it and publishes one agent:added and no snapshot', () => {
       const r = svc.create({ name: 'a', mode: 'tmux', targetHost: 'localhost:qa_a' });
       expect(r.ok).toBe(true);
       if (!r.ok) return;
@@ -116,8 +117,9 @@ describe('AgentService', () => {
       expect(svc.count()).toBe(1);
       expect(svc.list()).toEqual([r.value]);
       expect(svc.driverOf(r.value.id)).toBe(tmuxDrivers[0]);
-      expect(snapshots()).toHaveLength(1);
-      expect(snapshots()[0].agents).toEqual([r.value]);
+      expect(added()).toHaveLength(1);
+      expect(added()[0].agent).toEqual(r.value);
+      expect(snapshots()).toHaveLength(0);
       expect(published).toHaveLength(1);
     });
 

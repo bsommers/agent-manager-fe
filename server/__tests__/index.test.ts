@@ -74,15 +74,16 @@ describe('Server & WebSocket Integration (server/src/index.ts)', () => {
       })
     );
 
-    const initListMsg = await new Promise<any>((resolve) => {
+    // The create is announced as agent:added (plan 06-04); the connect snapshot is empty.
+    const addedMsg = await new Promise<any>((resolve) => {
       ws.on('message', (raw) => {
         const parsed = JSON.parse(raw.toString());
-        if (parsed.type === 'agent:init_list') resolve(parsed);
+        if (parsed.type === 'agent:added') resolve(parsed);
       });
     });
 
-    expect(initListMsg.agents.length).toBeGreaterThan(0);
-    const createdAgentId = initListMsg.agents[0].id;
+    expect(addedMsg.agent.name).toBe('WS Test Agent');
+    const createdAgentId = addedMsg.agent.id;
 
     // Input message
     ws.send(

@@ -130,7 +130,7 @@ export class AgentService {
       }, 500);
     }
 
-    this.publishSnapshot();
+    this.publish({ type: 'agent:added', agent: structuredClone(agent) });
     return ok(agent);
   }
 
