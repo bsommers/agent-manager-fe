@@ -6,9 +6,10 @@ import { useAgentStore } from '../../store/agentStore';
 interface AgentControlsProps {
   agentId: string;
   isFloating: boolean;
+  agentName?: string;
 }
 
-export const AgentControls: React.FC<AgentControlsProps> = ({ agentId, isFloating }) => {
+export const AgentControls: React.FC<AgentControlsProps> = ({ agentId, isFloating, agentName }) => {
   const { toggleUndock, removeAgent } = useAgentStore();
 
   const handleCtrlC = () => {
@@ -27,9 +28,13 @@ export const AgentControls: React.FC<AgentControlsProps> = ({ agentId, isFloatin
     });
   };
 
+  const suffix = agentName ? ` ${agentName}` : '';
+
   return (
     <div className="flex items-center gap-1 bg-[#131b2e] border-t border-slate-800 px-3 py-1.5 text-xs text-slate-400">
       <button
+        type="button"
+        aria-label={agentName ? `Send Ctrl+C to ${agentName}` : 'Send Ctrl+C'}
         onClick={handleCtrlC}
         className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 hover:text-white transition flex items-center gap-1 font-mono text-[11px]"
         title="Send SIGINT (Ctrl+C)"
@@ -37,6 +42,8 @@ export const AgentControls: React.FC<AgentControlsProps> = ({ agentId, isFloatin
         Ctrl+C
       </button>
       <button
+        type="button"
+        aria-label={agentName ? `Clear ${agentName} terminal` : 'Clear terminal'}
         onClick={handleClear}
         className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 hover:text-white transition text-[11px]"
       >
@@ -46,18 +53,22 @@ export const AgentControls: React.FC<AgentControlsProps> = ({ agentId, isFloatin
       <div className="flex-1" />
 
       <button
+        type="button"
+        aria-label={isFloating ? `Dock${suffix}` : `Pop out${suffix} as floating window`}
         onClick={() => toggleUndock(agentId)}
         className="p-1 hover:text-cyan-400 transition rounded hover:bg-slate-800"
         title={isFloating ? 'Dock Window' : 'Pop out Floating Window'}
       >
-        <ArrowUpRight className="w-3.5 h-3.5" />
+        <ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />
       </button>
       <button
+        type="button"
+        aria-label={`Close agent${suffix}`}
         onClick={() => removeAgent(agentId)}
         className="p-1 hover:text-red-400 transition rounded hover:bg-slate-800"
         title="Close Agent"
       >
-        <Trash2 className="w-3.5 h-3.5" />
+        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
       </button>
     </div>
   );

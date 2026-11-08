@@ -1,7 +1,16 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useId } from 'react';
 import { Agent } from '../../types/agent';
 import { AgentPane } from '../agent/AgentPane';
 import { useAgentStore, agentStore } from '../../store/agentStore';
+import {
+  PANE_MIN_X,
+  PANE_MIN_Y,
+  PANE_MIN_WIDTH,
+  PANE_MIN_HEIGHT,
+  isArrowKey,
+  movePane,
+  resizePane,
+} from './paneKeyboard';
 
 interface FloatingPaneProps {
   agent: Agent;
@@ -16,6 +25,41 @@ export const FloatingPane: React.FC<FloatingPaneProps> = ({ agent }) => {
     posX: agent.layout.x || 120,
     posY: agent.layout.y || 120,
   });
+
+  const moveHintId = useId();
+  const resizeHintId = useId();
+
+  const latestLayout = () =>
+    useAgentStore.getState().agents.find((a) => a.id === agent.id)?.layout ?? agent.layout;
+
+  // Keyboard move/resize deliberately never call bringToFront or setActiveAgentId:
+  // that would activate the pane and TerminalView would pull focus into the terminal.
+  const handleMoveKeyDown = (e: React.KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || !isArrowKey(e.key)) return;
+    e.preventDefault();
+    const layout = latestLayout();
+    const next = movePane({ x: layout.x || 120, y: layout.y || 120 }, e.key, e.shiftKey);
+    updateFloatingPosition(agent.id, next.x, next.y);
+  };
+
+  const handleResizeKeyDown = (e: React.KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || !isArrowKey(e.key)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const layout = latestLayout();
+    const next = resizePane(
+      { width: layout.width || 650, height: layout.height || 400 },
+      e.key,
+      e.shiftKey
+    );
+    agentStore.updateFloatingBounds(
+      agent.id,
+      layout.x || 120,
+      layout.y || 120,
+      next.width,
+      next.height
+    );
+  };
 
   const activeListenersRef = useRef<{ move: (e: MouseEvent) => void; up: () => void } | null>(null);
 
@@ -43,8 +87,8 @@ export const FloatingPane: React.FC<FloatingPaneProps> = ({ agent }) => {
       const dy = moveEvt.clientY - dragStartRef.current.y;
       updateFloatingPosition(
         agent.id,
-        Math.max(10, dragStartRef.current.posX + dx),
-        Math.max(50, dragStartRef.current.posY + dy)
+        Math.max(PANE_MIN_X, dragStartRef.current.posX + dx),
+        Math.max(PANE_MIN_Y, dragStartRef.current.posY + dy)
       );
     };
 
@@ -71,8 +115,8 @@ export const FloatingPane: React.FC<FloatingPaneProps> = ({ agent }) => {
     const handleMouseMove = (moveEvt: MouseEvent) => {
       const dw = moveEvt.clientX - startX;
       const dh = moveEvt.clientY - startY;
-      const newW = Math.max(300, startW + dw);
-      const newH = Math.max(200, startH + dh);
+      const newW = Math.max(PANE_MIN_WIDTH, startW + dw);
+      const newH = Math.max(PANE_MIN_HEIGHT, startH + dh);
       agentStore.updateFloatingBounds(
         agent.id,
         agent.layout.x || 120,
@@ -110,10 +154,18 @@ export const FloatingPane: React.FC<FloatingPaneProps> = ({ agent }) => {
       {/* Draggable header drag handle */}
       <div
         onMouseDown={handleMouseDown}
-        className="bg-slate-900/90 hover:bg-slate-800/90 cursor-grab px-3 py-1.5 border-b border-slate-800 flex items-center justify-between text-xs font-mono text-cyan-400 select-none"
+        onKeyDown={handleMoveKeyDown}
+        role="button"
+        tabIndex={0}
+        aria-label={`Move pane ${agent.name}`}
+        aria-describedby={moveHintId}
+        className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 bg-slate-900/90 hover:bg-slate-800/90 cursor-grab px-3 py-1.5 border-b border-slate-800 flex items-center justify-between text-xs font-mono text-cyan-400 select-none"
       >
         <span>⚡ PANE [{agent.name}]</span>
         <span className="text-[10px] text-slate-500">Drag to move</span>
+        <span id={moveHintId} className="sr-only">
+          Use the arrow keys to move this pane. Hold Shift for larger steps.
+        </span>
       </div>
 
       <div className="flex-1 overflow-hidden">
@@ -123,10 +175,24 @@ export const FloatingPane: React.FC<FloatingPaneProps> = ({ agent }) => {
       {/* Resize Handle at Bottom-Right Corner */}
       <div
         onMouseDown={handleResizeMouseDown}
-        className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-center justify-center z-50 text-slate-500 hover:text-cyan-400"
+        onKeyDown={handleResizeKeyDown}
+        role="button"
+        tabIndex={0}
+        aria-label={`Resize pane ${agent.name}`}
+        aria-describedby={resizeHintId}
+        className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-center justify-center z-50 text-slate-500 hover:text-cyan-400"
         title="Resize window"
       >
-        <svg className="w-3 h-3" viewBox="0 0 6 6" fill="currentColor">
+        <span id={resizeHintId} className="sr-only">
+          Use the arrow keys to resize this pane. Hold Shift for larger steps.
+        </span>
+        <svg
+          className="w-3 h-3"
+          viewBox="0 0 6 6"
+          fill="currentColor"
+          aria-hidden="true"
+          focusable="false"
+        >
           <circle cx="5" cy="5" r="0.8" />
           <circle cx="5" cy="2" r="0.8" />
           <circle cx="2" cy="5" r="0.8" />
