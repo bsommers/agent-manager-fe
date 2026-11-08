@@ -3,7 +3,7 @@ import { createServer, Server } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { CONFIG, assertLoopbackBind } from './config.js';
 import { SessionManager } from './services/SessionManager.js';
-import { WSMessageClient } from './protocol/wsProtocol.js';
+import { parseClientMessage } from './protocol/wsProtocol.js';
 
 export interface BootstrapOptions {
   allowedOrigins?: string[];
@@ -90,7 +90,13 @@ export async function bootstrap(
           }
           return;
         }
-        sessionManager.handleClientMessage(parsed as WSMessageClient, (reply) => {
+        const result = parseClientMessage(parsed);
+        if (!result.ok) {
+          const rejection = sessionManager.api.reject(parsed, result);
+          if (rejection && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(rejection));
+          return;
+        }
+        sessionManager.handleClientMessage(result.msg, (reply) => {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(reply));
         });
       } catch (err) {

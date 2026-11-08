@@ -3,18 +3,20 @@ import { Agent, WSMessageClient, WSMessageServer } from '../protocol/wsProtocol.
 import type { TmuxDriver } from './TmuxDriver.js';
 import type { SshDriver } from './SshDriver.js';
 import { AgentService } from './AgentService.js';
-import { errorFrame } from './serviceResult.js';
+import { AgentApi } from '../gateway/dispatch.js';
+import { repliesFor } from '../gateway/wsFrames.js';
 
 type Reply = (msg: WSMessageServer) => void;
 
 /**
  * The WebSocket side of the gateway: the client set, the snapshot sent on connect, the fan-out
- * broadcast and the legacy mapping from client messages to AgentService calls. Every agent
+ * broadcast and the reply layer over the shared AgentApi dispatch path. Every agent
  * operation runs in the service, which publishes through this class's broadcast.
  */
 export class SessionManager {
   private clients: Set<WebSocket> = new Set();
   readonly service: AgentService = new AgentService((msg) => this.broadcast(msg));
+  readonly api: AgentApi = new AgentApi(this.service);
 
   async initialize(): Promise<void> {
     await this.service.initialize();
@@ -51,47 +53,22 @@ export class SessionManager {
     });
   }
 
+  /**
+   * Runs one validated client message through the shared dispatch path and writes the resulting
+   * frames (ack or error) through `reply`. Synchronous operations complete before this returns;
+   * replies follow when the outcome settles. It never throws or rejects.
+   */
   handleClientMessage(msg: WSMessageClient, reply?: Reply): void {
-    switch (msg.type) {
-      case 'agent:create':
-        this.createAgent(msg.name, msg.mode, msg.targetHost, msg.initialCmd);
-        break;
-
-      case 'agent:input':
-        this.sendInput(msg.agentId, msg.data);
-        break;
-
-      case 'agent:resize':
-        this.resizeSession(msg.agentId, msg.cols, msg.rows);
-        break;
-
-      case 'agent:kill':
-        if (msg.killSession === true) {
-          // The service never rejects; the promise is deliberately not awaited.
-          void this.service.destroy(msg.agentId, { confirm: msg.confirm }).then((result) => {
-            if (result.ok) return;
-            if (result.error.code === 'NOT_FOUND') {
-              // Legacy shim (removed by plan 06-02): an unknown id on a kill is an unchanged snapshot.
-              this.publishSnapshot();
-              return;
-            }
-            if (!reply) return;
-            try {
-              reply(errorFrame(result.error));
-            } catch {
-              // The requesting socket may be gone.
-            }
-          });
-        } else {
-          this.killAgent(msg.agentId);
+    void this.api.execute(msg).then((outcome) => {
+      if (!reply) return;
+      for (const frame of repliesFor(msg, outcome)) {
+        try {
+          reply(frame);
+        } catch {
+          // The requesting socket may be gone.
         }
-        break;
-
-      case 'agent:broadcast':
-        // Per-target through sendInput: the legacy mapping ignores per-target results.
-        msg.targetAgentIds.forEach((id) => this.sendInput(id, msg.data));
-        break;
-    }
+      }
+    });
   }
 
   createAgent(name: string, mode: 'tmux' | 'ssh', targetHost: string, initialCmd?: string): Agent {
@@ -109,13 +86,7 @@ export class SessionManager {
   }
 
   killAgent(agentId: string): void {
-    const result = this.service.close(agentId);
-    // Legacy shim (removed by plan 06-02): an unknown id is an unchanged snapshot to every client.
-    if (!result.ok && result.error.code === 'NOT_FOUND') this.publishSnapshot();
-  }
-
-  private publishSnapshot(): void {
-    this.broadcast({ type: 'agent:init_list', agents: this.service.list() });
+    this.service.close(agentId);
   }
 
   getAgentCount(): number {

@@ -316,7 +316,7 @@ describe('SessionManager', () => {
 
   describe('handleClientMessage', () => {
     it('should route agent:create', () => {
-      const spy = vi.spyOn(manager, 'createAgent');
+      const spy = vi.spyOn(manager.service, 'create');
       manager.handleClientMessage({
         type: 'agent:create',
         name: 'New Agent',
@@ -325,11 +325,46 @@ describe('SessionManager', () => {
         initialCmd: 'htop',
       });
 
-      expect(spy).toHaveBeenCalledWith('New Agent', 'tmux', 'host:name', 'htop');
+      expect(spy).toHaveBeenCalledWith({
+        name: 'New Agent',
+        mode: 'tmux',
+        targetHost: 'host:name',
+        initialCmd: 'htop',
+      });
+    });
+
+    it('performs synchronous operations before returning and acks afterwards', async () => {
+      const reply = vi.fn();
+      manager.handleClientMessage(
+        { type: 'agent:create', name: 'Sync', mode: 'tmux', targetHost: 'host:sync', reqId: 'r-sync' },
+        reply
+      );
+
+      expect(manager.getAgentCount()).toBe(1); // state changed before the first await
+      expect(reply).not.toHaveBeenCalled(); // replies follow once the outcome settles
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(reply).toHaveBeenCalledTimes(1);
+      expect(reply.mock.calls[0][0]).toMatchObject({ type: 'agent:ack', reqId: 'r-sync', op: 'create' });
+    });
+
+    it('answers an unknown id with NOT_FOUND through the reply callback and no snapshot', async () => {
+      const reply = vi.fn();
+      const send = vi.fn();
+      manager.addClient({ send, readyState: WebSocket.OPEN } as any);
+      send.mockClear();
+
+      manager.handleClientMessage({ type: 'agent:kill', agentId: 'ghost' }, reply);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(reply).toHaveBeenCalledTimes(1);
+      expect(reply.mock.calls[0][0]).toMatchObject({ type: 'agent:error', code: 'NOT_FOUND', agentId: 'ghost' });
+      expect(send).not.toHaveBeenCalled();
     });
 
     it('should route agent:input', () => {
-      const spy = vi.spyOn(manager, 'sendInput');
+      const spy = vi.spyOn(manager.service, 'input');
       manager.handleClientMessage({
         type: 'agent:input',
         agentId: 'agent-123',
@@ -340,7 +375,7 @@ describe('SessionManager', () => {
     });
 
     it('should route agent:resize', () => {
-      const spy = vi.spyOn(manager, 'resizeSession');
+      const spy = vi.spyOn(manager.service, 'resize');
       manager.handleClientMessage({
         type: 'agent:resize',
         agentId: 'agent-123',
@@ -352,7 +387,7 @@ describe('SessionManager', () => {
     });
 
     it('should route agent:kill', () => {
-      const spy = vi.spyOn(manager, 'killAgent');
+      const spy = vi.spyOn(manager.service, 'close');
       manager.handleClientMessage({
         type: 'agent:kill',
         agentId: 'agent-123',
@@ -361,8 +396,8 @@ describe('SessionManager', () => {
       expect(spy).toHaveBeenCalledWith('agent-123');
     });
 
-    it('should route agent:broadcast to sendInput for all targetAgentIds', () => {
-      const spy = vi.spyOn(manager, 'sendInput');
+    it('should route agent:broadcast to service.input for all targetAgentIds', () => {
+      const spy = vi.spyOn(manager.service, 'input');
       manager.handleClientMessage({
         type: 'agent:broadcast',
         targetAgentIds: ['agent-1', 'agent-2', 'agent-3'],

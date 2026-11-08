@@ -264,15 +264,16 @@ describe('SessionManager killSession', () => {
       expect(reply).not.toHaveBeenCalled();
     });
 
-    it('confirmed killSession for an unknown id calls no tmux and broadcasts an unchanged snapshot', async () => {
+    it('confirmed killSession for an unknown id calls no tmux and answers NOT_FOUND, no snapshot', async () => {
       const a = manager.createAgent('a', 'tmux', 'qa_a');
       sent.length = 0;
       kill({ agentId: 'ghost', killSession: true, confirm: true });
       await settle();
       expect(killMock).not.toHaveBeenCalled();
-      expect(snapshots()).toHaveLength(1);
-      expect(snapshots()[0].agents.map((x: Agent) => x.id)).toEqual([a.id]);
-      expect(reply).not.toHaveBeenCalled();
+      expect(snapshots()).toHaveLength(0);
+      expect(replies()).toHaveLength(1);
+      expect(replies()[0]).toMatchObject({ type: 'agent:error', code: 'NOT_FOUND', agentId: 'ghost' });
+      expect(manager.getAgent(a.id)).toBe(a);
     });
   });
 
