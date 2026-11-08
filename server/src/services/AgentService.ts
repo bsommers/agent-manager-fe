@@ -1,4 +1,5 @@
-import type { Agent, WSMessageServer } from '../protocol/wsProtocol.js';
+import { LIMITS } from '../protocol/wsProtocol.js';
+import type { Agent, BroadcastResult, WSMessageServer } from '../protocol/wsProtocol.js';
 import { TmuxDriver } from './TmuxDriver.js';
 import { SshDriver } from './SshDriver.js';
 import { discoverTmuxSessions } from './TmuxDiscovery.js';
@@ -38,7 +39,14 @@ export class AgentService {
   /** Session kills in flight, keyed by agent id; `exited` records a driver exit held back meanwhile. */
   private killsInFlight: Map<string, InFlightKill> = new Map();
 
-  constructor(private readonly publish: Publish) {}
+  private readonly maxAgents: number;
+
+  constructor(
+    private readonly publish: Publish,
+    options: { maxAgents?: number } = {}
+  ) {
+    this.maxAgents = options.maxAgents ?? LIMITS.MAX_AGENTS;
+  }
 
   async initialize(): Promise<void> {
     const discovered = await discoverTmuxSessions();
@@ -66,6 +74,8 @@ export class AgentService {
 
   create(input: CreateAgentInput): ServiceResult<Agent> {
     const { name, mode, targetHost, initialCmd } = input;
+    // The roster must never exceed LIMITS.MAX_AGENTS or every client snapshot becomes invalid.
+    if (this.agents.size >= this.maxAgents) return fail('CONFLICT', 'agent limit reached');
     const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const agent: Agent = {
       id,
@@ -78,8 +88,6 @@ export class AgentService {
       createdAt: Date.now(),
       lastActivity: Date.now(),
     };
-
-    this.agents.set(id, agent);
 
     const onData = (data: string) => {
       agent.lastActivity = Date.now();
@@ -98,15 +106,19 @@ export class AgentService {
       });
     };
 
+    // The driver is built before anything is registered: a failed start leaves no ghost agent.
     let driver: Driver;
-    if (mode === 'tmux') {
-      const sessionName = tmuxSessionNameOf(targetHost);
-      driver = new TmuxDriver(sessionName, 80, 24, onData, onExit);
-      this.drivers.set(id, driver);
-    } else {
-      driver = new SshDriver(targetHost, 80, 24, onData, onExit, onError);
-      this.drivers.set(id, driver);
+    try {
+      driver =
+        mode === 'tmux'
+          ? new TmuxDriver(tmuxSessionNameOf(targetHost), 80, 24, onData, onExit)
+          : new SshDriver(targetHost, 80, 24, onData, onExit, onError);
+    } catch (err) {
+      console.error(`agent:create driver start failed: ${String((err as Error)?.message).slice(0, 200)}`);
+      return fail('BACKEND_DOWN', 'the backend could not start the session');
     }
+    this.agents.set(id, agent);
+    this.drivers.set(id, driver);
 
     if (initialCmd) {
       setTimeout(() => {
@@ -183,23 +195,57 @@ export class AgentService {
   }
 
   input(agentId: string, data: string): ServiceResult<void> {
-    if (!this.agents.has(agentId)) return fail('NOT_FOUND', 'agent not found', { agentId: idOf(agentId) });
-    const driver = this.getOrCreateDriver(agentId);
-    if (!driver) return fail('BACKEND_DOWN', 'agent has no live session', { agentId: idOf(agentId) });
-    driver.write(data);
-    return ok(undefined);
+    return this.withDriver(agentId, (driver) => driver.write(data));
   }
 
   resize(agentId: string, cols: number, rows: number): ServiceResult<void> {
-    if (!this.agents.has(agentId)) return fail('NOT_FOUND', 'agent not found', { agentId: idOf(agentId) });
-    const driver = this.getOrCreateDriver(agentId);
-    if (!driver) return fail('BACKEND_DOWN', 'agent has no live session', { agentId: idOf(agentId) });
-    driver.resize(cols, rows);
-    return ok(undefined);
+    return this.withDriver(agentId, (driver) => driver.resize(cols, rows));
   }
 
-  broadcast(targetIds: string[], data: string): ServiceResult<void> {
-    for (const id of targetIds) this.input(id, data);
+  /** One result per listed id, in request order; a failing target never stops the later ones. */
+  broadcast(targetIds: string[], data: string): BroadcastResult[] {
+    return targetIds.map((agentId): BroadcastResult => {
+      const r = this.input(agentId, data);
+      if (r.ok) return { agentId, status: 'sent' };
+      if (r.error.code === 'BACKEND_DOWN') return { agentId, status: 'offline' };
+      return { agentId, status: 'failed', code: r.error.code, message: r.error.message };
+    });
+  }
+
+  /** Changes name, tags (replaced as a whole) and/or group, and announces agent:updated. */
+  update(agentId: string, patch: AgentPatchInput): ServiceResult<Agent> {
+    const agent = this.agents.get(agentId);
+    if (!agent) return fail('NOT_FOUND', 'agent not found', { agentId: idOf(agentId) });
+    const applied: AgentPatchInput = {};
+    if (patch?.name !== undefined) applied.name = patch.name;
+    if (patch?.tags !== undefined) applied.tags = [...patch.tags];
+    if (patch?.group !== undefined) applied.group = patch.group;
+    if (Object.keys(applied).length === 0) {
+      return fail('USAGE', 'nothing to update', { agentId: idOf(agentId) });
+    }
+    Object.assign(agent, applied);
+    this.publish({
+      type: 'agent:updated',
+      agentId: agent.id,
+      patch: { ...applied, ...(applied.tags ? { tags: [...applied.tags] } : {}) },
+    });
+    return ok(structuredClone(agent));
+  }
+
+  private withDriver(agentId: string, run: (driver: Driver) => void): ServiceResult<void> {
+    if (!this.agents.has(agentId)) return fail('NOT_FOUND', 'agent not found', { agentId: idOf(agentId) });
+    let driver: Driver | undefined;
+    try {
+      driver = this.getOrCreateDriver(agentId);
+    } catch {
+      driver = undefined;
+    }
+    if (!driver) return fail('BACKEND_DOWN', 'agent has no live session', { agentId: idOf(agentId) });
+    try {
+      run(driver);
+    } catch {
+      return fail('INTERNAL', 'could not write to the session', { agentId: idOf(agentId) });
+    }
     return ok(undefined);
   }
 

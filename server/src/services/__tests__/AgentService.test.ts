@@ -4,6 +4,7 @@ import { AgentService } from '../AgentService.js';
 import { TmuxDriver } from '../TmuxDriver.js';
 import { SshDriver } from '../SshDriver.js';
 import { killTmuxSession } from '../tmuxKill.js';
+import { SessionManager } from '../SessionManager.js';
 import type { Agent } from '../../protocol/wsProtocol.js';
 
 vi.mock('../TmuxDriver.js', () => ({ TmuxDriver: vi.fn() }));
@@ -382,6 +383,201 @@ describe('AgentService', () => {
       published.length = 0;
       tmuxDrivers[0].onExit();
       expect(published).toEqual([]);
+    });
+  });
+
+  describe('spawn failure (no ghost agent)', () => {
+    const FIXED = 'the backend could not start the session';
+
+    it.each([
+      ['tmux', TmuxDriver, 'localhost:qa_a'],
+      ['ssh', SshDriver, 'user@host'],
+    ] as const)('a %s driver that throws on construction gives BACKEND_DOWN and leaves nothing', (mode, Ctor, host) => {
+      (Ctor as any).mockImplementation(function () {
+        throw new Error('spawn ENOENT /secret/path');
+      });
+      const r = svc.create({ name: 'a', mode, targetHost: host });
+      expect(r).toEqual({ ok: false, error: { code: 'BACKEND_DOWN', message: FIXED, retryable: true } });
+      expect(svc.list()).toEqual([]);
+      expect(svc.count()).toBe(0);
+      expect((svc as any).drivers.size).toBe(0);
+      expect(published).toEqual([]);
+      expect(JSON.stringify(r)).not.toContain('secret');
+    });
+
+    it('logs one error line with the thrown message truncated to 200 characters', () => {
+      (TmuxDriver as any).mockImplementation(function () {
+        throw new Error('x'.repeat(500));
+      });
+      svc.create({ name: 'a', mode: 'tmux', targetHost: 'qa_a' });
+      expect(error).toHaveBeenCalledTimes(1);
+      const line = String(error.mock.calls[0][0]);
+      expect(line).toContain('x'.repeat(200));
+      expect(line).not.toContain('x'.repeat(201));
+    });
+
+    it('recovers: the next create after a failure succeeds', () => {
+      (TmuxDriver as any).mockImplementationOnce(function () {
+        throw new Error('once');
+      });
+      expect(svc.create({ name: 'a', mode: 'tmux', targetHost: 'qa_a' }).ok).toBe(false);
+      expect(svc.create({ name: 'a', mode: 'tmux', targetHost: 'qa_a' }).ok).toBe(true);
+      expect(svc.count()).toBe(1);
+    });
+
+    it('SessionManager.createAgent throws an Error with the fixed message', () => {
+      (TmuxDriver as any).mockImplementation(function () {
+        throw new Error('internal detail');
+      });
+      const m = new SessionManager();
+      expect(() => m.createAgent('a', 'tmux', 'qa_a')).toThrow(FIXED);
+      expect(m.getAgentCount()).toBe(0);
+    });
+  });
+
+  describe('agent cap', () => {
+    it('refuses a create at the cap with CONFLICT, constructing and publishing nothing; a close frees a slot', () => {
+      const capped = new AgentService((m) => published.push(m), { maxAgents: 2 });
+      const a = capped.create({ name: 'a', mode: 'tmux', targetHost: 'qa_a' });
+      capped.create({ name: 'b', mode: 'tmux', targetHost: 'qa_b' });
+      published.length = 0;
+      (TmuxDriver as any).mockClear();
+      const r = capped.create({ name: 'c', mode: 'tmux', targetHost: 'qa_c' });
+      expect(r).toEqual({ ok: false, error: { code: 'CONFLICT', message: 'agent limit reached', retryable: false } });
+      expect(TmuxDriver).not.toHaveBeenCalled();
+      expect(published).toEqual([]);
+      expect(capped.count()).toBe(2);
+      if (a.ok) capped.close(a.value.id);
+      expect(capped.create({ name: 'c', mode: 'tmux', targetHost: 'qa_c' }).ok).toBe(true);
+    });
+
+    it('defaults to LIMITS.MAX_AGENTS', () => {
+      expect((svc as any).maxAgents).toBe(1000);
+    });
+  });
+
+  describe('update', () => {
+    it('answers an unknown id with NOT_FOUND and publishes nothing', () => {
+      expect(svc.update('nope', { name: 'x' })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND', agentId: 'nope' } });
+      expect(published).toEqual([]);
+    });
+
+    it.each([[{}], [{ name: undefined }], [{ other: 1 } as any]])('a patch %j with none of the keys gives USAGE', (patch) => {
+      const a = created();
+      expect(svc.update(a.id, patch)).toMatchObject({
+        ok: false,
+        error: { code: 'USAGE', message: 'nothing to update' },
+      });
+      expect(published).toEqual([]);
+    });
+
+    it('changes the registry and publishes one agent:updated with only the supplied keys', () => {
+      const a = created();
+      const r = svc.update(a.id, { name: 'renamed', group: 'g1' });
+      expect(r.ok).toBe(true);
+      expect(svc.get(a.id)).toMatchObject({ name: 'renamed', group: 'g1' });
+      expect(published).toEqual([{ type: 'agent:updated', agentId: a.id, patch: { name: 'renamed', group: 'g1' } }]);
+    });
+
+    it('replaces tags as a whole and allows an empty tags array', () => {
+      const a = created();
+      svc.update(a.id, { tags: ['a', 'b'] });
+      expect(svc.get(a.id)?.tags).toEqual(['a', 'b']);
+      svc.update(a.id, { tags: ['c'] });
+      expect(svc.get(a.id)?.tags).toEqual(['c']);
+      published.length = 0;
+      expect(svc.update(a.id, { tags: [] }).ok).toBe(true);
+      expect(svc.get(a.id)?.tags).toEqual([]);
+      expect(published).toEqual([{ type: 'agent:updated', agentId: a.id, patch: { tags: [] } }]);
+    });
+
+    it('returns a copy: mutating it does not change the registry', () => {
+      const a = created();
+      const r = svc.update(a.id, { name: 'n', tags: ['t'] });
+      if (!r.ok) throw new Error('unreachable');
+      r.value.name = 'hacked';
+      r.value.tags!.push('x');
+      expect(svc.get(a.id)?.name).toBe('n');
+      expect(svc.get(a.id)?.tags).toEqual(['t']);
+    });
+
+    it('does not share the tags array with the caller', () => {
+      const a = created();
+      const tags = ['t'];
+      svc.update(a.id, { tags });
+      tags.push('later');
+      expect(svc.get(a.id)?.tags).toEqual(['t']);
+    });
+  });
+
+  describe('broadcast results', () => {
+    it('returns one result per id in request order across a mixed set', () => {
+      const a = created('a', 'tmux', 'qa_a');
+      const b = created('b', 'tmux', 'qa_b');
+      const c = created('c', 'tmux', 'qa_c');
+      tmuxDrivers[1].write.mockImplementation(() => {
+        throw new Error('pty gone /secret');
+      });
+      const results = svc.broadcast([a.id, 'ghost', b.id, c.id], 'hi');
+      expect(results).toEqual([
+        { agentId: a.id, status: 'sent' },
+        { agentId: 'ghost', status: 'failed', code: 'NOT_FOUND', message: 'agent not found' },
+        { agentId: b.id, status: 'failed', code: 'INTERNAL', message: 'could not write to the session' },
+        { agentId: c.id, status: 'sent' },
+      ]);
+      expect(tmuxDrivers[2].write).toHaveBeenCalledWith('hi');
+      expect(JSON.stringify(results)).not.toContain('secret');
+    });
+
+    it('marks an agent whose driver cannot be obtained as offline', () => {
+      const a = created();
+      (svc as any).drivers.delete(a.id);
+      (TmuxDriver as any).mockImplementationOnce(function () {
+        throw new Error('cannot attach');
+      });
+      expect(svc.broadcast([a.id], 'x')).toEqual([{ agentId: a.id, status: 'offline' }]);
+    });
+
+    it('returns an empty list for no targets', () => {
+      expect(svc.broadcast([], 'x')).toEqual([]);
+    });
+  });
+
+  describe('driver failures on input and resize', () => {
+    it('input and resize return INTERNAL with a fixed message and do not throw', () => {
+      const a = created();
+      tmuxDrivers[0].write.mockImplementation(() => {
+        throw new Error('write EPIPE /secret');
+      });
+      tmuxDrivers[0].resize.mockImplementation(() => {
+        throw new Error('resize failed /secret');
+      });
+      const i = svc.input(a.id, 'x');
+      const r = svc.resize(a.id, 1, 1);
+      for (const res of [i, r]) {
+        expect(res).toMatchObject({
+          ok: false,
+          error: { code: 'INTERNAL', message: 'could not write to the session', agentId: a.id },
+        });
+        expect(JSON.stringify(res)).not.toContain('secret');
+      }
+    });
+  });
+
+  describe('SessionManager silence for broadcast and input results', () => {
+    it('ignores failing targets without reply or throw', () => {
+      const m = new SessionManager();
+      const reply = vi.fn();
+      const a = m.createAgent('a', 'tmux', 'qa_a');
+      tmuxDrivers[tmuxDrivers.length - 1].write.mockImplementation(() => {
+        throw new Error('x');
+      });
+      expect(() => {
+        m.handleClientMessage({ type: 'agent:broadcast', targetAgentIds: ['ghost', a.id], data: 'x' }, reply);
+        m.handleClientMessage({ type: 'agent:input', agentId: a.id, data: 'x' }, reply);
+        m.handleClientMessage({ type: 'agent:input', agentId: 'ghost', data: 'x' }, reply);
+      }).not.toThrow();
+      expect(reply).not.toHaveBeenCalled();
     });
   });
 });
