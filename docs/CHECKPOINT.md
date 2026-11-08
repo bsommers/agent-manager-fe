@@ -21,3 +21,9 @@
 1. Wave 9: 06-04, 06-05, 06-06 in parallel worktrees from current master (baseline root 86/1599, server 20/400); optionally live-QA the 06-02+06-03 pair first.
 2. Wave 10 (06-07).
 4. Plan 05-04; Phase 1 close (01-EVIDENCE.md); worktree cleanup; push (needs user go-ahead).
+
+
+## Update: wave 9 merged (06-04 events, 06-05 FE events, 06-06 HTTP)
+- Merged --no-ff onto master, no conflicts. Gate green: root 90 files / 1765 tests, server 23 / 520, tsc, both builds, contract:check; tmuxKill count 0.
+- Deviations: 06-04 edited index.test.ts (waits for agent:added, not post-create init_list); SessionManager.ts untouched. 06-06: error handler maps any 4xx to 400 USAGE (413 PAYLOAD_TOO_LARGE); index.ts +15 lines (router mount, BootstrapOptions.epoch). One unrecorded root flake seen once by 06-06 pre-change.
+- Next: wave 10 (06-07 destructive policy); live QA of W8+W9 (QA step 1e, two tabs); then tick INT-03/GW-04/GW-05, STATE/ROADMAP; worktree cleanup (now ~25); push needs user go-ahead. Local master NOT pushed.
