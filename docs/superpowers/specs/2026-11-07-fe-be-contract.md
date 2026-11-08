@@ -130,13 +130,15 @@ Identifiers: `agentId` and `reqId` are opaque strings of at most 128 characters.
 | `ping` | `t: number` | FE 3, GW 4 |
 | `hello` | `contract: 1`, `token?`, `epoch?`, `resumeFrom?: Record<agentId, seq>`, `client?: {name, version}` | 8 (resume: 11) |
 | `agent:create` | existing `name, mode, targetHost, initialCmd?` + `backend?`, `params?: Record<string, string\|number\|boolean>`, `reqId?` | 6 |
-| `agent:kill` | `agentId`, `reqId?` | 6 |
+| `agent:kill` | `agentId`, `killSession?: boolean`, `confirm?: boolean`, `reqId?` | 6 (killSession: 09.1) |
 | `agent:update` | `agentId`, `name?`, `tags?`, `group?`, `reqId?` | 6 |
 | `agent:input` | `agentId`, `data` | exists |
 | `agent:resize` | `agentId`, `cols`, `rows` | exists |
 | `agent:broadcast` | `targetAgentIds`, `data`, `reqId?` | exists; ack 12 |
 | `agent:history` | `agentId`, exactly one of `beforeSeq`/`afterSeq`, `limit?`, `reqId?` | 11 |
 | `agent:approve` | `agentId`, `gateId`, `decision: 'approve'\|'deny'`, `reqId?` | 25 |
+
+**`agent:kill` and `killSession`.** Without `killSession` (absent or false), `agent:kill` closes the agent: the gateway detaches it and removes it from the roster, and the backend session (for tmux, the session itself) keeps running. With `killSession: true` the gateway also ends the backend's persistent session. This is supported for tmux agents only, and the session name is derived server-side from the registry entry, never taken from the client. It is honoured only when `confirm` is exactly `true`: otherwise the gateway refuses with `agent:error` (`USAGE`) sent to the requesting client only, and runs nothing (no lookup side effect, no process, no driver close, no roster change). The destructive-action modal in the UI is only the UX that sets `confirm`; the gateway is the safety check. `confirm` is an explicit-intent gate against accidental callers, not authentication (see section on auth). A session that is already gone counts as success. Other refusals are typed `agent:error` replies to the requester: `UNSUPPORTED` for non-tmux agents, `USAGE` for an unkillable session name, `INTERNAL` for a tmux failure (fixed message text). An unknown agent id behaves like a plain kill until Phase 6 maps it to `NOT_FOUND`. The fields are additive, so `CONTRACT_VERSION` does not change.
 
 ### 4.2 Gateway -> client
 
@@ -409,3 +411,4 @@ packages/protocol/            @agent-manager/protocol
 | 14 | Gateway adapters in BE phases 2/4/5 | v2.1 lists only INT-7/INT-10/UI-9/UI-10 | v2.1 adds GW-02 (adapter refactor) and ADP-01..03 (cvm, climah, mads+mad). |
 | 15 | - | INT-10 and INT-7 share a wave | INT-10 depends on INT-1..7, so it follows INT-7. |
 | 16 | - | requirement keys `UI-01..10` | `UI-01` already exists (v1 windows); v2 UI keys are `UX-01..10`. |
+| 17 | - | Closing an agent must not kill its tmux session; an explicit kill control is needed | `agent:kill` gains optional `killSession` and `confirm` instead of a new `tmux:kill_session` message: the session name stays server-side (only sessions the gateway knows), one atomic roster operation, backend-agnostic (other adapters answer `UNSUPPORTED`), and additive (no `CONTRACT_VERSION` bump). The gateway, not the browser, enforces `confirm: true`. |

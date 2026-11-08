@@ -90,7 +90,9 @@ export async function bootstrap(
           }
           return;
         }
-        sessionManager.handleClientMessage(parsed as WSMessageClient);
+        sessionManager.handleClientMessage(parsed as WSMessageClient, (reply) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(reply));
+        });
       } catch (err) {
         console.error('Invalid WebSocket message received:', err);
       }

@@ -142,7 +142,14 @@ export const CLIENT_TABLE = {
       reqId: reqIdSpec,
     },
   },
-  'agent:kill': { fields: { agentId: idSpec, reqId: reqIdSpec } },
+  'agent:kill': {
+    fields: {
+      agentId: idSpec,
+      killSession: { kind: 'boolean', optional: true },
+      confirm: { kind: 'boolean', optional: true },
+      reqId: reqIdSpec,
+    },
+  },
   'agent:update': {
     fields: {
       agentId: idSpec,

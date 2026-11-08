@@ -85,7 +85,15 @@ export type WSMessageClient =
       params?: Record<string, string | number | boolean>;
       reqId?: string;
     }
-  | { type: 'agent:kill'; agentId: string; reqId?: string }
+  | {
+      type: 'agent:kill';
+      agentId: string;
+      /** true also ends the backend's persistent session (tmux); absent or false keeps it running. */
+      killSession?: boolean;
+      /** Must be exactly true for killSession to be honoured; checked by the gateway. */
+      confirm?: boolean;
+      reqId?: string;
+    }
   | { type: 'agent:update'; agentId: string; name?: string; tags?: string[]; group?: string; reqId?: string }
   | { type: 'agent:broadcast'; targetAgentIds: string[]; data: string; reqId?: string }
   | {
