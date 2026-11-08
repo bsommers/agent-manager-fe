@@ -40,9 +40,9 @@ describe('SessionManager killSession', () => {
   let sshDrivers: FakeDriver[];
   let sent: any[];
   let reply: ReturnType<typeof vi.fn>;
-  let warn: ReturnType<typeof vi.spyOn>;
-  let error: ReturnType<typeof vi.spyOn>;
-  let log: ReturnType<typeof vi.spyOn>;
+  let warn: any;
+  let error: any;
+  let log: any;
 
   const replies = () => reply.mock.calls.map((c) => c[0]);
   const snapshots = () => sent.filter((f) => f.type === 'agent:init_list');

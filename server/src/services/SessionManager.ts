@@ -13,6 +13,8 @@ export class SessionManager {
   private agents: Map<string, Agent> = new Map();
   private drivers: Map<string, TmuxDriver | SshDriver> = new Map();
   private clients: Set<WebSocket> = new Set();
+  /** Session kills in flight, keyed by agent id; `exited` records a driver exit held back meanwhile. */
+  private killsInFlight: Map<string, { exited: boolean }> = new Map();
 
   async initialize(): Promise<void> {
     const discovered = await discoverTmuxSessions();
@@ -103,10 +105,7 @@ export class SessionManager {
       this.broadcast({ type: 'agent:output', agentId: id, data });
     };
 
-    const onExit = () => {
-      agent.status = 'disconnected';
-      this.broadcast({ type: 'agent:status_change', agentId: id, status: 'disconnected' });
-    };
+    const onExit = () => this.handleDriverExit(agent);
 
     const onError = (err: Error) => {
       agent.status = 'error';
@@ -152,10 +151,7 @@ export class SessionManager {
           agent.lastActivity = Date.now();
           this.broadcast({ type: 'agent:output', agentId: agent.id, data });
         };
-        const onExit = () => {
-          agent.status = 'disconnected';
-          this.broadcast({ type: 'agent:status_change', agentId: agent.id, status: 'disconnected' });
-        };
+        const onExit = () => this.handleDriverExit(agent);
         driver = new TmuxDriver(sessionName, 80, 24, onData, onExit);
         this.drivers.set(agent.id, driver);
       }
@@ -189,6 +185,26 @@ export class SessionManager {
     }
     this.agents.delete(agentId);
     this.broadcast({ type: 'agent:init_list', agents: Array.from(this.agents.values()) });
+  }
+
+  /**
+   * A driver exit. While a session kill is in flight for the agent the exit is only recorded (a
+   * kill that works makes the exit expected; one that fails replays it). An exit for an agent that
+   * is no longer in the registry is dropped.
+   */
+  private handleDriverExit(agent: Agent): void {
+    const inFlight = this.killsInFlight.get(agent.id);
+    if (inFlight) {
+      inFlight.exited = true;
+      return;
+    }
+    if (this.agents.get(agent.id) !== agent) return;
+    this.applyExit(agent);
+  }
+
+  private applyExit(agent: Agent): void {
+    agent.status = 'disconnected';
+    this.broadcast({ type: 'agent:status_change', agentId: agent.id, status: 'disconnected' });
   }
 
   private refuse(
@@ -231,18 +247,37 @@ export class SessionManager {
       this.killAgent(msg.agentId);
       return;
     }
+    if (agent.mode !== 'tmux') {
+      this.refuse(reply, msg.agentId, 'UNSUPPORTED', 'killSession is only supported for tmux agents');
+      return;
+    }
     const name = tmuxSessionNameOf(agent.targetHost);
-    if (agent.mode !== 'tmux' || !isKillableTmuxSessionName(name)) return;
+    if (!isKillableTmuxSessionName(name)) {
+      this.refuse(reply, msg.agentId, 'USAGE', 'the session name cannot be killed by the gateway');
+      return;
+    }
+    if (this.killsInFlight.has(msg.agentId)) return;
+
+    const inFlight = { exited: false };
+    this.killsInFlight.set(msg.agentId, inFlight);
     try {
       await killTmuxSession(name);
     } catch (err) {
       console.error(
         `agent:kill tmux failure for agent ${msg.agentId.slice(0, 64)}: ${(err as Error)?.message}`
       );
+      this.killsInFlight.delete(msg.agentId);
+      if (inFlight.exited && this.agents.get(msg.agentId) === agent) this.applyExit(agent);
+      this.refuse(reply, msg.agentId, 'INTERNAL', 'tmux could not end the session');
       return;
     }
     console.log(`agent:kill ended tmux session ${name} for agent ${msg.agentId.slice(0, 64)}`);
-    if (this.agents.get(msg.agentId) === agent) this.killAgent(msg.agentId);
+    // killAgent runs synchronously below, so a late driver exit finds the agent gone and is dropped.
+    try {
+      if (this.agents.get(msg.agentId) === agent) this.killAgent(msg.agentId);
+    } finally {
+      this.killsInFlight.delete(msg.agentId);
+    }
   }
 
   getAgentCount(): number {

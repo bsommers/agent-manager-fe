@@ -38,5 +38,16 @@ Client to server: `agent:create`, `agent:input`, `agent:resize`, `agent:kill`, a
 answered with `{"type":"pong","t":<same number>}`). Server to client: `agent:init_list` and the agent
 output/status messages. Frames that are not JSON objects with a string `type` are ignored and logged.
 
+`agent:kill` takes the optional booleans `killSession` and `confirm`. Without `killSession` it only closes the
+agent: the gateway detaches its pty and the tmux session keeps running. With `killSession: true` the gateway
+also ends the agent's tmux session, but only for tmux agents it knows about (created or discovered), and only
+when `confirm` is exactly `true`; otherwise it answers the requesting client with `agent:error` code `USAGE`
+and does nothing. The session name is derived server-side from the registry and never taken from the client. The
+gateway runs `tmux kill-session -t =<name>` (exact-match target) through `execFile` with an argument array,
+never a shell, and only for names matching `^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$`. Refusals are typed `agent:error`
+replies to the requesting client only: `UNSUPPORTED` for non-tmux agents, `USAGE` for a missing confirm or an
+unkillable session name, `INTERNAL` when tmux fails. A session that is already gone counts as success. To kill a
+session the gateway refuses, run `tmux kill-session -t <name>` by hand.
+
 The authoritative wire contract is in
 [docs/superpowers/specs/2026-11-07-fe-be-contract.md](../docs/superpowers/specs/2026-11-07-fe-be-contract.md).

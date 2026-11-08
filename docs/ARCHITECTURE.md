@@ -215,13 +215,30 @@ Notifies backend of terminal dimensions change.
 ```
 
 #### `agent:kill`
-Terminates an agent session.
+Closes an agent: the gateway detaches its pty and removes it from the roster (one `agent:init_list`). Closing
+**leaves the tmux session running**.
 ```json
 {
   "type": "agent:kill",
   "agentId": "agent-1723700000000"
 }
 ```
+
+To also end the tmux session, send `killSession: true` together with `confirm: true`:
+```json
+{
+  "type": "agent:kill",
+  "agentId": "agent-1723700000000",
+  "killSession": true,
+  "confirm": true
+}
+```
+The gateway, not the browser, enforces the gate: `killSession` without `confirm` exactly `true` is refused with
+an `agent:error` (`USAGE`) sent to the requesting client only, and nothing runs. Only tmux agents the gateway
+created or discovered can be killed (non-tmux agents get `UNSUPPORTED`, an unkillable session name gets `USAGE`,
+a tmux failure gets `INTERNAL`). The session name is derived server-side and the kill uses
+`tmux kill-session -t =<name>` through `execFile` with an argument array, never a shell. A session that is
+already gone counts as success.
 
 #### `agent:broadcast`
 Fans a single input payload out to several agents. The server writes `data` to the driver of each agent listed in `targetAgentIds`.
