@@ -350,5 +350,28 @@
     },
     "reason": "invalid_field",
     "field": "detail"
+  },
+  {
+    "name": "kill-session-not-boolean",
+    "direction": "client",
+    "input": {
+      "type": "agent:kill",
+      "agentId": "a1",
+      "killSession": "yes"
+    },
+    "reason": "invalid_field",
+    "field": "killSession"
+  },
+  {
+    "name": "confirm-not-boolean",
+    "direction": "client",
+    "input": {
+      "type": "agent:kill",
+      "agentId": "a1",
+      "killSession": true,
+      "confirm": 1
+    },
+    "reason": "invalid_field",
+    "field": "confirm"
   }
 ]

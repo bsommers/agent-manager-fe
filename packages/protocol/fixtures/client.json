@@ -43,6 +43,31 @@
     }
   },
   {
+    "name": "kill-session",
+    "message": {
+      "type": "agent:kill",
+      "agentId": "a1",
+      "killSession": true,
+      "confirm": true
+    }
+  },
+  {
+    "name": "kill-session-unconfirmed",
+    "message": {
+      "type": "agent:kill",
+      "agentId": "a1",
+      "killSession": true
+    }
+  },
+  {
+    "name": "kill-session-false",
+    "message": {
+      "type": "agent:kill",
+      "agentId": "a1",
+      "killSession": false
+    }
+  },
+  {
     "name": "broadcast",
     "message": {
       "type": "agent:broadcast",
