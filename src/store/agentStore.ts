@@ -8,6 +8,12 @@ import { useConnectionStore } from './connectionStore';
 import { reconcileSnapshot, type PendingMap } from './rosterReconcile';
 import { stackPanes } from '../styles/zLayers';
 
+export interface AgentUpdatePatch {
+  name?: string;
+  tags?: string[];
+  group?: string;
+}
+
 export interface RemoveAgentOptions {
   /** Also end the backend's persistent (tmux) session. Only set after an explicit user confirmation. */
   killSession?: boolean;
@@ -60,7 +66,7 @@ export const ROSTER_REQUEST_TIMEOUT_MS = REQUEST_TIMEOUT_MS;
 
 export interface RosterNotice {
   id: string;
-  kind: 'create_failed' | 'kill_failed';
+  kind: 'create_failed' | 'kill_failed' | 'update_failed';
   title: string;
   message: string;
   createdAt: number;
@@ -69,29 +75,6 @@ export interface RosterNotice {
 let pendingCounter = 0;
 let noticeCounter = 0;
 const isLive = () => useConnectionStore.getState().mode === 'live';
-
-// Timers keyed create:<pendingId> and kill:<agentId>; used only for cleanup.
-// Decisions always read store state, never this Map.
-const requestTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-function clearRequestTimer(key: string) {
-  const t = requestTimers.get(key);
-  if (t !== undefined) {
-    clearTimeout(t);
-    requestTimers.delete(key);
-  }
-}
-
-function armRequestTimer(key: string, fn: () => void) {
-  clearRequestTimer(key);
-  requestTimers.set(
-    key,
-    setTimeout(() => {
-      requestTimers.delete(key);
-      fn();
-    }, ROSTER_REQUEST_TIMEOUT_MS),
-  );
-}
 
 interface FailureCopy {
   notConnected: string;
@@ -122,6 +105,8 @@ export interface AgentStoreState {
   setSearchQuery: (query: string) => void;
   addAgent: (name: string, mode: 'tmux' | 'ssh', targetHost: string, initialCmd?: string) => void;
   removeAgent: (id: string, options?: RemoveAgentOptions) => void;
+  /** Rename or retag/regroup an agent. Live: applied from the gateway's ack; resolves true on success. */
+  updateAgent: (id: string, patch: AgentUpdatePatch) => Promise<boolean>;
   applyRosterSnapshot: (agents: unknown) => void;
   applyStatusChange: (agentId: string, status: AgentStatus) => void;
   dismissRosterNotice: (id: string) => void;
@@ -172,6 +157,24 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       ),
       pending: restPending,
       activeAgentId: nextActive,
+    });
+  };
+
+  /** A kill was acknowledged (or the gateway no longer has the agent): drop it and move focus to a neighbour. */
+  const dropKilledAgent = (id: string) => {
+    const st = get();
+    const idx = st.agents.findIndex((a) => a.id === id);
+    const { [id]: _k, ...restKilling } = st.killing;
+    if (idx === -1) {
+      if (Object.prototype.hasOwnProperty.call(st.killing, id)) set({ killing: restKilling });
+      return;
+    }
+    const nextAgents = st.agents.filter((a) => a.id !== id);
+    set({
+      agents: nextAgents,
+      killing: restKilling,
+      activeAgentId:
+        st.activeAgentId === id ? nextAgents[Math.min(idx, nextAgents.length - 1)]?.id ?? null : st.activeAgentId,
     });
   };
 
@@ -303,32 +306,51 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
         const failTitle = sessionKill
           ? `Could not kill the tmux session of "${target.name}"`
           : `Could not close "${target.name}"`;
-        if (!agentSocket.send(killMsg)) {
-          pushRosterNotice(
-            'kill_failed',
-            failTitle,
-            sessionKill
-              ? 'The backend is not connected, so the session was left running.'
-              : 'The backend is not connected, so the agent was left running.',
-          );
-          return;
-        }
-        set((state) => ({ killing: { ...state.killing, [id]: Date.now() } }));
-        armRequestTimer(`kill:${id}`, () => {
-          const cur = get();
-          if (!Object.prototype.hasOwnProperty.call(cur.killing, id)) return;
-          const { [id]: _k, ...restKilling } = cur.killing;
-          set({ killing: restKilling });
-          if (cur.agents.some((a) => a.id === id)) {
+        let handle;
+        try {
+          handle = agentSocket.request((reqId): WSMessageClient => ({ ...killMsg, reqId }));
+        } catch (err) {
+          if (err instanceof AgentRequestError) {
             pushRosterNotice(
               'kill_failed',
               failTitle,
               sessionKill
-                ? 'The backend did not confirm within 10 s, so the session may still be running and the agent is still listed.'
-                : 'The backend did not confirm within 10 s, so the agent is still listed.',
+                ? 'The backend is not connected, so the session was left running.'
+                : 'The backend is not connected, so the agent was left running.',
             );
+            return;
           }
-        });
+          throw err;
+        }
+        set((state) => ({ killing: { ...state.killing, [id]: Date.now() } }));
+        handle.promise.then(
+          () => dropKilledAgent(id),
+          (err: unknown) => {
+            if (err instanceof AgentRequestError && err.code === 'NOT_FOUND') {
+              // The gateway no longer has it: drop it locally, nothing to tell the user.
+              dropKilledAgent(id);
+              return;
+            }
+            const cur = get();
+            if (Object.prototype.hasOwnProperty.call(cur.killing, id)) {
+              const { [id]: _k, ...restKilling } = cur.killing;
+              set({ killing: restKilling });
+            }
+            if (!cur.agents.some((a) => a.id === id)) return;
+            pushRosterNotice(
+              'kill_failed',
+              failTitle,
+              failureMessage(err, {
+                notConnected: sessionKill
+                  ? 'The backend is not connected, so the session was left running.'
+                  : 'The backend is not connected, so the agent was left running.',
+                timeout: sessionKill
+                  ? 'The backend did not confirm within 10 s, so the session may still be running and the agent is still listed.'
+                  : 'The backend did not confirm within 10 s, so the agent is still listed.',
+              }),
+            );
+          },
+        );
         return;
       }
       const currentActive = get().activeAgentId;
@@ -338,6 +360,56 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
         agents: nextAgents,
         activeAgentId: currentActive === id ? nextAgents[0]?.id || null : currentActive,
       });
+    },
+
+    updateAgent: async (id, patch) => {
+      const supplied: AgentUpdatePatch = {};
+      if (patch.name !== undefined) supplied.name = patch.name;
+      if (patch.tags !== undefined) supplied.tags = patch.tags;
+      if (patch.group !== undefined) supplied.group = patch.group;
+      if (Object.keys(supplied).length === 0) return false;
+      const st = get();
+      if (!isLive()) {
+        if (!st.agents.some((a) => a.id === id)) return false;
+        set({ agents: st.agents.map((a) => (a.id === id ? { ...a, ...supplied } : a)) });
+        return true;
+      }
+      if (Object.prototype.hasOwnProperty.call(st.pending, id)) return false;
+      const target = st.agents.find((a) => a.id === id);
+      if (!target) return false;
+      const failTitle = `Could not update "${target.name}"`;
+      let handle;
+      try {
+        handle = agentSocket.request((reqId): WSMessageClient => ({ type: 'agent:update', agentId: id, ...supplied, reqId }));
+      } catch (err) {
+        if (err instanceof AgentRequestError) {
+          pushRosterNotice('update_failed', failTitle, 'The backend is not connected, so the agent was not changed.');
+          return false;
+        }
+        throw err;
+      }
+      try {
+        const ack = await handle.promise;
+        const server = ack.agent;
+        if (server) {
+          set((state) => ({
+            agents: state.agents.map((a) =>
+              a.id === id ? { ...a, name: server.name, tags: server.tags, group: server.group } : a,
+            ),
+          }));
+        }
+        return true;
+      } catch (err) {
+        pushRosterNotice(
+          'update_failed',
+          failTitle,
+          failureMessage(err, {
+            notConnected: 'The backend is not connected, so the agent was not changed.',
+            timeout: 'The backend did not confirm within 10 s, so the agent was not changed.',
+          }),
+        );
+        return false;
+      }
     },
 
     applyRosterSnapshot: (raw) => {
@@ -364,7 +436,6 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       const nextKilling: Record<string, number> = {};
       for (const [agentId, startedAt] of Object.entries(state.killing)) {
         if (result.agents.some((a) => a.id === agentId)) nextKilling[agentId] = startedAt;
-        else clearRequestTimer(`kill:${agentId}`);
       }
       set({ agents: result.agents, pending: result.pending, killing: nextKilling, activeAgentId: nextActive });
     },

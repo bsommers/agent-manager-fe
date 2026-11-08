@@ -161,13 +161,13 @@ describe('live roster failure paths', () => {
       useAgentStore.getState().removeAgent('agent-9');
       useAgentStore.getState().removeAgent('agent-9');
       expect(send).toHaveBeenCalledTimes(1);
-      expect(send).toHaveBeenCalledWith({ type: 'agent:kill', agentId: 'agent-9' });
+      expect(send).toHaveBeenCalledWith({ type: 'agent:kill', agentId: 'agent-9', reqId: expect.any(String) });
       const s = useAgentStore.getState();
       expect(s.agents.map((a) => a.id)).toEqual(['agent-9']);
       expect(s.killing['agent-9']).toBeDefined();
     });
 
-    it('a snapshot without the agent removes it and clears killing and the timer', () => {
+    it('a snapshot without the agent removes it and clears killing', () => {
       useAgentStore.setState({
         agents: [EXISTING, serverAgent({ id: 'agent-10', name: 'Two' })],
         activeAgentId: 'agent-9',
@@ -178,7 +178,6 @@ describe('live roster failure paths', () => {
       expect(s.agents.map((a) => a.id)).toEqual(['agent-10']);
       expect(s.killing).toEqual({});
       expect(s.activeAgentId).toBe('agent-10');
-      expect(vi.getTimerCount()).toBe(0);
     });
 
     it('removing the last agent leaves a null active id', () => {
@@ -200,9 +199,9 @@ describe('live roster failure paths', () => {
       expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('an unconfirmed kill keeps the agent listed and pushes one kill_failed notice', () => {
+    it('an unconfirmed kill keeps the agent listed and pushes one kill_failed notice', async () => {
       useAgentStore.getState().removeAgent('agent-9');
-      vi.advanceTimersByTime(ROSTER_REQUEST_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(ROSTER_REQUEST_TIMEOUT_MS);
       const s = useAgentStore.getState();
       expect(s.agents.map((a) => a.id)).toEqual(['agent-9']);
       expect(s.killing).toEqual({});
@@ -212,11 +211,11 @@ describe('live roster failure paths', () => {
       expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('a snapshot that still lists the agent keeps killing until the timeout', () => {
+    it('a snapshot that still lists the agent keeps killing until the timeout', async () => {
       useAgentStore.getState().removeAgent('agent-9');
       snapshot([EXISTING]);
       expect(useAgentStore.getState().killing['agent-9']).toBeDefined();
-      vi.advanceTimersByTime(ROSTER_REQUEST_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(ROSTER_REQUEST_TIMEOUT_MS);
       expect(useAgentStore.getState().rosterNotices).toHaveLength(1);
     });
   });

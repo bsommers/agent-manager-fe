@@ -164,3 +164,117 @@ describe('AgentSocketService over a live adapter', () => {
     expect(svc.getAdapter()).toBe(a);
   });
 });
+
+describe('AgentSocketService request layer', () => {
+  const frame = (reqId: string): WSMessageClient => ({
+    type: 'agent:create',
+    name: 'n',
+    mode: 'tmux',
+    targetHost: 'h:t',
+    reqId,
+  });
+  const ackFor = (reqId: string): WSMessageServer => ({ type: 'agent:ack', reqId, op: 'create', ok: true });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    useConnectionStore.getState().reset();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function live() {
+    const a = new FakeLiveAdapter();
+    a.deliver = true;
+    const svc = new AgentSocketService(a);
+    return { a, svc };
+  }
+
+  it('request() sends the built frame and an ack from the adapter resolves it', async () => {
+    const { a, svc } = live();
+    const h = svc.request(frame);
+    expect(a.sent).toHaveLength(1);
+    expect((a.sent[0] as { reqId?: string }).reqId).toBe(h.reqId);
+    a.emitMessage(ackFor(h.reqId));
+    await expect(h.promise).resolves.toMatchObject({ op: 'create' });
+    svc.dispose();
+  });
+
+  it('request() throws NOT_CONNECTED synchronously when the adapter did not deliver', () => {
+    const { a, svc } = live();
+    a.deliver = false;
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(() => svc.request(frame)).toThrow(/not connected/i);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('answers to a request do not reach the listeners; other messages and stray answers do', () => {
+    const { a, svc } = live();
+    const l = vi.fn();
+    svc.subscribe(l);
+    const h = svc.request(frame);
+    h.promise.catch(() => {});
+    a.emitMessage(ackFor(h.reqId));
+    expect(l).not.toHaveBeenCalled();
+    a.emitMessage(ackFor('stray'));
+    a.emitMessage({ type: 'agent:error', code: 'INTERNAL', message: 'x', retryable: false });
+    a.emitMessage({ type: 'agent:output', agentId: '1', data: 'x' });
+    expect(l).toHaveBeenCalledTimes(3);
+  });
+
+  it('re-sends an in-flight request when the state goes reconnecting to open', () => {
+    const { a, svc } = live();
+    a.emitState({ state: 'open' });
+    const h = svc.request(frame);
+    h.promise.catch(() => {});
+    a.emitState({ state: 'reconnecting' });
+    expect(a.sent).toHaveLength(1);
+    a.emitState({ state: 'open' });
+    expect(a.sent).toHaveLength(2);
+    expect(a.sent[1]).toEqual(a.sent[0]);
+  });
+
+  it('sends nothing on open to open or connecting to reconnecting', () => {
+    const { a, svc } = live();
+    const h = svc.request(frame);
+    h.promise.catch(() => {});
+    a.emitState({ state: 'reconnecting' });
+    a.emitState({ state: 'reconnecting', attempt: 2 });
+    expect(a.sent).toHaveLength(1);
+    a.emitState({ state: 'open' });
+    expect(a.sent).toHaveLength(2);
+    a.emitState({ state: 'open', lastConnectedAt: 9 });
+    expect(a.sent).toHaveLength(2);
+  });
+
+  it('does not re-send a request that was settled before the reopen', async () => {
+    const { a, svc } = live();
+    const h = svc.request(frame);
+    a.emitMessage(ackFor(h.reqId));
+    await h.promise;
+    a.emitState({ state: 'reconnecting' });
+    a.emitState({ state: 'open' });
+    expect(a.sent).toHaveLength(1);
+  });
+
+  it('caps transmissions at three over repeated reconnects and then times out', async () => {
+    const { a, svc } = live();
+    const h = svc.request(frame);
+    const settled = h.promise.catch((e) => e);
+    for (let i = 0; i < 4; i++) {
+      a.emitState({ state: 'reconnecting' });
+      a.emitState({ state: 'open' });
+    }
+    expect(a.sent).toHaveLength(3);
+    vi.advanceTimersByTime(10000);
+    expect((await settled).code).toBe('TIMEOUT');
+  });
+
+  it('dispose rejects requests in flight', async () => {
+    const { svc } = live();
+    const h = svc.request(frame);
+    svc.dispose();
+    expect((await h.promise.catch((e) => e)).code).toBe('NOT_CONNECTED');
+  });
+});

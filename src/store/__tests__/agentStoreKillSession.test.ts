@@ -30,6 +30,7 @@ describe('removeAgent with session-kill options', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    (agentSocket as any).requests.clear();
     useConnectionStore.setState({ mode: 'live' });
     useAgentStore.setState({
       agents: [TARGET, OTHER],
@@ -42,6 +43,7 @@ describe('removeAgent with session-kill options', () => {
   });
 
   afterEach(() => {
+    (agentSocket as any).requests.clear();
     vi.useRealTimers();
     vi.restoreAllMocks();
     useConnectionStore.setState({ mode: 'demo' });
@@ -50,13 +52,13 @@ describe('removeAgent with session-kill options', () => {
   describe('forwarding', () => {
     it('sends the plain message when no option is given', () => {
       useAgentStore.getState().removeAgent('agent-1');
-      expect(send).toHaveBeenCalledWith({ type: 'agent:kill', agentId: 'agent-1' });
-      expect(Object.keys(send.mock.calls[0][0]).sort()).toEqual(['agentId', 'type']);
+      expect(send).toHaveBeenCalledWith({ type: 'agent:kill', agentId: 'agent-1', reqId: expect.any(String) });
+      expect(Object.keys(send.mock.calls[0][0]).sort()).toEqual(['agentId', 'reqId', 'type']);
     });
 
     it('sends the plain message when both options are false or empty', () => {
       useAgentStore.getState().removeAgent('agent-1', { killSession: false, confirm: false });
-      expect(Object.keys(send.mock.calls[0][0]).sort()).toEqual(['agentId', 'type']);
+      expect(Object.keys(send.mock.calls[0][0]).sort()).toEqual(['agentId', 'reqId', 'type']);
     });
 
     it('sends both when both are true', () => {
@@ -66,20 +68,21 @@ describe('removeAgent with session-kill options', () => {
         agentId: 'agent-1',
         killSession: true,
         confirm: true,
+        reqId: expect.any(String),
       });
     });
 
     it('does not fabricate confirm when only killSession is given', () => {
       useAgentStore.getState().removeAgent('agent-1', { killSession: true });
       const msg = send.mock.calls[0][0];
-      expect(msg).toEqual({ type: 'agent:kill', agentId: 'agent-1', killSession: true });
+      expect(msg).toEqual({ type: 'agent:kill', agentId: 'agent-1', killSession: true, reqId: expect.any(String) });
       expect('confirm' in msg).toBe(false);
     });
 
     it('forwards confirm alone without adding killSession', () => {
       useAgentStore.getState().removeAgent('agent-1', { confirm: true });
       const msg = send.mock.calls[0][0];
-      expect(msg).toEqual({ type: 'agent:kill', agentId: 'agent-1', confirm: true });
+      expect(msg).toEqual({ type: 'agent:kill', agentId: 'agent-1', confirm: true, reqId: expect.any(String) });
       expect('killSession' in msg).toBe(false);
     });
   });
@@ -97,11 +100,11 @@ describe('removeAgent with session-kill options', () => {
       expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('unconfirmed after 10 s: clears killing and pushes the session-kill notice', () => {
+    it('unconfirmed after 10 s: clears killing and pushes the session-kill notice', async () => {
       useAgentStore.getState().removeAgent('agent-1', { ...OPTS });
       expect(useAgentStore.getState().killing).toHaveProperty('agent-1');
       expect(vi.getTimerCount()).toBe(1);
-      vi.advanceTimersByTime(ROSTER_REQUEST_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(ROSTER_REQUEST_TIMEOUT_MS);
       const s = useAgentStore.getState();
       expect(s.killing).toEqual({});
       expect(s.rosterNotices).toHaveLength(1);
@@ -113,7 +116,7 @@ describe('removeAgent with session-kill options', () => {
       expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('a plain close keeps its original notice texts', () => {
+    it('a plain close keeps its original notice texts', async () => {
       send.mockReturnValue(false);
       useAgentStore.getState().removeAgent('agent-1');
       let n = useAgentStore.getState().rosterNotices;
@@ -123,7 +126,7 @@ describe('removeAgent with session-kill options', () => {
       send.mockReturnValue(true);
       useAgentStore.setState({ rosterNotices: [] });
       useAgentStore.getState().removeAgent('agent-1');
-      vi.advanceTimersByTime(ROSTER_REQUEST_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(ROSTER_REQUEST_TIMEOUT_MS);
       n = useAgentStore.getState().rosterNotices;
       expect(n[0].title).toBe('Could not close "Build Box"');
       expect(n[0].message).toBe('The backend did not confirm within 10 s, so the agent is still listed.');
@@ -132,10 +135,23 @@ describe('removeAgent with session-kill options', () => {
   });
 
   describe('confirmation by snapshot', () => {
-    it('a snapshot without the agent clears killing and the timer', () => {
+    it('a snapshot without the agent clears killing; the request settles later without a notice', async () => {
       useAgentStore.getState().removeAgent('agent-1', { ...OPTS });
       expect(vi.getTimerCount()).toBe(1);
       notify({ type: 'agent:init_list', agents: [OTHER] });
+      const s = useAgentStore.getState();
+      expect(s.agents.map((a) => a.id)).toEqual(['agent-9']);
+      expect(s.killing).toEqual({});
+      expect(s.rosterNotices).toEqual([]);
+      await vi.advanceTimersByTimeAsync(ROSTER_REQUEST_TIMEOUT_MS);
+      expect(useAgentStore.getState().rosterNotices).toEqual([]);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('the ack removes the agent and clears killing', async () => {
+      useAgentStore.getState().removeAgent('agent-1', { ...OPTS });
+      notify({ type: 'agent:ack', reqId: (send.mock.calls[0][0] as any).reqId, op: 'kill', ok: true });
+      await vi.advanceTimersByTimeAsync(0);
       const s = useAgentStore.getState();
       expect(s.agents.map((a) => a.id)).toEqual(['agent-9']);
       expect(s.killing).toEqual({});

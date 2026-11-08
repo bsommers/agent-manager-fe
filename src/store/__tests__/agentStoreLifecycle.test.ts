@@ -287,4 +287,228 @@ describe('request-driven agent lifecycle', () => {
       expect(state().agents.map((a) => a.id)).toEqual(['agent-9']);
     });
   });
+
+  describe('kill and close', () => {
+    const TWO = serverAgent({ id: 'agent-10', name: 'Two' });
+
+    beforeEach(() => {
+      useAgentStore.setState({ agents: [EXISTING, TWO], activeAgentId: 'agent-9' });
+    });
+
+    it('sends agent:kill with a reqId, forwards options only when true and never invents confirm', () => {
+      state().removeAgent('agent-9');
+      state().removeAgent('agent-10', { killSession: true });
+      expect(frames()[0]).toEqual({ type: 'agent:kill', agentId: 'agent-9', reqId: expect.any(String) });
+      expect(frames()[1]).toEqual({ type: 'agent:kill', agentId: 'agent-10', killSession: true, reqId: expect.any(String) });
+      expect('confirm' in frames()[1]).toBe(false);
+      expect(state().killing['agent-9']).toBeDefined();
+    });
+
+    it('an ack removes the agent, clears killing and moves the active id to a neighbour', async () => {
+      state().removeAgent('agent-9');
+      expect(state().agents).toHaveLength(2);
+      ack(reqIdOf(0), undefined, 'kill');
+      await flush();
+      const s = state();
+      expect(s.agents.map((a) => a.id)).toEqual(['agent-10']);
+      expect(s.killing).toEqual({});
+      expect(s.activeAgentId).toBe('agent-10');
+      expect(s.rosterNotices).toEqual([]);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('removing the last agent leaves a null active id', async () => {
+      useAgentStore.setState({ agents: [EXISTING], activeAgentId: 'agent-9' });
+      state().removeAgent('agent-9');
+      ack(reqIdOf(0), undefined, 'kill');
+      await flush();
+      expect(state().agents).toEqual([]);
+      expect(state().activeAgentId).toBeNull();
+    });
+
+    it('closing a non-active agent keeps the active id', async () => {
+      state().removeAgent('agent-10');
+      ack(reqIdOf(0), undefined, 'kill');
+      await flush();
+      expect(state().agents.map((a) => a.id)).toEqual(['agent-9']);
+      expect(state().activeAgentId).toBe('agent-9');
+    });
+
+    it('a second call while the first is in flight is ignored', () => {
+      state().removeAgent('agent-9');
+      state().removeAgent('agent-9');
+      expect(send).toHaveBeenCalledTimes(1);
+    });
+
+    it('a USAGE refusal (kill without confirm) surfaces at once with the code and message', async () => {
+      state().removeAgent('agent-9', { killSession: true });
+      fail(reqIdOf(0), 'USAGE', 'killSession needs confirm: true');
+      await flush();
+      const s = state();
+      expect(s.killing).toEqual({});
+      expect(s.agents.map((a) => a.id)).toEqual(['agent-9', 'agent-10']);
+      expect(s.rosterNotices).toHaveLength(1);
+      expect(s.rosterNotices[0].kind).toBe('kill_failed');
+      expect(s.rosterNotices[0].title).toBe('Could not kill the tmux session of "Other"');
+      expect(s.rosterNotices[0].message).toContain('USAGE');
+      expect(s.rosterNotices[0].message).toContain('killSession needs confirm: true');
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('a timeout keeps the plain versus session wording', async () => {
+      state().removeAgent('agent-9');
+      state().removeAgent('agent-10', { killSession: true, confirm: true });
+      await vi.advanceTimersByTimeAsync(ROSTER_REQUEST_TIMEOUT_MS);
+      const n = state().rosterNotices;
+      expect(n).toHaveLength(2);
+      expect(n[0].message).toBe('The backend did not confirm within 10 s, so the agent is still listed.');
+      expect(n[1].message).toBe(
+        'The backend did not confirm within 10 s, so the session may still be running and the agent is still listed.',
+      );
+      expect(state().killing).toEqual({});
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('NOT_FOUND drops the agent locally without a notice', async () => {
+      state().removeAgent('agent-9');
+      fail(reqIdOf(0), 'NOT_FOUND', 'no such agent');
+      await flush();
+      const s = state();
+      expect(s.agents.map((a) => a.id)).toEqual(['agent-10']);
+      expect(s.killing).toEqual({});
+      expect(s.activeAgentId).toBe('agent-10');
+      expect(s.rosterNotices).toEqual([]);
+    });
+
+    it('not connected keeps its synchronous notice', () => {
+      send.mockReturnValue(false);
+      state().removeAgent('agent-9', { killSession: true, confirm: true });
+      expect(state().killing).toEqual({});
+      expect(state().rosterNotices[0].message).toBe('The backend is not connected, so the session was left running.');
+    });
+
+    it('a snapshot that no longer lists the agent clears killing; the late ack changes nothing', async () => {
+      state().removeAgent('agent-9');
+      snapshot([TWO]);
+      expect(state().killing).toEqual({});
+      ack(reqIdOf(0), undefined, 'kill');
+      await flush();
+      expect(state().agents.map((a) => a.id)).toEqual(['agent-10']);
+      expect(state().rosterNotices).toEqual([]);
+    });
+  });
+
+  describe('updateAgent', () => {
+    it('sends only the supplied keys with a reqId and applies the ack agent without touching layout', async () => {
+      useAgentStore.setState({
+        agents: [{ ...EXISTING, layout: { isFloating: true, x: 4, y: 5 } }],
+      });
+      const p = state().updateAgent('agent-9', { name: 'Renamed', tags: ['a'] });
+      expect(frames()[0]).toEqual({
+        type: 'agent:update',
+        agentId: 'agent-9',
+        name: 'Renamed',
+        tags: ['a'],
+        reqId: expect.any(String),
+      });
+      expect('group' in frames()[0]).toBe(false);
+      // Nothing changes before the ack.
+      expect(state().agents[0].name).toBe('Other');
+      ack(reqIdOf(0), { ...EXISTING, name: 'Renamed', tags: ['a'], group: 'ops' }, 'update');
+      expect(await p).toBe(true);
+      expect(state().agents[0]).toMatchObject({
+        name: 'Renamed',
+        tags: ['a'],
+        group: 'ops',
+        layout: { isFloating: true, x: 4, y: 5 },
+      });
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('an error resolves false and pushes an update_failed notice with the typed reason', async () => {
+      const p = state().updateAgent('agent-9', { group: 'ops' });
+      fail(reqIdOf(0), 'FORBIDDEN', 'read only');
+      expect(await p).toBe(false);
+      const n = state().rosterNotices;
+      expect(n).toHaveLength(1);
+      expect(n[0].kind).toBe('update_failed');
+      expect(n[0].message).toContain('FORBIDDEN');
+      expect(state().agents[0].group).toBeUndefined();
+    });
+
+    it('a timeout resolves false with an update_failed notice', async () => {
+      const p = state().updateAgent('agent-9', { name: 'X' });
+      await vi.advanceTimersByTimeAsync(ROSTER_REQUEST_TIMEOUT_MS);
+      expect(await p).toBe(false);
+      expect(state().rosterNotices[0].kind).toBe('update_failed');
+      expect(state().rosterNotices[0].message).toMatch(/10 s/);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('not connected resolves false with a notice', async () => {
+      send.mockReturnValue(false);
+      expect(await state().updateAgent('agent-9', { name: 'X' })).toBe(false);
+      expect(state().rosterNotices[0].kind).toBe('update_failed');
+    });
+
+    it('a pending id, an unknown id and an empty patch resolve false without sending', async () => {
+      state().addAgent('Build', 'tmux', 'localhost:build');
+      const pendingId = state().agents[1].id;
+      send.mockClear();
+      expect(await state().updateAgent(pendingId, { name: 'X' })).toBe(false);
+      expect(await state().updateAgent('nope', { name: 'X' })).toBe(false);
+      expect(await state().updateAgent('agent-9', {})).toBe(false);
+      expect(await state().updateAgent('agent-9', { name: undefined })).toBe(false);
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('in Demo mode applies locally, sends nothing and resolves true', async () => {
+      useConnectionStore.setState({ mode: 'demo' });
+      expect(await state().updateAgent('agent-9', { name: 'Local', group: 'g' })).toBe(true);
+      expect(send).not.toHaveBeenCalled();
+      expect(state().agents[0]).toMatchObject({ name: 'Local', group: 'g' });
+    });
+  });
+
+  describe('re-send after reconnect', () => {
+    const resend = () => (agentSocket as any).requests.resendInFlight();
+
+    it('re-sends the identical frame (same reqId) and the ack to it settles the original create', async () => {
+      state().addAgent('Build', 'tmux', 'localhost:build');
+      resend();
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(frames()[1]).toEqual(frames()[0]);
+      ack(reqIdOf(1), BUILD);
+      await flush();
+      expect(state().agents.map((a) => a.id)).toEqual(['agent-9', 'agent-77']);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('replay: the snapshot on reconnect already lists the agent, the replayed ack follows: one agent, no pane, no notice', async () => {
+      state().addAgent('Build', 'tmux', 'localhost:build');
+      useConnectionStore.setState({ state: 'reconnecting' });
+      useConnectionStore.setState({ state: 'open' });
+      resend();
+      snapshot([EXISTING, BUILD]);
+      ack(reqIdOf(1), BUILD);
+      await flush();
+      const s = state();
+      expect(s.agents.map((a) => a.id)).toEqual(['agent-9', 'agent-77']);
+      expect(s.pending).toEqual({});
+      expect(s.rosterNotices).toEqual([]);
+      expect(s.activeAgentId).toBe('agent-77');
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('stops after three transmissions and then times out with the 10 s wording', async () => {
+      state().addAgent('Build', 'tmux', 'localhost:build');
+      resend();
+      resend();
+      resend();
+      expect(send).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(ROSTER_REQUEST_TIMEOUT_MS);
+      expect(state().rosterNotices).toHaveLength(1);
+      expect(state().agents.map((a) => a.id)).toEqual(['agent-9']);
+    });
+  });
 });

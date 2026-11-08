@@ -97,7 +97,7 @@ describe('AgentControls: Kill tmux session', () => {
       renderControls();
       fireEvent.click(screen.getByRole('button', { name: 'Close agent Build Box' }));
       expect(send).toHaveBeenCalledTimes(1);
-      expect(send).toHaveBeenCalledWith({ type: 'agent:kill', agentId: 'a1' });
+      expect(send).toHaveBeenCalledWith({ type: 'agent:kill', agentId: 'a1', reqId: expect.any(String) });
       expect(screen.queryByRole('alertdialog')).toBeNull();
     });
   });
@@ -166,6 +166,7 @@ describe('AgentControls: Kill tmux session', () => {
         agentId: 'a1',
         killSession: true,
         confirm: true,
+        reqId: expect.any(String),
       });
       expect(screen.queryByRole('alertdialog')).toBeNull();
       expect(useAgentStore.getState().killing).toHaveProperty('a1');
