@@ -46,3 +46,10 @@
 - Gate: root 94 files / 1898 tests, server 26 / 643, tsc root+server, builds, build:protocol, contract:check OK vs e45b27b, tmuxKill 0.
 - Deviations: FE edited pinned assertion in agentStoreRoster.test.ts (added agent:added before ack); FE fix relies on agent:added preceding the create ack on the same connection; extra guard on getOrCreateDriver onData; TTL purge skips in-flight; hostname.test.ts added.
 - Open: xterm 'dimensions' pageerror cause unknown (TerminalView.tsx:67,131); push needs user go-ahead (use GH_TOKEN=$(gh auth token --user bsommers)); plan 05-04, Phase 1 close, Phase 8, Phase 7. Live QA not rerun after fixes.
+
+## Update: live QA of review fixes PASSED (own ports 18090/13000; all torn down)
+- HTTP: Host guard 403 for evil.example (localhost/[::1]/127.0.0.1 ok, legacy /health unaffected); DELETE bad Idempotency-Key 400 and agent kept; repeated valid key replays 200; keyless repeat 404.
+- Browser: 1e two-tab create/close sync, HTTP POST/DELETE live, 1b reload, 1c gateway restart/banner all PASS. (One qa2 run had 2 setup FAILs from missing precondition agent, not app regressions; rerun clean PASS.)
+- xterm pageerror stack: TypeError in xterm Viewport.syncScrollArea -> renderService.dimensions undefined (xterm internals, not our fit() calls); seen in headless on pane mount. Not fixed; cause (dispose/rAF race) unconfirmed.
+- Not live-tested: eviction RATE_LIMITED, replay-ack FE races (unit-tested only).
+- Pending user request (unanswered): 'daemons menu and functions not working properly; dispatch fixes via herdr to claude sessions in same repo, cheapest models'. 'daemons' not found anywhere in repo; user declined clarifying question. herdr 0.8.2 at ~/.local/bin/herdr.
