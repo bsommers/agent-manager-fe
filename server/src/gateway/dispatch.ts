@@ -35,6 +35,18 @@ export function failure(
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
 
+/**
+ * An exception escaped a route or service call. Logs a bounded line (operation + truncated message) for
+ * the operator; the reply to the client is a fixed string and never echoes the error.
+ */
+function internalFailure(msg: WSMessageClient, err: unknown): DispatchOutcome {
+  const detail = String((err as { message?: unknown } | null | undefined)?.message ?? err)
+    .slice(0, 200)
+    .replace(/[\r\n]+/g, ' ');
+  console.error(`dispatch: ${String(msg.type).slice(0, 64)} failed with an internal error: ${detail}`);
+  return failure('INTERNAL', 'internal error');
+}
+
 function outcomeOf<T>(result: ServiceResult<T>, ack?: (value: T) => AckDescriptor): DispatchOutcome {
   if (!result.ok) return { ok: false, error: result.error };
   return ack ? { ok: true, ack: ack(result.value) } : { ok: true };
@@ -67,9 +79,9 @@ export class AgentApi {
    */
   execute(msg: WSMessageClient): Promise<DispatchOutcome> {
     try {
-      return this.route(msg).catch(() => failure('INTERNAL', 'internal error'));
-    } catch {
-      return Promise.resolve(failure('INTERNAL', 'internal error'));
+      return this.route(msg).catch((err: unknown) => internalFailure(msg, err));
+    } catch (err) {
+      return Promise.resolve(internalFailure(msg, err));
     }
   }
 

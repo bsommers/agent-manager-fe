@@ -169,4 +169,59 @@ describe('fingerprintOf', () => {
       fingerprintOf('agent.kill', { agentId: 'a', confirm: true })
     );
   });
+
+  describe('in-flight entries are never evicted', () => {
+    it('evicts the oldest COMPLETED entry, keeping a pending one, so its retry replays instead of re-executing', async () => {
+      const cache = new IdempotencyCache({ maxEntries: 3 });
+      let release!: (o: Out) => void;
+      const pending = vi.fn(() => new Promise<Out>((res) => (release = res)));
+      const p = cache.run('pending', 'fp', pending); // oldest, still in flight
+      await cache.run('a', 'fp', () => good(1));
+      await cache.run('b', 'fp', () => good(2));
+      await cache.run('c', 'fp', () => good(3)); // full: must evict 'a', not 'pending'
+      expect(cache.size).toBe(3);
+      const retry = vi.fn(() => good(-1));
+      const replay = cache.run('pending', 'fp', retry);
+      expect(retry).not.toHaveBeenCalled();
+      release({ ok: true, n: 9 });
+      expect(await replay).toEqual({ ok: true, n: 9 });
+      expect(await p).toEqual({ ok: true, n: 9 });
+      // 'a' (oldest completed) was the one evicted.
+      const again = vi.fn(() => good(-2));
+      await cache.run('a', 'fp', again);
+      expect(again).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses a new request with retryable RATE_LIMITED when full of in-flight entries, without exec or growth', async () => {
+      const cache = new IdempotencyCache({ maxEntries: 2 });
+      const releases: Array<(o: Out) => void> = [];
+      const hang = () => new Promise<Out>((res) => releases.push(res));
+      void cache.run('p1', 'fp', hang);
+      void cache.run('p2', 'fp', hang);
+      const exec = vi.fn(() => good(1));
+      const out = await cache.run('p3', 'fp', exec);
+      expect(exec).not.toHaveBeenCalled();
+      expect(out).toMatchObject({ ok: false, error: { code: 'RATE_LIMITED', retryable: true } });
+      expect(cache.size).toBe(2);
+      // Once one settles, a new key is admitted again.
+      releases[0]({ ok: true, n: 1 });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(await cache.run('p3', 'fp', () => good(3))).toEqual({ ok: true, n: 3 });
+      expect(cache.size).toBe(2);
+    });
+
+    it('does not TTL-purge an in-flight entry', async () => {
+      const c = clock();
+      const cache = new IdempotencyCache({ now: c.now });
+      let release!: (o: Out) => void;
+      void cache.run('slow', 'fp', () => new Promise<Out>((res) => (release = res)));
+      c.advance(10 * 60 * 1000);
+      const retry = vi.fn(() => good(-1));
+      const replay = cache.run('slow', 'fp', retry);
+      expect(retry).not.toHaveBeenCalled();
+      release({ ok: true, n: 4 });
+      expect(await replay).toEqual({ ok: true, n: 4 });
+    });
+  });
 });

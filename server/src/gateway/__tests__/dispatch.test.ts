@@ -310,4 +310,34 @@ describe('AgentApi', () => {
       expect(service.count()).toBe(1);
     });
   });
+
+  describe('internal failures', () => {
+    it('logs a bounded error line naming the operation, and replies with a fixed string that does not echo the error', async () => {
+      const secret = 'SECRET-' + 'x'.repeat(500);
+      vi.spyOn(service, 'create').mockImplementation(() => {
+        throw new Error(secret);
+      });
+      const errSpy = vi.spyOn(console, 'error');
+      errSpy.mockClear();
+      const out = await run(create());
+      expect(errorOf(out)).toMatchObject({ code: 'INTERNAL', message: 'internal error' });
+      expect(JSON.stringify(out)).not.toContain('SECRET');
+      expect(errSpy).toHaveBeenCalledTimes(1);
+      const line = String(errSpy.mock.calls[0][0]);
+      expect(line).toContain('agent:create');
+      expect(line).toContain('SECRET-');
+      expect(line.length).toBeLessThan(300);
+    });
+
+    it('also logs when the service rejects asynchronously', async () => {
+      const a = await made();
+      vi.spyOn(service, 'destroy').mockRejectedValue(new Error('async boom'));
+      const errSpy = vi.spyOn(console, 'error');
+      errSpy.mockClear();
+      const out = await run({ type: 'agent:kill', agentId: a.id, killSession: true, confirm: true });
+      expect(errorOf(out)).toMatchObject({ code: 'INTERNAL', message: 'internal error' });
+      expect(errSpy).toHaveBeenCalledTimes(1);
+      expect(String(errSpy.mock.calls[0][0])).toContain('async boom');
+    });
+  });
 });
