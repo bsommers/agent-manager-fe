@@ -2,7 +2,7 @@ import { fail } from '../services/serviceResult.js';
 import type { ServiceError } from '../services/serviceResult.js';
 
 export interface IdempotencyOptions {
-  /** Most entries kept; the oldest is evicted for a new key. Default 1024. */
+  /** Most entries kept; the oldest COMPLETED one is evicted for a new key. Default 1024. */
   maxEntries?: number;
   /** Entries older than this are purged on the next call. Default 5 minutes. */
   ttlMs?: number;
@@ -14,6 +14,8 @@ interface Entry<T> {
   fingerprint: string;
   at: number;
   outcome: Promise<T>;
+  /** False while exec is in flight; in-flight entries are never evicted or expired. */
+  settled: boolean;
 }
 
 export const DEFAULT_MAX_ENTRIES = 1024;
@@ -25,6 +27,7 @@ interface HasOk {
 }
 
 type ConflictFailure = { ok: false; error: ServiceError };
+type CacheFailure = ConflictFailure;
 
 /**
  * reqId store: bounded, expiring, and shared by every surface that goes through one AgentApi.
@@ -49,7 +52,7 @@ export class IdempotencyCache {
   }
 
   /** Runs `exec` synchronously for a new key and stores its outcome; replays the stored one otherwise. */
-  run<T extends HasOk>(reqId: string, fingerprint: string, exec: () => Promise<T>): Promise<T | ConflictFailure> {
+  run<T extends HasOk>(reqId: string, fingerprint: string, exec: () => Promise<T>): Promise<T | CacheFailure> {
     this.purgeExpired();
     const existing = this.entries.get(reqId) as Entry<T> | undefined;
     if (existing) {
@@ -57,13 +60,22 @@ export class IdempotencyCache {
       return existing.outcome;
     }
 
+    // Make room by evicting the oldest COMPLETED entries only. Evicting an in-flight entry would let a
+    // retry of that reqId run a second time (a duplicate create), so when everything left is in flight
+    // the new request is refused instead; the cache never grows past maxEntries.
     while (this.entries.size >= this.maxEntries) {
-      const oldest = this.entries.keys().next();
-      if (oldest.done) break;
-      this.entries.delete(oldest.value);
+      let victim: string | undefined;
+      for (const [key, e] of this.entries) {
+        if (e.settled) {
+          victim = key;
+          break;
+        }
+      }
+      if (victim === undefined) return Promise.resolve(rateLimited());
+      this.entries.delete(victim);
     }
 
-    const entry: Entry<T> = { fingerprint, at: this.now(), outcome: undefined as never };
+    const entry: Entry<T> = { fingerprint, at: this.now(), outcome: undefined as never, settled: false };
     // Registered before exec runs so an overlapping call finds it; exec itself starts synchronously.
     this.entries.set(reqId, entry);
     let outcome: Promise<T>;
@@ -79,9 +91,13 @@ export class IdempotencyCache {
     };
     outcome.then(
       (o) => {
+        entry.settled = true;
         if (!o.ok) forget();
       },
-      forget
+      () => {
+        entry.settled = true;
+        forget();
+      }
     );
     return outcome;
   }
@@ -91,9 +107,17 @@ export class IdempotencyCache {
     for (const [key, entry] of this.entries) {
       // Insertion order is age order, so the first live entry ends the scan.
       if (entry.at >= cutoff) break;
+      // An in-flight entry outlives the TTL; its retry must still find it.
+      if (!entry.settled) continue;
       this.entries.delete(key);
     }
   }
+}
+
+function rateLimited(): CacheFailure {
+  const r = fail('RATE_LIMITED', 'too many requests in flight, retry shortly', { retryable: true });
+  if (r.ok) throw new Error('unreachable');
+  return { ok: false, error: r.error };
 }
 
 function conflict(): ConflictFailure {
