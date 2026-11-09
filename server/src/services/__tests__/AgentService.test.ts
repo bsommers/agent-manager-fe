@@ -21,6 +21,8 @@ interface FakeDriver {
   resize: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
   onExit: () => void;
+  onData: (data: string) => void;
+  onError?: (err: Error) => void;
 }
 
 function deferred<T>() {
@@ -46,7 +48,7 @@ describe('AgentService', () => {
   const removed = () => published.filter((f) => f.type === 'agent:removed');
   const added = () => published.filter((f) => f.type === 'agent:added');
   const statusChanges = () => published.filter((f) => f.type === 'agent:status_change');
-  const mkTmux = (): FakeDriver => ({ write: vi.fn(), resize: vi.fn(), close: vi.fn(), onExit: () => {} });
+  const mkTmux = (): FakeDriver => ({ write: vi.fn(), resize: vi.fn(), close: vi.fn(), onExit: () => {}, onData: () => {} });
 
   function created(name = 'a', mode: 'tmux' | 'ssh' = 'tmux', host = 'localhost:qa_a'): Agent {
     const r = svc.create({ name, mode, targetHost: host });
@@ -70,10 +72,10 @@ describe('AgentService', () => {
       _s: string,
       _c: number,
       _r: number,
-      _onData: unknown,
+      onData: (data: string) => void,
       onExit: () => void
     ) {
-      const d: FakeDriver = { ...mkTmux(), onExit };
+      const d: FakeDriver = { ...mkTmux(), onExit, onData };
       tmuxDrivers.push(d);
       return d;
     });
@@ -81,10 +83,11 @@ describe('AgentService', () => {
       _h: string,
       _c: number,
       _r: number,
-      _onData: unknown,
-      onExit: () => void
+      onData: (data: string) => void,
+      onExit: () => void,
+      onError?: (err: Error) => void
     ) {
-      const d: FakeDriver = { ...mkTmux(), onExit };
+      const d: FakeDriver = { ...mkTmux(), onExit, onData, onError };
       sshDrivers.push(d);
       return d;
     });
@@ -147,6 +150,69 @@ describe('AgentService', () => {
         throw new Error('closed');
       });
       expect(() => vi.advanceTimersByTime(500)).not.toThrow();
+    });
+  });
+
+  describe('callbacks and timers of a removed agent', () => {
+    it('drops a late driver error for a closed agent: no status flip, no publish', () => {
+      const a = created('s', 'ssh', 'user@host');
+      svc.close(a.id);
+      published.length = 0;
+      sshDrivers[0].onError!(new Error('boom'));
+      expect(a.status).toBe('running');
+      expect(published).toEqual([]);
+    });
+
+    it('drops late driver output for a closed agent', () => {
+      const a = created();
+      const before = a.lastActivity;
+      svc.close(a.id);
+      published.length = 0;
+      tmuxDrivers[0].onData('late');
+      expect(published).toEqual([]);
+      expect(a.lastActivity).toBe(before);
+    });
+
+    it('still publishes output and errors for a live agent', () => {
+      const a = created('s', 'ssh', 'user@host');
+      sshDrivers[0].onData('hi');
+      sshDrivers[0].onError!(new Error('boom'));
+      expect(a.status).toBe('error');
+      expect(published.map((m) => m.type)).toEqual([
+        'agent:output',
+        'agent:status_change',
+        'agent:output',
+      ]);
+    });
+
+    it('never writes initialCmd once the agent was closed before the 500 ms timer', () => {
+      vi.useFakeTimers();
+      const r = svc.create({ name: 'a', mode: 'tmux', targetHost: 'qa_a', initialCmd: 'ls' });
+      if (!r.ok) throw new Error('create failed');
+      svc.close(r.value.id);
+      vi.advanceTimersByTime(1000);
+      expect(tmuxDrivers[0].write).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('never writes initialCmd once the session was destroyed before the timer', async () => {
+      vi.useFakeTimers();
+      const r = svc.create({ name: 'a', mode: 'tmux', targetHost: 'localhost:qa_a', initialCmd: 'ls' });
+      if (!r.ok) throw new Error('create failed');
+      await svc.destroy(r.value.id, { confirm: true });
+      vi.advanceTimersByTime(1000);
+      expect(tmuxDrivers[0].write).not.toHaveBeenCalled();
+    });
+
+    it('unrefs the initialCmd timer so it cannot hold the process open', () => {
+      const unref = vi.fn();
+      const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((() => ({ unref })) as any);
+      try {
+        svc.create({ name: 'a', mode: 'tmux', targetHost: 'qa_a', initialCmd: 'ls' });
+      } finally {
+        spy.mockRestore();
+      }
+      expect(unref).toHaveBeenCalledTimes(1);
     });
   });
 
