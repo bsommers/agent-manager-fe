@@ -338,6 +338,111 @@ describe('DELETE /api/agents/:id', () => {
     expectError(res, 'USAGE');
     expect(res.text).not.toContain('URIError');
   });
+
+  it('honours Idempotency-Key: a repeated DELETE with the same key replays the 200 and closes once', async () => {
+    const x = seedAgent();
+    const first = await request('DELETE', `/api/agents/${x.id}`, { headers: { 'idempotency-key': 'del-1' } });
+    const second = await request('DELETE', `/api/agents/${x.id}`, { headers: { 'idempotency-key': 'del-1' } });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(second.json).toEqual({ ok: true });
+    expect(capturedDrivers()[0].close).toHaveBeenCalledTimes(1);
+  });
+
+  it('without a key a repeated DELETE is NOT_FOUND, and a different key does not replay', async () => {
+    const x = seedAgent();
+    await request('DELETE', `/api/agents/${x.id}`, { headers: { 'idempotency-key': 'del-2' } });
+    expectError(await request('DELETE', `/api/agents/${x.id}`, { headers: { 'idempotency-key': 'del-3' } }), 'NOT_FOUND');
+  });
+
+  it.each([
+    ['empty', ''],
+    ['129 characters', 'k'.repeat(129)],
+    ['containing a space', 'a b'],
+    ['non-ASCII', 'kéy'],
+  ])('rejects a DELETE with an Idempotency-Key that is %s: 400 USAGE and the agent stays', async (_n, key) => {
+    const x = seedAgent();
+    const res = await request('DELETE', `/api/agents/${x.id}`, { headers: { 'idempotency-key': key } });
+    expectError(res, 'USAGE');
+    expect(res.json.error.message).toBe('invalid header: Idempotency-Key');
+    expect(capturedDrivers()[0].close).not.toHaveBeenCalled();
+    expect(agentCount()).toBe(1);
+  });
+});
+
+describe('Host header guard (DNS rebinding)', () => {
+  it.each([
+    ['a foreign name', 'evil.example'],
+    ['a foreign name with a port', 'evil.example:80'],
+    ['a rebinding-style suffix', 'localhost.evil.example'],
+    ['a name embedding localhost', 'evil.example/localhost'],
+    ['a public address', '8.8.8.8:3000'],
+    ['an unrelated IPv6 address', '[2001:db8::1]:3000'],
+    ['userinfo smuggling', 'localhost@evil.example'],
+  ])('refuses GET /api/agents with Host %s: 403 FORBIDDEN, fixed message, nothing leaked', async (_n, host) => {
+    seedAgent();
+    const res = await request('GET', '/api/agents', { headers: { host } });
+    expectError(res, 'FORBIDDEN');
+    expect(res.json.error.message).toBe('host not allowed');
+    expect(res.text).not.toContain('seed');
+    expect(res.text).not.toContain(host);
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it.each(['GET /api/health', 'GET /api/nope', 'DELETE /api/agents/agent-x', 'POST /api/agents'])(
+    'applies to every /api request: %s with a foreign Host is 403',
+    async (route) => {
+      const [method, path] = route.split(' ');
+      const res = await request(method, path, { headers: { host: 'evil.example', ...JSON_HEADERS }, body: method === 'POST' ? JSON.stringify(CREATE) : undefined });
+      expectError(res, 'FORBIDDEN');
+      expect(capturedDrivers()).toHaveLength(0);
+    }
+  );
+
+  it('a foreign Host DELETE leaves the agent alone', async () => {
+    const x = seedAgent();
+    expectError(await request('DELETE', `/api/agents/${x.id}`, { headers: { host: 'evil.example' } }), 'FORBIDDEN');
+    expect(agentCount()).toBe(1);
+  });
+
+  it.each([
+    `127.0.0.1:PORT`,
+    '127.0.0.1',
+    'localhost:3000',
+    'LOCALHOST',
+    '[::1]:8080',
+    '[::1]',
+  ])('accepts the loopback Host %s', async (host) => {
+    const res = await request('GET', '/api/agents', { headers: { host: host.replace('PORT', String(port)) } });
+    expect(res.status).toBe(200);
+    expectBody('agents', res.json);
+  });
+
+  it('accepts the configured HOST and refuses a different loopback-looking name', async () => {
+    const other = await bootstrap(0, '127.0.0.2');
+    try {
+      const p = (other.server.address() as AddressInfo).port;
+      const get = (host: string) =>
+        new Promise<number>((resolve, reject) => {
+          http
+            .get({ host: '127.0.0.2', port: p, path: '/api/agents', headers: { host }, agent: false }, (r) => {
+              r.resume();
+              r.on('end', () => resolve(r.statusCode ?? 0));
+            })
+            .on('error', reject);
+        });
+      expect(await get(`127.0.0.2:${p}`)).toBe(200);
+      expect(await get('127.0.0.3')).toBe(403);
+    } finally {
+      other.wss.close();
+      await new Promise<void>((resolve) => other.server.close(() => resolve()));
+    }
+  });
+
+  it('does not affect the exempt non-/api liveness route', async () => {
+    const res = await request('GET', '/health', { headers: { host: 'evil.example' } });
+    expect(res.status).toBe(200);
+  });
 });
 
 describe('Idempotency-Key', () => {

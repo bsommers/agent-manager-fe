@@ -63,6 +63,7 @@ export async function bootstrap(
       api: sessionManager.api,
       service: sessionManager.service,
       allowedOrigins,
+      host,
       epoch: options.epoch ?? randomUUID(),
     })
   );

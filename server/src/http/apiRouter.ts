@@ -16,6 +16,8 @@ export interface ApiRouterDeps {
   allowedOrigins: ReadonlySet<string>;
   /** Per-process identity reported by /api/health. */
   epoch: string;
+  /** The address the gateway is bound to; its name is accepted in the Host header besides the loopback names. */
+  host: string;
 }
 
 /** JSON bodies larger than this are PAYLOAD_TOO_LARGE. */
@@ -23,6 +25,19 @@ export const MAX_BODY_BYTES = 64 * 1024;
 
 /** An Idempotency-Key is the reqId: 1 to 128 printable ASCII characters, no spaces. */
 const IDEMPOTENCY_KEY = /^[\x21-\x7e]{1,128}$/;
+
+/** Host header names always accepted: the loopback names a local client uses. */
+const LOOPBACK_HOST_NAMES: readonly string[] = ['127.0.0.1', 'localhost', '[::1]'];
+
+/** A Host header value: a DNS name, IPv4 literal or bracketed IPv6 literal, with an optional port. Nothing else. */
+const HOST_HEADER = /^(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::\d{1,5})?$/i;
+
+/** The lower-cased hostname of a Host header value, or null when it is absent or not a plain authority. */
+export function hostnameOf(header: string | undefined): string | null {
+  if (header === undefined) return null;
+  const m = HOST_HEADER.exec(header.trim());
+  return m ? m[1].toLowerCase() : null;
+}
 
 /** The routes this router implements; every other catalog route answers UNSUPPORTED. */
 const IMPLEMENTED_CATALOG_ROUTES: readonly string[] = [
@@ -106,11 +121,29 @@ function oneLine(err: unknown): string {
  * talks to the gateway over WebSocket, and a cross-origin page cannot read or preflight these routes.
  */
 export function createApiRouter(deps: ApiRouterDeps): Router {
-  const { api, service, allowedOrigins, epoch } = deps;
+  const { api, service, allowedOrigins, epoch, host } = deps;
   const router = express.Router();
+
+  const bound = host.trim().toLowerCase();
+  const allowedHostNames = new Set<string>([
+    ...LOOPBACK_HOST_NAMES,
+    bound.includes(':') && !bound.startsWith('[') ? `[${bound}]` : bound,
+  ]);
 
   router.use((_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
+
+  // DNS-rebinding guard: a page on an attacker's name that resolves to loopback reaches this server
+  // same-origin and sends no Origin header on a GET, but its Host header still carries the attacker's name.
+  // Every /api request must name a loopback host or the configured HOST.
+  router.use((req, res, next) => {
+    const name = hostnameOf(req.headers.host);
+    if (name === null || !allowedHostNames.has(name)) {
+      sendError(res, 'FORBIDDEN', 'host not allowed');
+      return;
+    }
     next();
   });
 
@@ -172,7 +205,13 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   router.delete(
     '/agents/:id',
     guarded(async (req, res) => {
-      const msg = validated({ type: 'agent:kill', agentId: req.params.id }, res);
+      const candidate: Record<string, unknown> = { type: 'agent:kill', agentId: req.params.id };
+
+      const reqId = readReqId(req, res);
+      if (reqId === null) return;
+      if (reqId !== undefined) candidate.reqId = reqId;
+
+      const msg = validated(candidate, res);
       if (!msg) return;
       const outcome = await api.execute(msg);
       send(res, outcomeToHttp(outcome, () => ({ status: 200, body: { ok: true } })));
