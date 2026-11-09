@@ -1,55 +1,29 @@
-# Checkpoint 2026-11-08 (agent-manager-fe) - Phase 6 waves 7-8 merged
+# Checkpoint 2026-11-08 (agent-manager-fe) - Phase 6 complete, review fixes merged, QA passed, all pushed
 
-## Decisions (user)
-- Per wave: plan (gsd-planner) -> check (gsd-plan-checker) -> parallel gsd-executor worktrees (ff-only to master sha first) -> merge --no-ff -> full gate -> push only on explicit user go-ahead.
-- Subagents: Sonnet 5.5 default (planner too, overriding the workflow's opus), Opus only for hard tasks, haiku mechanical; always explicit model; terse output.
-- Closing an agent must not kill tmux; gateway enforces destructive ops; port 8088 is the user's nginx (do not touch); no token in URL.
-- Phase 6 was planned without CONTEXT.md or RESEARCH.md, as 2.1 and 10 were.
+## Decisions (user, standing)
+- Per wave: plan (gsd-planner) -> check (gsd-plan-checker) -> parallel gsd-executor worktrees (ff-only to master sha first) -> merge --no-ff -> full gate -> push only on explicit user go-ahead (each push needs a fresh "yes"; approvals expire).
+- Subagents: Sonnet 5.5 default (planner too), Opus only for hard tasks, haiku mechanical; always pass explicit `model`; terse output. User wants parallel subagents as much as possible.
+- Closing an agent must not kill tmux; gateway enforces destructive ops (confirm exactly true); port 8088 is the user's nginx, also do not touch :8089 gateway / :3000 vite or tmux qa-agent-1/qa-agent-2; no token in URL.
+- Live QA runs on own ports (gateway 18090, vite 13000) with Playwright in the scratchpad (`.../scratchpad/qa/qa.mjs`, `qa2.mjs`); tear down only what I started.
 
-## State
-- origin/master = 763dd01. Local master is ahead (Phase 6 plans, checkpoints, 06-01 merge) and NOT pushed.
-- Phase 6 plans (7, waves 7-10) passed the plan-checker. Wave 7 / 06-01 (AgentService) merged and verified on master: root 80 files / 1394 tests, server 16 / 278, tsc, both builds, contract:check all green; tmuxKill count in SessionManager.ts is 0.
-- Wave 8 (06-02 gateway acks/validation + 06-03 FE request layer) merged together and gate green on master: root 86 files / 1599 tests, server 20 / 400, tsc, both builds, contract:check, wave-collisions OK. NOT yet exercised against a live gateway+FE. Deviations: pinned assertions edited on purpose (listed in 06-02/06-03 SUMMARYs), AgentControlsKillSession.test.tsx got reqId matcher, SessionManager.test.ts spies repointed to service.* .
-- Remaining: W9 06-04 events, 06-05 FE events, 06-06 HTTP. W10 06-07 destructive policy.
-- 06-01 deviations: agent:broadcast in SessionManager still loops sendInput (existing test spies on it); AgentService.broadcast returns BroadcastResult[] for 06-02 to wire. Overlapping destroys share one result.
-- reqId stays optional on the wire; FE always sends it.
-- STATE.md / ROADMAP.md not yet updated for 06-01. Tick INT-03, GW-04, GW-05 only after all 7 plans are merged and green.
+## State (verified)
+- Branch master, tree clean. origin/master = local master = 7f9fb8d (pushed). No worktrees besides main; no background jobs; my ports 18090/13000 free.
+- Phase 6 complete: all 7 plans (06-01..06-07) merged. INT-03 and GW-04 ticked; GW-05 left unticked (MCP surface pending Phase 21). ROADMAP 06-0x and STATE.md updated.
+- Review-fix pass (9 findings from wave 8-9 review, all real) merged and pushed: Host guard on /api, DELETE Idempotency-Key, idempotency cache never evicts in-flight (RATE_LIMITED when full), dispatch logs exceptions, AgentService late-callback guard + initialCmd timer cleared/unref, FE replay-ack fixes (no ghost agent, no stale update overwrite, pane layout kept).
+- Gate on master: root 94 files / 1898 tests, server 26 / 643, tsc root+server, both builds, build:protocol, contract:check OK, tmuxKill count 0.
+- Live QA PASSED after fixes: 1e two-tab sync, HTTP POST/DELETE live, 1b reload, 1c gateway restart/banner, Host guard, DELETE idempotency.
 - Flaky: server hardening.test.ts "never terminates a responsive client" (re-run once, never edit).
-- 19 merged worktrees under .claude/worktrees/ to clean up.
 
-## Next
-1. Wave 9: 06-04, 06-05, 06-06 in parallel worktrees from current master (baseline root 86/1599, server 20/400); optionally live-QA the 06-02+06-03 pair first.
-2. Wave 10 (06-07).
-4. Plan 05-04; Phase 1 close (01-EVIDENCE.md); worktree cleanup; push (needs user go-ahead).
+## Deviations to remember
+- FE create-ack fix depends on agent:added arriving before the ack on the same connection (server publishes in that order).
+- Edited pinned tests on purpose: index.test.ts (waits for agent:added), agentStoreRoster.test.ts (agent:added before ack), operations.test.ts (removed "destructive ops have no HTTP binding" invariant).
+- Logging uses console.error (repo has no logger).
 
+## Open
+1. User request, UNANSWERED: "daemons menu and functions are not working properly; dispatch fixes via herdr to claude sessions here in the same repo; best cheapest models". "daemons" appears nowhere in this repo; user declined the clarifying question (twice interrupted). Need: which program/menu, and which sessions (herdr 0.8.2 at ~/.local/bin/herdr, many workspaces; none of the 14 peer Claude sessions is named for this repo). Do not guess-dispatch.
+2. xterm pageerror `reading 'dimensions'` (stack: xterm Viewport.syncScrollArea -> renderService.dimensions; headless on pane mount). Not fixed, cause unconfirmed (suspect dispose/rAF race).
+3. Not live-tested: RATE_LIMITED eviction path, FE replay-ack races (unit-tested only); QA steps 1a, 1d, broadcast/destructive modal, ack-timeout paths.
+4. Plan 05-04; Phase 1 close (01-EVIDENCE.md); Phase 8 (auth); Phase 7.
 
-## Update: wave 9 merged (06-04 events, 06-05 FE events, 06-06 HTTP)
-- Merged --no-ff onto master, no conflicts. Gate green: root 90 files / 1765 tests, server 23 / 520, tsc, both builds, contract:check; tmuxKill count 0.
-- Deviations: 06-04 edited index.test.ts (waits for agent:added, not post-create init_list); SessionManager.ts untouched. 06-06: error handler maps any 4xx to 400 USAGE (413 PAYLOAD_TOO_LARGE); index.ts +15 lines (router mount, BootstrapOptions.epoch). One unrecorded root flake seen once by 06-06 pre-change.
-- Next: wave 10 (06-07 destructive policy); live QA of W8+W9 (QA step 1e, two tabs); then tick INT-03/GW-04/GW-05, STATE/ROADMAP; worktree cleanup (now ~25); push needs user go-ahead. Local master NOT pushed.
-
-## Update: live QA of W8+W9 done (own ports 18090/13000, Playwright in scratchpad)
-- PASS: 1e two-tab create/close live sync, no dups; HTTP POST/DELETE reflected live in open tab; 1b reload no dups; 1c gateway restart -> Reconnecting banner, reconnect to snapshot (agents come back as `Tmux: <session>`), banner clears; HTTP: 201, idempotent replay, 409 key reuse, 403 bad Origin, 400 ctype/body, 422 unsupported, 404.
-- Close leaves tmux running (confirmed). Headless page logs xterm `reading 'dimensions'` pageerrors (not investigated; likely headless fit-addon, unverified).
-- Not covered: 1a (gateway down + New Agent), 1d, broadcast/destructive modal, ack timeout paths. User's gateway :8089/vite :3000/nginx :8088 and tmux qa-agent-1/2 untouched.
-- Next: wave 10 (06-07); close-out; worktree cleanup; push needs go-ahead.
-
-## Update: Phase 6 COMPLETE (all 7 plans merged), pushed through d23d42f (06-07 merge + close-out NOT yet pushed)
-- 06-07 merged. Gate: root 92 files / 1832 tests, server 25 / 587, tsc, builds, build:protocol, contract:check additive (agent.kill http binding). tmuxKill count 0.
-- INT-03, GW-04 ticked; GW-05 left unticked (MCP surface = Phase 21). ROADMAP 06-0x ticked. Merged worktrees cleaned.
-- Push: use `GH_TOKEN=$(gh auth token --user bsommers) git push origin master` (active gh account nonont1010 has no write access). Needs user go-ahead each time.
-- Review findings (unverified, from sonnet reviewer, wave 8-9): (1) no Host-header check on /api (DNS rebinding read of roster) apiRouter.ts:94; (2) replayed create ack resurrects deleted agent agentStore.ts:172; (3) replayed update ack overwrites newer state agentStore.ts:423; (4) idempotency eviction by any client idempotency.ts:55; (5) dispatch.ts:67 swallows exceptions unlogged; (6) AgentService onError/onData act on removed agents :92-107; (7) untracked 500ms initialCmd timer; (8) HTTP DELETE ignores Idempotency-Key; (9) settleCreate drops pending pane layout. xterm 'dimensions' pageerror unexplained (TerminalView.tsx:67,131 fit() unguarded).
-- Next: verify+fix review findings (follow-up pass), plan 05-04, Phase 1 close, Phase 8 (auth), Phase 7.
-
-## Update: review-fix pass merged (not pushed beyond e45b27b)
-- 4 streams merged --no-ff, no conflicts: findings 1,8 (Host guard + DELETE Idempotency-Key), 4,5 (idempotency never evicts in-flight, RATE_LIMITED when full; dispatch logs exceptions via console.error), 6,7 (AgentService late-callback guard, initialCmd timer tracked/unref), 2,3,9 (FE store replay-ack fixes, layout kept). All were real; each had failing tests first.
-- Gate: root 94 files / 1898 tests, server 26 / 643, tsc root+server, builds, build:protocol, contract:check OK vs e45b27b, tmuxKill 0.
-- Deviations: FE edited pinned assertion in agentStoreRoster.test.ts (added agent:added before ack); FE fix relies on agent:added preceding the create ack on the same connection; extra guard on getOrCreateDriver onData; TTL purge skips in-flight; hostname.test.ts added.
-- Open: xterm 'dimensions' pageerror cause unknown (TerminalView.tsx:67,131); push needs user go-ahead (use GH_TOKEN=$(gh auth token --user bsommers)); plan 05-04, Phase 1 close, Phase 8, Phase 7. Live QA not rerun after fixes.
-
-## Update: live QA of review fixes PASSED (own ports 18090/13000; all torn down)
-- HTTP: Host guard 403 for evil.example (localhost/[::1]/127.0.0.1 ok, legacy /health unaffected); DELETE bad Idempotency-Key 400 and agent kept; repeated valid key replays 200; keyless repeat 404.
-- Browser: 1e two-tab create/close sync, HTTP POST/DELETE live, 1b reload, 1c gateway restart/banner all PASS. (One qa2 run had 2 setup FAILs from missing precondition agent, not app regressions; rerun clean PASS.)
-- xterm pageerror stack: TypeError in xterm Viewport.syncScrollArea -> renderService.dimensions undefined (xterm internals, not our fit() calls); seen in headless on pane mount. Not fixed; cause (dispose/rAF race) unconfirmed.
-- Not live-tested: eviction RATE_LIMITED, replay-ack FE races (unit-tested only).
-- Pending user request (unanswered): 'daemons menu and functions not working properly; dispatch fixes via herdr to claude sessions in same repo, cheapest models'. 'daemons' not found anywhere in repo; user declined clarifying question. herdr 0.8.2 at ~/.local/bin/herdr.
+## Push command
+`GH_TOKEN=$(gh auth token --user bsommers) git push origin master` (active gh account nonont1010 has no write access). Ask first.
