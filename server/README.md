@@ -96,10 +96,19 @@ the contract: `USAGE` 400, `UNAUTHENTICATED` 401, `FORBIDDEN` 403, `NOT_FOUND` 4
 Messages are fixed strings or name a field only (`invalid field: name`); they never echo request values, stack
 traces or internal error text.
 
-`Idempotency-Key` is the `reqId`: 1 to 128 printable ASCII characters (no spaces), and a `reqId` in the body is
+`Idempotency-Key` is the `reqId` on `POST /api/agents`, `POST /api/agents/:id/kill` and `DELETE /api/agents/:id`:
+1 to 128 printable ASCII characters (no spaces; otherwise `400 USAGE`), and a `reqId` in the body is
 ignored. A repeated `POST /api/agents` with the same key and body returns the original `201` body and creates one
 agent; the same key with a different body is `409 CONFLICT`. The cache is the one the WebSocket uses (1024 entries
 for 5 minutes), so a key used on one surface is honoured on the other. Failures are not cached.
+
+Host-header guard, on every `/api` request (all methods, including `GET /api/agents` and `GET /api/health`): the
+`Host` header must name `127.0.0.1`, `localhost`, `[::1]` or the configured `HOST` (any port, case-insensitive), and
+must be a plain host or `host:port`; anything else, or no `Host`, is `403 FORBIDDEN` with the fixed message
+`host not allowed`, before any route runs. This closes DNS rebinding: a page on an attacker's name that resolves to
+`127.0.0.1` reaches the API same-origin and sends no `Origin` on a `GET`, but its `Host` still carries the attacker's
+name. Clients that dial `127.0.0.1:$PORT` or `localhost:$PORT` (curl, the frontend proxy) are unaffected; a reverse
+proxy that rewrites `Host` must send a loopback one. The non-`/api` `GET /health` is not guarded.
 
 Guards, in order, on `POST` and `DELETE`: an `Origin` header outside `ALLOWED_ORIGINS` is `403 FORBIDDEN` before
 anything else is read (requests with no `Origin` are local tools and pass); `POST` requires
@@ -120,9 +129,8 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{"confirm":true}' \
   http://127.0.0.1:$PORT/api/agents/<agent-id>/kill                # ends the tmux session
 ```
 
-Not yet: logs and search (Phases 11 and 16), authentication and Host-header
-checks (Phase 8; until then the API has the same trust model as the WebSocket, loopback plus the Origin gate, and
-a DNS-rebinding page could read the roster), rate limits (Phase 12), CORS (Phase 16).
+Not yet: logs and search (Phases 11 and 16), authentication (Phase 8; until then the API has the same trust
+model as the WebSocket, loopback plus the Origin and Host gates), rate limits (Phase 12), CORS (Phase 16).
 
 The authoritative wire contract is in
 [docs/superpowers/specs/2026-11-07-fe-be-contract.md](../docs/superpowers/specs/2026-11-07-fe-be-contract.md).
