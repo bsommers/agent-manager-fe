@@ -208,6 +208,9 @@ describe('live roster: initial state and snapshot reconciliation', () => {
   it('settles a pending create against the gateway-real server shape', async () => {
     useAgentStore.getState().addAgent('Build Runner', 'tmux', 'localhost:build');
     notify({ type: 'agent:init_list', agents: [GATEWAY_DISCOVERED] });
+    // The gateway publishes agent:added before it answers the create (AgentService.create), so a
+    // snapshot that does not list the agent is followed by the announcement, then the ack.
+    notify({ type: 'agent:added', agent: GATEWAY_CREATED });
     notify({
       type: 'agent:ack',
       reqId: (send.mock.calls[0][0] as any).reqId,
