@@ -76,6 +76,35 @@ let pendingCounter = 0;
 let noticeCounter = 0;
 const isLive = () => useConnectionStore.getState().mode === 'live';
 
+/**
+ * Ordering of roster knowledge against requests. Every snapshot, added, removed and updated event takes
+ * the next sequence number; a request remembers the number current when it was sent. An ack that
+ * arrives later (a replay answered from the gateway's idempotency cache) carries a snapshot of the
+ * agent as of the original execution, so it must not override anything learned after the send.
+ */
+let rosterSeq = 0;
+const nextSeq = () => ++rosterSeq;
+const TRACK_LIMIT = 256;
+const addedAt = new Map<string, number>();
+const removedAt = new Map<string, number>();
+const updatedAt = new Map<string, number>();
+let snapshotAt = 0;
+let snapshotIds = new Set<string>();
+
+function remember(map: Map<string, number>, id: string): void {
+  map.delete(id);
+  map.set(id, nextSeq());
+  if (map.size > TRACK_LIMIT) map.delete(map.keys().next().value as string);
+}
+
+/** True when the roster learned, after `sentSeq`, that this agent is gone (and has not been re-announced since). */
+function goneSince(id: string, sentSeq: number): boolean {
+  const inSnapshot = snapshotIds.has(id);
+  const lastPresent = Math.max(addedAt.get(id) ?? 0, inSnapshot ? snapshotAt : 0);
+  const lastAbsent = Math.max(removedAt.get(id) ?? 0, inSnapshot ? 0 : snapshotAt);
+  return lastAbsent > sentSeq && lastAbsent > lastPresent;
+}
+
 /** The notice list never grows past this; the oldest notice is dropped first. */
 export const MAX_ROSTER_NOTICES = 20;
 const MAX_NOTICE_TEXT = 200;
@@ -158,7 +187,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
   };
 
   /** A create's ack arrived: the pending pane becomes the server agent (or an ordinary agent when the pane is gone). */
-  const settleCreate = (pendingId: string, ack: AckResult) => {
+  const settleCreate = (pendingId: string, ack: AckResult, sentSeq: number) => {
     const server = ack.agent;
     const st = get();
     const isPending = Object.prototype.hasOwnProperty.call(st.pending, pendingId);
@@ -172,14 +201,36 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
     if (!isPending) {
       // Cancelled by the user (or already settled by other means): one ordinary agent, no focus change.
       if (st.agents.some((a) => a.id === server.id)) return;
+      if (goneSince(server.id, sentSeq)) return;
       set({ agents: [...st.agents, server] });
       return;
     }
     const { [pendingId]: _gone, ...restPending } = st.pending;
     const nextActive = st.activeAgentId === pendingId ? server.id : st.activeAgentId;
-    if (st.agents.some((a) => a.id === server.id)) {
-      // A snapshot already listed the agent: drop the pane, never duplicate.
-      set({ agents: st.agents.filter((a) => a.id !== pendingId), pending: restPending, activeAgentId: nextActive });
+    const listed = st.agents.find((a) => a.id === server.id);
+    if (listed) {
+      // agent:added or a snapshot already listed the agent: the pane's layout moves onto it, it takes
+      // the pane's place, and the second entry goes away. Never duplicate.
+      const pane = st.agents.find((a) => a.id === pendingId);
+      set({
+        agents: pane
+          ? st.agents
+              .filter((a) => a.id !== server.id)
+              .map((a) => (a.id === pendingId ? { ...listed, layout: pane.layout } : a))
+          : st.agents,
+        pending: restPending,
+        activeAgentId: nextActive,
+      });
+      return;
+    }
+    if (goneSince(server.id, sentSeq)) {
+      // Another client closed the agent after this create ran: the ack is a stale cached success.
+      const nextAgents = st.agents.filter((a) => a.id !== pendingId);
+      set({
+        agents: nextAgents,
+        pending: restPending,
+        activeAgentId: st.activeAgentId === pendingId ? nextAgents[0]?.id ?? null : st.activeAgentId,
+      });
       return;
     }
     set({
@@ -267,6 +318,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
           throw err;
         }
         const previousActive = get().activeAgentId;
+        const sentSeq = rosterSeq;
         const now = Date.now();
         const id = `pending-${++pendingCounter}`;
         const pendingAgent: Agent = {
@@ -286,7 +338,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
           pending: { ...state.pending, [id]: { name, mode, targetHost, startedAt: now, reqId: handle.reqId } },
         }));
         handle.promise.then(
-          (ack) => settleCreate(id, ack),
+          (ack) => settleCreate(id, ack, sentSeq),
           (err: unknown) => rollbackCreate(id, previousActive, createFailTitle, err),
         );
         return;
@@ -409,6 +461,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       const target = st.agents.find((a) => a.id === id);
       if (!target) return false;
       const failTitle = `Could not update "${target.name}"`;
+      const sentSeq = rosterSeq;
       let handle;
       try {
         handle = agentSocket.request((reqId): WSMessageClient => ({ type: 'agent:update', agentId: id, ...supplied, reqId }));
@@ -422,7 +475,10 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       try {
         const ack = await handle.promise;
         const server = ack.agent;
-        if (server) {
+        // An agent:updated that arrived after the send is newer than this ack's snapshot (a replayed
+        // ack comes from the idempotency cache): keep the newer state.
+        const superseded = (updatedAt.get(id) ?? 0) > sentSeq;
+        if (server && !superseded) {
           set((state) => ({
             agents: state.agents.map((a) =>
               a.id === id ? { ...a, name: server.name, tags: server.tags, group: server.group } : a,
@@ -457,6 +513,8 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       const dropped = raw.length - valid.length;
       if (dropped > 0) console.warn(`agentStore: dropped ${dropped} invalid agent entries from snapshot`);
 
+      snapshotAt = nextSeq();
+      snapshotIds = new Set(valid.map((a) => a.id));
       const state = get();
       const result = reconcileSnapshot(state.agents, state.pending, valid);
       const currentActive = state.activeAgentId;
@@ -485,6 +543,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       const st = get();
       // Pending panes carry client-made ids; a server id can never claim one.
       if (Object.prototype.hasOwnProperty.call(st.pending, agent.id)) return;
+      remember(addedAt, agent.id);
       const idx = st.agents.findIndex((a) => a.id === agent.id);
       if (idx !== -1) {
         const known = st.agents[idx];
@@ -504,6 +563,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       if (!isLive()) return;
       const st = get();
       if (Object.prototype.hasOwnProperty.call(st.pending, agentId)) return;
+      remember(removedAt, agentId);
       if (!st.agents.some((a) => a.id === agentId)) return;
       const nextAgents = st.agents.filter((a) => a.id !== agentId);
       const { [agentId]: _k, ...restKilling } = st.killing;
@@ -519,6 +579,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       if (!isLive()) return;
       const st = get();
       if (Object.prototype.hasOwnProperty.call(st.pending, agentId)) return;
+      remember(updatedAt, agentId);
       const idx = st.agents.findIndex((a) => a.id === agentId);
       if (idx === -1) return;
       const merged: Partial<Agent> = {};
