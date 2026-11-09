@@ -48,7 +48,7 @@ describe('AgentService', () => {
   const removed = () => published.filter((f) => f.type === 'agent:removed');
   const added = () => published.filter((f) => f.type === 'agent:added');
   const statusChanges = () => published.filter((f) => f.type === 'agent:status_change');
-  const mkTmux = (): FakeDriver => ({ write: vi.fn(), resize: vi.fn(), close: vi.fn(), onExit: () => {} });
+  const mkTmux = (): FakeDriver => ({ write: vi.fn(), resize: vi.fn(), close: vi.fn(), onExit: () => {}, onData: () => {} });
 
   function created(name = 'a', mode: 'tmux' | 'ssh' = 'tmux', host = 'localhost:qa_a'): Agent {
     const r = svc.create({ name, mode, targetHost: host });
