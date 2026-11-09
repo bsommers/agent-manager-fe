@@ -89,7 +89,11 @@ export class AgentService {
       lastActivity: Date.now(),
     };
 
+    // A late callback from a driver of a removed agent must not touch or announce it.
+    const live = () => this.agents.get(id) === agent;
+
     const onData = (data: string) => {
+      if (!live()) return;
       agent.lastActivity = Date.now();
       this.publish({ type: 'agent:output', agentId: id, data });
     };
@@ -97,6 +101,7 @@ export class AgentService {
     const onExit = () => this.handleDriverExit(agent);
 
     const onError = (err: Error) => {
+      if (!live()) return;
       agent.status = 'error';
       this.publish({ type: 'agent:status_change', agentId: id, status: 'error' });
       this.publish({
@@ -270,6 +275,7 @@ export class AgentService {
       if (agent && agent.mode === 'tmux') {
         const sessionName = tmuxSessionNameOf(agent.targetHost);
         const onData = (data: string) => {
+          if (this.agents.get(agent.id) !== agent) return;
           agent.lastActivity = Date.now();
           this.publish({ type: 'agent:output', agentId: agent.id, data });
         };

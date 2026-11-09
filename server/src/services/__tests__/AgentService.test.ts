@@ -21,6 +21,8 @@ interface FakeDriver {
   resize: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
   onExit: () => void;
+  onData: (data: string) => void;
+  onError?: (err: Error) => void;
 }
 
 function deferred<T>() {
@@ -70,10 +72,10 @@ describe('AgentService', () => {
       _s: string,
       _c: number,
       _r: number,
-      _onData: unknown,
+      onData: (data: string) => void,
       onExit: () => void
     ) {
-      const d: FakeDriver = { ...mkTmux(), onExit };
+      const d: FakeDriver = { ...mkTmux(), onExit, onData };
       tmuxDrivers.push(d);
       return d;
     });
@@ -81,10 +83,11 @@ describe('AgentService', () => {
       _h: string,
       _c: number,
       _r: number,
-      _onData: unknown,
-      onExit: () => void
+      onData: (data: string) => void,
+      onExit: () => void,
+      onError?: (err: Error) => void
     ) {
-      const d: FakeDriver = { ...mkTmux(), onExit };
+      const d: FakeDriver = { ...mkTmux(), onExit, onData, onError };
       sshDrivers.push(d);
       return d;
     });
@@ -147,6 +150,39 @@ describe('AgentService', () => {
         throw new Error('closed');
       });
       expect(() => vi.advanceTimersByTime(500)).not.toThrow();
+    });
+  });
+
+  describe('callbacks and timers of a removed agent', () => {
+    it('drops a late driver error for a closed agent: no status flip, no publish', () => {
+      const a = created('s', 'ssh', 'user@host');
+      svc.close(a.id);
+      published.length = 0;
+      sshDrivers[0].onError!(new Error('boom'));
+      expect(a.status).toBe('running');
+      expect(published).toEqual([]);
+    });
+
+    it('drops late driver output for a closed agent', () => {
+      const a = created();
+      const before = a.lastActivity;
+      svc.close(a.id);
+      published.length = 0;
+      tmuxDrivers[0].onData('late');
+      expect(published).toEqual([]);
+      expect(a.lastActivity).toBe(before);
+    });
+
+    it('still publishes output and errors for a live agent', () => {
+      const a = created('s', 'ssh', 'user@host');
+      sshDrivers[0].onData('hi');
+      sshDrivers[0].onError!(new Error('boom'));
+      expect(a.status).toBe('error');
+      expect(published.map((m) => m.type)).toEqual([
+        'agent:output',
+        'agent:status_change',
+        'agent:output',
+      ]);
     });
   });
 
