@@ -38,6 +38,8 @@ export class AgentService {
   private drivers: Map<string, Driver> = new Map();
   /** Session kills in flight, keyed by agent id; `exited` records a driver exit held back meanwhile. */
   private killsInFlight: Map<string, InFlightKill> = new Map();
+  /** Pending delayed initial commands, keyed by agent id, so removal can cancel them. */
+  private initialCmdTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
   private readonly maxAgents: number;
 
@@ -126,13 +128,17 @@ export class AgentService {
     this.drivers.set(id, driver);
 
     if (initialCmd) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        this.initialCmdTimers.delete(id);
         try {
           driver.write(initialCmd + '\n');
         } catch {
           // Driver may be closed
         }
       }, 500);
+      // A pending initial command must never keep the process alive.
+      timer.unref?.();
+      this.initialCmdTimers.set(id, timer);
     }
 
     this.publish({ type: 'agent:added', agent: structuredClone(agent) });
@@ -255,6 +261,11 @@ export class AgentService {
   }
 
   private remove(agent: Agent): void {
+    const timer = this.initialCmdTimers.get(agent.id);
+    if (timer) {
+      clearTimeout(timer);
+      this.initialCmdTimers.delete(agent.id);
+    }
     const driver = this.drivers.get(agent.id);
     if (driver) {
       try {

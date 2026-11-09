@@ -184,6 +184,36 @@ describe('AgentService', () => {
         'agent:output',
       ]);
     });
+
+    it('never writes initialCmd once the agent was closed before the 500 ms timer', () => {
+      vi.useFakeTimers();
+      const r = svc.create({ name: 'a', mode: 'tmux', targetHost: 'qa_a', initialCmd: 'ls' });
+      if (!r.ok) throw new Error('create failed');
+      svc.close(r.value.id);
+      vi.advanceTimersByTime(1000);
+      expect(tmuxDrivers[0].write).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('never writes initialCmd once the session was destroyed before the timer', async () => {
+      vi.useFakeTimers();
+      const r = svc.create({ name: 'a', mode: 'tmux', targetHost: 'localhost:qa_a', initialCmd: 'ls' });
+      if (!r.ok) throw new Error('create failed');
+      await svc.destroy(r.value.id, { confirm: true });
+      vi.advanceTimersByTime(1000);
+      expect(tmuxDrivers[0].write).not.toHaveBeenCalled();
+    });
+
+    it('unrefs the initialCmd timer so it cannot hold the process open', () => {
+      const unref = vi.fn();
+      const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((() => ({ unref })) as any);
+      try {
+        svc.create({ name: 'a', mode: 'tmux', targetHost: 'qa_a', initialCmd: 'ls' });
+      } finally {
+        spy.mockRestore();
+      }
+      expect(unref).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('initialize', () => {
