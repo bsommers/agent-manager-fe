@@ -338,6 +338,36 @@ describe('DELETE /api/agents/:id', () => {
     expectError(res, 'USAGE');
     expect(res.text).not.toContain('URIError');
   });
+
+  it('honours Idempotency-Key: a repeated DELETE with the same key replays the 200 and closes once', async () => {
+    const x = seedAgent();
+    const first = await request('DELETE', `/api/agents/${x.id}`, { headers: { 'idempotency-key': 'del-1' } });
+    const second = await request('DELETE', `/api/agents/${x.id}`, { headers: { 'idempotency-key': 'del-1' } });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(second.json).toEqual({ ok: true });
+    expect(capturedDrivers()[0].close).toHaveBeenCalledTimes(1);
+  });
+
+  it('without a key a repeated DELETE is NOT_FOUND, and a different key does not replay', async () => {
+    const x = seedAgent();
+    await request('DELETE', `/api/agents/${x.id}`, { headers: { 'idempotency-key': 'del-2' } });
+    expectError(await request('DELETE', `/api/agents/${x.id}`, { headers: { 'idempotency-key': 'del-3' } }), 'NOT_FOUND');
+  });
+
+  it.each([
+    ['empty', ''],
+    ['129 characters', 'k'.repeat(129)],
+    ['containing a space', 'a b'],
+    ['non-ASCII', 'kéy'],
+  ])('rejects a DELETE with an Idempotency-Key that is %s: 400 USAGE and the agent stays', async (_n, key) => {
+    const x = seedAgent();
+    const res = await request('DELETE', `/api/agents/${x.id}`, { headers: { 'idempotency-key': key } });
+    expectError(res, 'USAGE');
+    expect(res.json.error.message).toBe('invalid header: Idempotency-Key');
+    expect(capturedDrivers()[0].close).not.toHaveBeenCalled();
+    expect(agentCount()).toBe(1);
+  });
 });
 
 describe('Idempotency-Key', () => {

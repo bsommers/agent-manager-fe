@@ -172,7 +172,13 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   router.delete(
     '/agents/:id',
     guarded(async (req, res) => {
-      const msg = validated({ type: 'agent:kill', agentId: req.params.id }, res);
+      const candidate: Record<string, unknown> = { type: 'agent:kill', agentId: req.params.id };
+
+      const reqId = readReqId(req, res);
+      if (reqId === null) return;
+      if (reqId !== undefined) candidate.reqId = reqId;
+
+      const msg = validated(candidate, res);
       if (!msg) return;
       const outcome = await api.execute(msg);
       send(res, outcomeToHttp(outcome, () => ({ status: 200, body: { ok: true } })));
