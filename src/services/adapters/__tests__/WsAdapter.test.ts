@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WsAdapter } from '../WsAdapter';
 import type { WebSocketLike } from '../../transport/Transport';
+import { parseClientMessage, CONTRACT_VERSION } from '../../wsProtocol';
 
 class FakeWebSocket implements WebSocketLike {
   static instances: FakeWebSocket[] = [];
@@ -148,5 +149,82 @@ describe('WsAdapter (reconnect)', () => {
     adapter.disconnect();
     expect(adapter.getSnapshot().state).toBe('closed');
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('WsAdapter (hello with token)', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  function make(getToken?: () => string | undefined) {
+    FakeWebSocket.instances = [];
+    const adapter = new WsAdapter('ws://x/ws', {
+      WebSocketImpl: FakeWebSocket,
+      heartbeat: false,
+      random: () => 1,
+      ...(getToken ? { getToken } : {}),
+    });
+    adapter.connect();
+    return { adapter, ws: () => FakeWebSocket.instances[FakeWebSocket.instances.length - 1] };
+  }
+
+  it('sends a validated hello with the token as the first frame', () => {
+    const { ws } = make(() => 'secret-token-123');
+    ws().simulateOpen();
+    expect(ws().sent).toHaveLength(1);
+    const r = parseClientMessage(JSON.parse(ws().sent[0]));
+    expect(r.ok).toBe(true);
+    if (r.ok && r.msg.type === 'hello') {
+      expect(r.msg.contract).toBe(CONTRACT_VERSION);
+      expect(r.msg.token).toBe('secret-token-123');
+    } else {
+      throw new Error('expected hello');
+    }
+  });
+
+  it.each([[undefined], ['']])('omits the token key entirely when getToken returns %j', (tok) => {
+    const { ws } = make(() => tok);
+    ws().simulateOpen();
+    const sent = JSON.parse(ws().sent[0]);
+    expect(sent.type).toBe('hello');
+    expect('token' in sent).toBe(false);
+    expect(parseClientMessage(sent).ok).toBe(true);
+  });
+
+  it('sends nothing on open without a getToken option', () => {
+    const { ws } = make();
+    ws().simulateOpen();
+    expect(ws().sent).toEqual([]);
+  });
+
+  it('close 4401 through the adapter: auth_failed, one socket, no timers after 10 minutes', () => {
+    const { adapter, ws } = make(() => 'secret-token-123');
+    ws().simulateOpen();
+    ws().onclose?.({ code: 4401 });
+    expect(adapter.getSnapshot()).toMatchObject({
+      state: 'auth_failed',
+      nextRetryAt: null,
+      lastError: 'authentication failed (code 4401)',
+    });
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+    adapter.reconnectNow();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    adapter.connect();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(adapter.getSnapshot()).toMatchObject({ state: 'connecting', lastError: null });
+  });
+
+  it('reads the token at each open so a changed token is used on the next attempt', () => {
+    let tok = 'first-token-aaaa';
+    const { adapter, ws } = make(() => tok);
+    ws().simulateOpen();
+    expect(JSON.parse(ws().sent[0]).token).toBe('first-token-aaaa');
+    ws().onclose?.({ code: 4401 });
+    tok = 'second-token-bbbb';
+    adapter.connect();
+    ws().simulateOpen();
+    expect(JSON.parse(ws().sent[0]).token).toBe('second-token-bbbb');
   });
 });

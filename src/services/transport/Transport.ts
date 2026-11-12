@@ -2,7 +2,8 @@ import type { ConnSnapshot } from '../adapters/types';
 import { computeDelay, DEFAULT_BACKOFF, type BackoffConfig } from './backoff';
 
 const WS_OPEN = 1;
-const CLOSE_AUTH_FAILED = 4401;
+/** Close code: unauthenticated or hello timeout (contract spec 2.6). */
+export const CLOSE_AUTH_FAILED = 4401;
 
 export interface WebSocketLike {
   readyState: number;
@@ -26,6 +27,18 @@ export interface HeartbeatConfig {
 
 export const DEFAULT_HEARTBEAT: HeartbeatConfig = { intervalMs: 15000, timeoutMs: 10000 };
 
+/**
+ * Handshake hook (contract spec 2.5). `frame` builds the serialized hello (or null to send
+ * nothing) and is called at every socket open, so a token set between attempts is used. The frame
+ * is written straight to the socket from the open handler, before the open state is reported; it
+ * never goes through send().
+ */
+export interface HelloOptions {
+  frame: () => string | null;
+  /** True when a hello_ack is required (a token is configured). */
+  expectAck: () => boolean;
+}
+
 export interface TransportOptions {
   url: string;
   WebSocketImpl?: WebSocketCtor;
@@ -37,6 +50,7 @@ export interface TransportOptions {
   /** Retries allowed before giving up; default unlimited. */
   maxRetries?: number;
   random?: () => number;
+  hello?: HelloOptions;
 }
 
 /**
@@ -52,12 +66,15 @@ export class Transport {
   private readonly heartbeat: HeartbeatConfig | false;
   private readonly maxRetries: number;
   private readonly random: () => number;
+  private readonly hello: HelloOptions | undefined;
 
   private socket: WebSocketLike | null = null;
   private attempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private pongTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Set after a 4401: nothing reconnects until connect() is called again. */
+  private authLatched = false;
 
   constructor(opts: TransportOptions) {
     this.url = opts.url;
@@ -68,10 +85,12 @@ export class Transport {
     this.heartbeat = opts.heartbeat === undefined ? DEFAULT_HEARTBEAT : opts.heartbeat;
     this.maxRetries = opts.maxRetries ?? Infinity;
     this.random = opts.random ?? Math.random;
+    this.hello = opts.hello;
   }
 
   connect(): void {
     this.teardown();
+    this.authLatched = false;
     this.attempt = 0;
     this.onState({ state: 'connecting', attempt: 0, nextRetryAt: null, lastError: null });
     this.openSocket();
@@ -79,6 +98,7 @@ export class Transport {
 
   /** Manual retry: no-op while open, otherwise reset backoff and connect now. */
   reconnectNow(): void {
+    if (this.authLatched) return;
     if (this.socket && this.socket.readyState === WS_OPEN) return;
     this.connect();
   }
@@ -96,6 +116,7 @@ export class Transport {
 
   close(): void {
     this.teardown();
+    this.authLatched = false;
     this.attempt = 0;
     this.onState({ state: 'closed', attempt: 0, nextRetryAt: null });
   }
@@ -111,6 +132,7 @@ export class Transport {
     this.socket = socket;
     socket.onopen = () => {
       if (this.socket !== socket) return;
+      this.sendHello(socket);
       this.onState({ state: 'open', lastConnectedAt: Date.now(), lastError: null, nextRetryAt: null });
       this.armIdleTimer();
     };
@@ -131,6 +153,7 @@ export class Transport {
       this.socket = null;
       this.clearHeartbeat();
       if (ev?.code === CLOSE_AUTH_FAILED) {
+        this.authLatched = true;
         this.onState({
           state: 'auth_failed',
           nextRetryAt: null,
@@ -140,6 +163,16 @@ export class Transport {
       }
       this.handleUnexpectedClose(`connection closed (code ${ev?.code ?? 'unknown'})`);
     };
+  }
+
+  private sendHello(socket: WebSocketLike): void {
+    if (!this.hello) return;
+    try {
+      const frame = this.hello.frame();
+      if (frame !== null) socket.send(frame);
+    } catch {
+      /* a failed hello surfaces as a missing ack or a server close, never as a throw here */
+    }
   }
 
   private handleUnexpectedClose(reason: string): void {

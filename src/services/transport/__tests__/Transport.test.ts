@@ -291,3 +291,128 @@ describe('Transport (reconnect and heartbeat)', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe('Transport (hello hook and auth_failed latch)', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  function makeHello(frame: () => string | null, expectAck: () => boolean = () => false) {
+    FakeWebSocket.instances = [];
+    const log: string[] = [];
+    const states: Array<Record<string, unknown>> = [];
+    class LoggingWs extends FakeWebSocket {
+      send(data: string) {
+        log.push(`send:${data}`);
+        super.send(data);
+      }
+    }
+    const t = new Transport({
+      url: 'ws://x/ws',
+      WebSocketImpl: LoggingWs,
+      hello: { frame, expectAck },
+      onState: (p) => {
+        states.push(p);
+        if (p.state) log.push(`state:${String(p.state)}`);
+      },
+      onFrame: () => {},
+    });
+    return { t, log, states, ws: () => FakeWebSocket.instances[FakeWebSocket.instances.length - 1] };
+  }
+
+  it('sends the hello frame first, before the open state is reported', () => {
+    const { t, log, ws } = makeHello(() => '{"type":"hello"}');
+    t.connect();
+    ws().simulateOpen();
+    expect(log).toEqual(['state:connecting', 'send:{"type":"hello"}', 'state:open']);
+    expect(ws().sent[0]).toBe('{"type":"hello"}');
+  });
+
+  it('a frame returning null sends nothing', () => {
+    const { t, ws, states } = makeHello(() => null);
+    t.connect();
+    ws().simulateOpen();
+    expect(ws().sent).toEqual([]);
+    expect(states[states.length - 1]).toMatchObject({ state: 'open' });
+  });
+
+  it('a throwing send does not prevent the open state', () => {
+    FakeWebSocket.instances = [];
+    const states: Array<Record<string, unknown>> = [];
+    class ThrowingWs extends FakeWebSocket {
+      send(): void {
+        throw new Error('boom');
+      }
+    }
+    const t = new Transport({
+      url: 'ws://x/ws',
+      WebSocketImpl: ThrowingWs,
+      hello: { frame: () => 'x', expectAck: () => false },
+      onState: (p) => states.push(p),
+      onFrame: () => {},
+    });
+    t.connect();
+    FakeWebSocket.instances[0].simulateOpen();
+    expect(states[states.length - 1]).toMatchObject({ state: 'open' });
+  });
+
+  it('calls frame() again on every attempt so a token set between attempts is used', () => {
+    let n = 0;
+    const { t, ws } = makeHello(() => `hello-${++n}`);
+    t.connect();
+    ws().simulateOpen();
+    ws().simulateClose();
+    vi.advanceTimersByTime(60000);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    ws().simulateOpen();
+    expect(ws().sent).toEqual(['hello-2']);
+  });
+
+  it('without a hello option nothing is sent on open', () => {
+    FakeWebSocket.instances = [];
+    const t = new Transport({ url: 'ws://x/ws', WebSocketImpl: FakeWebSocket, onState: () => {}, onFrame: () => {} });
+    t.connect();
+    FakeWebSocket.instances[0].simulateOpen();
+    expect(FakeWebSocket.instances[0].sent).toEqual([]);
+  });
+
+  it('close 4401 ends in auth_failed with no timers and no second socket for 10 minutes', () => {
+    const { t, states, ws } = makeHello(() => 'h');
+    t.connect();
+    ws().simulateOpen();
+    ws().simulateClose(4401);
+    expect(states[states.length - 1]).toMatchObject({
+      state: 'auth_failed',
+      nextRetryAt: null,
+      lastError: 'authentication failed (code 4401)',
+    });
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('reconnectNow is a no-op after 4401; connect() starts a fresh attempt and clears the state', () => {
+    const { t, states, ws } = makeHello(() => 'h');
+    t.connect();
+    ws().simulateOpen();
+    ws().simulateClose(4401);
+    t.reconnectNow();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    t.connect();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(states[states.length - 1]).toMatchObject({ state: 'connecting', lastError: null });
+    ws().simulateOpen();
+    expect(states[states.length - 1]).toMatchObject({ state: 'open' });
+  });
+
+  it('events on the abandoned socket after 4401 change nothing', () => {
+    const { t, states, ws } = makeHello(() => 'h');
+    t.connect();
+    const first = ws();
+    first.simulateOpen();
+    first.simulateClose(4401);
+    const before = states.length;
+    first.onopen?.();
+    first.onmessage?.({ data: 'x' });
+    expect(states).toHaveLength(before);
+  });
+});

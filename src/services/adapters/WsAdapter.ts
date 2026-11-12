@@ -1,5 +1,5 @@
-import type { WSMessageClient, WSMessageServer } from '../wsProtocol';
-import { Transport, type HeartbeatConfig, type WebSocketCtor } from '../transport/Transport';
+import { CONTRACT_VERSION, type WSMessageClient, type WSMessageServer } from '../wsProtocol';
+import { Transport, type HeartbeatConfig, type HelloOptions, type WebSocketCtor } from '../transport/Transport';
 import type { BackoffConfig } from '../transport/backoff';
 import {
   INITIAL_SNAPSHOT,
@@ -17,6 +17,11 @@ export interface WsAdapterOptions {
   heartbeat?: HeartbeatConfig | false;
   maxRetries?: number;
   random?: () => number;
+  /**
+   * Token source, read at every socket open. When given, the first frame on each connection is a
+   * hello (contract spec 2.5); without it nothing extra is sent (legacy behavior).
+   */
+  getToken?: () => string | undefined;
 }
 
 export class WsAdapter implements BackendAdapter {
@@ -37,12 +42,28 @@ export class WsAdapter implements BackendAdapter {
       heartbeat: opts.heartbeat,
       maxRetries: opts.maxRetries,
       random: opts.random,
+      hello: opts.getToken ? this.helloOption(opts.getToken) : undefined,
       onState: (patch) => this.patch(patch),
       onFrame: (text) => this.handleFrame(text),
     });
     if (this.disabledReason) {
       this.snapshot = { ...this.snapshot, state: 'closed', lastError: this.disabledReason };
     }
+  }
+
+  private helloOption(getToken: () => string | undefined): HelloOptions {
+    return {
+      frame: () => {
+        const token = getToken();
+        const hello: WSMessageClient = {
+          type: 'hello',
+          contract: CONTRACT_VERSION,
+          ...(token ? { token } : {}),
+        };
+        return JSON.stringify(hello);
+      },
+      expectAck: () => Boolean(getToken()),
+    };
   }
 
   connect(): void {
