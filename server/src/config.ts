@@ -13,10 +13,61 @@ export function isLoopbackHost(host: string): boolean {
 export function assertLoopbackBind(host: string): void {
   if (!isLoopbackHost(host)) {
     throw new Error(
-      `Refusing to bind to non-loopback HOST "${host}": the gateway has no authentication yet. ` +
-        `Unset HOST or use 127.0.0.1.`
+      `Refusing to bind to non-loopback HOST "${host}": the gateway has no authentication unless ` +
+        `AGENT_MANAGER_TOKEN is set. Set AGENT_MANAGER_TOKEN to allow remote access, or unset HOST or use 127.0.0.1.`
     );
   }
+}
+
+export const MIN_TOKEN_LENGTH = 24;
+export const MAX_TOKEN_LENGTH = 512;
+
+const TOKEN_CHARS = /^[\x21-\x7e]+$/;
+
+/**
+ * Throws unless the token is MIN..MAX_TOKEN_LENGTH printable ASCII characters with no space or
+ * control character. The message states the rule and the variable name; it never includes the
+ * value or its length.
+ */
+export function validateAuthToken(token: string): void {
+  const ok =
+    typeof token === 'string' &&
+    token.length >= MIN_TOKEN_LENGTH &&
+    token.length <= MAX_TOKEN_LENGTH &&
+    TOKEN_CHARS.test(token);
+  if (!ok) {
+    throw new Error(
+      `Invalid AGENT_MANAGER_TOKEN: it must be ${MIN_TOKEN_LENGTH} to ${MAX_TOKEN_LENGTH} printable ASCII ` +
+        `characters with no space or control character (a trailing newline counts). ` +
+        `Generate one with: openssl rand -base64 32`
+    );
+  }
+}
+
+/**
+ * The configured token, or undefined for zero-config local use (D-12). Unset or empty means no
+ * auth; anything else must validate, with no trimming: a secret is never silently mutated and a
+ * trailing newline from an .env file is reported. The token enters the process only through here.
+ */
+export function resolveAuthToken(env: Record<string, string | undefined>): string | undefined {
+  const value = env.AGENT_MANAGER_TOKEN;
+  if (value === undefined || value === '') return undefined;
+  validateAuthToken(value);
+  return value;
+}
+
+/** A non-loopback bind needs a token (D-10); a loopback bind never does. One refusal message. */
+export function assertBindPolicy(host: string, token: string | undefined): void {
+  if (token !== undefined) return;
+  assertLoopbackBind(host);
+}
+
+/** AGENT_MANAGER_TRUST_PROXY: 1/true or 0/false/unset; anything else fails fast. */
+export function parseTrustProxy(value: string | undefined): boolean {
+  const v = (value ?? '').trim().toLowerCase();
+  if (v === '' || v === '0' || v === 'false') return false;
+  if (v === '1' || v === 'true') return true;
+  throw new Error('Invalid AGENT_MANAGER_TRUST_PROXY: use 1/true or 0/false (default off).');
 }
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -63,6 +114,8 @@ export const CONFIG = {
   PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 8088,
   HOST: rawHost ? rawHost : '127.0.0.1',
   ALLOWED_ORIGINS: parseAllowedOrigins(process.env.ALLOWED_ORIGINS),
+  /** Honour X-Forwarded-For from a loopback proxy when keying the auth throttle (default off). */
+  TRUST_PROXY: parseTrustProxy(process.env.AGENT_MANAGER_TRUST_PROXY),
   MAX_PAYLOAD_BYTES: 1048576,
   HEARTBEAT_MS: 30000,
   WS_PATH: '/ws',
