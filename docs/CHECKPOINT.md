@@ -1,4 +1,4 @@
-# Checkpoint 2026-11-08 (agent-manager-fe) - Phase 6 complete, review fixes merged, QA passed, all pushed
+# Checkpoint 2026-11-11 (agent-manager-fe) - Phase 6 complete, all pushed (origin = 6c71bf7)
 
 ## Decisions (user, standing)
 - Per wave: plan (gsd-planner) -> check (gsd-plan-checker) -> parallel gsd-executor worktrees (ff-only to master sha first) -> merge --no-ff -> full gate -> push only on explicit user go-ahead (each push needs a fresh "yes"; approvals expire).
@@ -7,7 +7,7 @@
 - Live QA runs on own ports (gateway 18090, vite 13000) with Playwright in the scratchpad (`.../scratchpad/qa/qa.mjs`, `qa2.mjs`); tear down only what I started.
 
 ## State (verified)
-- Branch master, tree clean. origin/master = local master = 7f9fb8d (pushed). No worktrees besides main; no background jobs; my ports 18090/13000 free.
+- Branch master, tree clean. origin/master = local master = 6c71bf7 (pushed). No worktrees besides main; no background jobs; my ports 18090/13000 free.
 - Phase 6 complete: all 7 plans (06-01..06-07) merged. INT-03 and GW-04 ticked; GW-05 left unticked (MCP surface pending Phase 21). ROADMAP 06-0x and STATE.md updated.
 - Review-fix pass (9 findings from wave 8-9 review, all real) merged and pushed: Host guard on /api, DELETE Idempotency-Key, idempotency cache never evicts in-flight (RATE_LIMITED when full), dispatch logs exceptions, AgentService late-callback guard + initialCmd timer cleared/unref, FE replay-ack fixes (no ghost agent, no stale update overwrite, pane layout kept).
 - Gate on master: root 94 files / 1898 tests, server 26 / 643, tsc root+server, both builds, build:protocol, contract:check OK, tmuxKill count 0.
@@ -20,7 +20,7 @@
 - Logging uses console.error (repo has no logger).
 
 ## Open
-1. User request, UNANSWERED: "daemons menu and functions are not working properly; dispatch fixes via herdr to claude sessions here in the same repo; best cheapest models". "daemons" appears nowhere in this repo; user declined the clarifying question (twice interrupted). Need: which program/menu, and which sessions (herdr 0.8.2 at ~/.local/bin/herdr, many workspaces; none of the 14 peer Claude sessions is named for this repo). Do not guess-dispatch.
+1. RESOLVED: daemons-menu request was for the bilterm session, not this repo (ignore).
 2. xterm pageerror `reading 'dimensions'` (stack: xterm Viewport.syncScrollArea -> renderService.dimensions; headless on pane mount). Not fixed, cause unconfirmed (suspect dispose/rAF race).
 3. Not live-tested: RATE_LIMITED eviction path, FE replay-ack races (unit-tested only); QA steps 1a, 1d, broadcast/destructive modal, ack-timeout paths.
 4. Plan 05-04; Phase 1 close (01-EVIDENCE.md); Phase 8 (auth); Phase 7.
