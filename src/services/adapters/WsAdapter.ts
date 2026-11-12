@@ -1,4 +1,4 @@
-import { CONTRACT_VERSION, type WSMessageClient, type WSMessageServer } from '../wsProtocol';
+import { CONTRACT_VERSION, parseServerMessage, type WSMessageClient, type WSMessageServer } from '../wsProtocol';
 import { Transport, type HeartbeatConfig, type HelloOptions, type WebSocketCtor } from '../transport/Transport';
 import type { BackoffConfig } from '../transport/backoff';
 import {
@@ -59,6 +59,7 @@ export class WsAdapter implements BackendAdapter {
           type: 'hello',
           contract: CONTRACT_VERSION,
           ...(token ? { token } : {}),
+          ...(this.snapshot.epoch ? { epoch: this.snapshot.epoch } : {}),
         };
         return JSON.stringify(hello);
       },
@@ -74,6 +75,8 @@ export class WsAdapter implements BackendAdapter {
   disconnect(): void {
     if (this.disabledReason) return;
     this.transport.close();
+    // Session identifiers belong to the connection that was deliberately ended.
+    this.patch({ epoch: null, authRequired: null });
   }
 
   reconnectNow(): void {
@@ -114,6 +117,22 @@ export class WsAdapter implements BackendAdapter {
     });
   }
 
+  private handleHelloAck(raw: unknown): void {
+    const r = parseServerMessage(raw);
+    if (!r.ok || r.msg.type !== 'hello_ack') {
+      this.patch({ malformedFrames: this.snapshot.malformedFrames + 1 });
+      return;
+    }
+    const ack = r.msg;
+    if (ack.contract !== CONTRACT_VERSION) {
+      this.transport.close();
+      this.patch({ lastError: `gateway speaks contract ${ack.contract}, this UI speaks ${CONTRACT_VERSION}` });
+      return;
+    }
+    this.transport.acknowledge();
+    this.patch({ epoch: ack.epoch, authRequired: ack.auth.required });
+  }
+
   private handleFrame(text: string): void {
     let parsed: unknown;
     try {
@@ -133,6 +152,10 @@ export class WsAdapter implements BackendAdapter {
     }
     // Heartbeat reply: already counted as liveness by the transport.
     if ((parsed as { type: string }).type === 'pong') return;
+    if ((parsed as { type: string }).type === 'hello_ack') {
+      this.handleHelloAck(parsed);
+      return;
+    }
     const msg = parsed as WSMessageServer;
     this.messageListeners.forEach((fn) => {
       try {
