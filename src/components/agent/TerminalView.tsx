@@ -6,6 +6,7 @@ import { agentSocket } from '../../services/agentSocket';
 import { matchGlobalShortcut } from '../../keyboard/shortcuts';
 import { useFocusRequest } from '../../keyboard/hooks';
 import { suppressTerminalReports } from './terminalReports';
+import { disposeTerminal } from './terminalDispose';
 
 interface TerminalViewProps {
   agentId: string;
@@ -98,7 +99,9 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     });
 
     // Handle container resize
+    let disposed = false;
     const handleResize = () => {
+      if (disposed) return;
       try {
         fitAddon.fit();
         if (term.cols && term.rows) {
@@ -118,10 +121,15 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     observer.observe(containerRef.current);
 
     return () => {
+      disposed = true;
       observer.disconnect();
       unsubscribe();
       agentSocket.stopMockStream(agentId);
-      term.dispose();
+      // Drop the refs so the isActive effect never fits or focuses a disposed terminal.
+      if (terminalRef.current === term) terminalRef.current = null;
+      if (fitAddonRef.current === fitAddon) fitAddonRef.current = null;
+      // Not term.dispose(): xterm 5.5 leaves a Viewport timer that throws after disposal.
+      disposeTerminal(term);
     };
   }, [agentId, agentName, mode, targetHost]);
 
