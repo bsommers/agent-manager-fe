@@ -1,6 +1,7 @@
 import { MockAdapter } from './adapters/MockAdapter';
 import { WsAdapter } from './adapters/WsAdapter';
 import type { BackendAdapter, BackendMode } from './adapters/types';
+import { getToken } from './auth/tokenStore';
 
 export interface BackendConfig {
   mode: BackendMode;
@@ -17,6 +18,40 @@ export interface BackendEnv {
 
 const DEFAULT_HTTP = 'http://localhost:8088';
 const DEFAULT_WS = 'ws://localhost:8088/ws';
+
+/** A message that is safe to show: it never contains any part of the configured URL text. */
+class ConfigError extends Error {}
+
+const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/**
+ * True only for the loopback names D-11 allows without TLS: exactly localhost, ::1 (bare or
+ * bracketed) and 127.0.0.0/8. Anchored: no suffix or substring match, no trailing dot, not 0.0.0.0.
+ * Expects a hostname as produced by the URL parser (already lower-cased, shorthand IPv4 normalized).
+ */
+export function isLoopbackHostname(hostname: string): boolean {
+  if (hostname === 'localhost' || hostname === '::1' || hostname === '[::1]') return true;
+  const m = IPV4.exec(hostname);
+  if (!m) return false;
+  const octets = m.slice(1).map(Number);
+  return octets[0] === 127 && octets.every((o) => o >= 0 && o <= 255);
+}
+
+function assertCleanUrl(u: URL): void {
+  if (u.username || u.password || u.search || u.hash) {
+    throw new ConfigError(
+      'The backend URL must not contain credentials, a query string or a fragment',
+    );
+  }
+}
+
+function assertSecureOrLoopback(secure: boolean, u: URL): void {
+  if (!secure && !isLoopbackHostname(u.hostname)) {
+    throw new ConfigError(
+      `Plaintext ws:// to "${u.hostname}" is refused: use an https:// backend URL (wss://) behind TLS, or a loopback host`,
+    );
+  }
+}
 
 function isDemo(env: BackendEnv, search: string): boolean {
   const flag = (env.VITE_DEMO_MODE ?? '').trim().toLowerCase();
@@ -41,7 +76,9 @@ export function resolveBackendConfig(
       if (!['http:', 'https:', 'ws:', 'wss:'].includes(u.protocol)) {
         throw new Error('unsupported scheme');
       }
+      assertCleanUrl(u);
       const secure = u.protocol === 'https:' || u.protocol === 'wss:';
+      assertSecureOrLoopback(secure, u);
       httpBase = `${secure ? 'https' : 'http'}://${u.host}`;
       wsUrl = `${secure ? 'wss' : 'ws'}://${u.host}/ws`;
     } else if (legacyWs) {
@@ -49,12 +86,15 @@ export function resolveBackendConfig(
       if (!['ws:', 'wss:', 'http:', 'https:'].includes(u.protocol)) {
         throw new Error('unsupported scheme');
       }
+      assertCleanUrl(u);
       const secure = u.protocol === 'wss:' || u.protocol === 'https:';
+      assertSecureOrLoopback(secure, u);
       wsUrl = legacyWs;
       httpBase = `${secure ? 'https' : 'http'}://${u.host}`;
     }
-  } catch {
-    configError = 'Invalid backend URL configuration (VITE_BACKEND_URL / VITE_WS_URL)';
+  } catch (e) {
+    configError =
+      e instanceof ConfigError ? e.message : 'Invalid backend URL configuration (VITE_BACKEND_URL / VITE_WS_URL)';
     wsUrl = DEFAULT_WS;
     httpBase = DEFAULT_HTTP;
   }
@@ -64,5 +104,5 @@ export function resolveBackendConfig(
 
 export function createBackend(config: BackendConfig): BackendAdapter {
   if (config.mode === 'demo') return new MockAdapter();
-  return new WsAdapter(config.wsUrl, { disabledReason: config.configError });
+  return new WsAdapter(config.wsUrl, { disabledReason: config.configError, getToken });
 }
