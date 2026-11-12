@@ -10,6 +10,8 @@ import {
   UNAUTHENTICATED_REASON,
   buildHelloAck,
   checkHello,
+  clientKey,
+  rateLimitReason,
 } from '../handshake.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -52,6 +54,8 @@ describe('checkHello', () => {
   });
 
   it('rejects non-JSON and non-object shapes as malformed', () => {
+    clientKey({ socket: { remoteAddress: '::ffff:127.0.0.1' }, headers: { 'x-forwarded-for': '1.2.3.4' } }, true);
+    rateLimitReason(5);
     for (const raw of ['not json', 'null', '42', '[1,2]', '{"no":"type"}', '{"type":5}', '']) {
       expect(checkHello(raw, guard)).toEqual({ kind: 'reject', reason: 'malformed' });
     }
@@ -154,6 +158,62 @@ describe('handshake constants', () => {
   });
 });
 
+describe('clientKey', () => {
+  const req = (remoteAddress: string | undefined, xff?: string | string[]) => ({
+    socket: { remoteAddress },
+    headers: xff === undefined ? {} : { 'x-forwarded-for': xff },
+  });
+
+  it('uses the socket address when trust is off, ignoring the header', () => {
+    expect(clientKey(req('5.5.5.5', '1.1.1.1'), false)).toBe('5.5.5.5');
+  });
+
+  it('honours the header when trusted and the peer is loopback', () => {
+    expect(clientKey(req('127.0.0.1', '9.9.9.9'), true)).toBe('9.9.9.9');
+    expect(clientKey(req('::1', '9.9.9.9'), true)).toBe('9.9.9.9');
+  });
+
+  it('uses the LAST entry so a client-prepended value cannot win', () => {
+    expect(clientKey(req('127.0.0.1', '6.6.6.6, 9.9.9.9'), true)).toBe('9.9.9.9');
+  });
+
+  it('ignores the header from a non-loopback peer', () => {
+    expect(clientKey(req('5.5.5.5', '9.9.9.9'), true)).toBe('5.5.5.5');
+  });
+
+  it('uses the last element of an array-valued header', () => {
+    expect(clientKey(req('127.0.0.1', ['1.1.1.1', '2.2.2.2, 3.3.3.3']), true)).toBe('3.3.3.3');
+  });
+
+  it('falls back to the socket address for an empty or blank header', () => {
+    expect(clientKey(req('127.0.0.1', ''), true)).toBe('127.0.0.1');
+    expect(clientKey(req('127.0.0.1', '   '), true)).toBe('127.0.0.1');
+    expect(clientKey(req('127.0.0.1', '1.1.1.1, '), true)).toBe('127.0.0.1');
+  });
+
+  it('treats an IPv4-mapped loopback peer as loopback', () => {
+    expect(clientKey(req('::ffff:127.0.0.1', '9.9.9.9'), true)).toBe('9.9.9.9');
+  });
+
+  it('gives "unknown" for a missing address', () => {
+    expect(clientKey(req(undefined), false)).toBe('unknown');
+  });
+});
+
+describe('rateLimitReason', () => {
+  it('formats the retry delay', () => {
+    expect(rateLimitReason(1234)).toBe('retry-after-ms=1234');
+  });
+
+  it('stays within the 123-byte close reason limit and clamps bad input', () => {
+    expect(Buffer.byteLength(rateLimitReason(Number.MAX_SAFE_INTEGER))).toBeLessThanOrEqual(123);
+    expect(rateLimitReason(-5)).toBe('retry-after-ms=0');
+    expect(rateLimitReason(Number.NaN)).toBe('retry-after-ms=0');
+    expect(rateLimitReason(Number.POSITIVE_INFINITY)).toBe('retry-after-ms=0');
+    expect(rateLimitReason(1e300)).toBe(`retry-after-ms=${Number.MAX_SAFE_INTEGER}`);
+  });
+});
+
 describe('handshake module logging', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -163,6 +223,8 @@ describe('handshake module logging', () => {
     const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((m) =>
       vi.spyOn(console, m).mockImplementation(() => undefined)
     );
+    clientKey({ socket: { remoteAddress: '::ffff:127.0.0.1' }, headers: { 'x-forwarded-for': '1.2.3.4' } }, true);
+    rateLimitReason(5);
     for (const raw of ['not json', hello(), hello({ token: 'bad' }), 'x'.repeat(20000), '{"type":"ping","t":1}']) {
       checkHello(raw, guard);
     }

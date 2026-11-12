@@ -1,6 +1,8 @@
 import { CONTRACT_VERSION, LIMITS, parseClientMessage } from '../protocol/wsProtocol.js';
 import type { WSMessageClient, WSMessageServer } from '../protocol/wsProtocol.js';
+import { isLoopbackHost } from '../config.js';
 import type { AuthGuard } from './auth.js';
+import { normalizeIp } from './authThrottle.js';
 
 /** Close code: unauthenticated, or no valid hello in time (contract spec 2.6). */
 export const CLOSE_UNAUTHENTICATED = 4401;
@@ -79,4 +81,39 @@ export function buildHelloAck(opts: { epoch: string; authRequired: boolean }): E
     },
     backends: [{ id: 'local', label: 'Local', up: true, capabilities: [...GATEWAY_CAPABILITIES] }],
   };
+}
+
+/** The close reason for a 4429: the delay a client must wait, clamped to a non-negative safe integer. */
+export function rateLimitReason(retryAfterMs: number): string {
+  const ms = Number.isFinite(retryAfterMs)
+    ? Math.min(Math.max(Math.floor(retryAfterMs), 0), Number.MAX_SAFE_INTEGER)
+    : 0;
+  return `retry-after-ms=${ms}`;
+}
+
+/** The minimal request shape clientKey needs (an http.IncomingMessage satisfies it). */
+export interface KeyedRequest {
+  socket: { remoteAddress?: string | undefined };
+  headers: Record<string, string | string[] | undefined>;
+}
+
+const MAPPED_PREFIX = /^::ffff:/i;
+
+/**
+ * The throttle key for a request: the normalized socket address, unless trustProxy is on and the
+ * socket peer is loopback (the reverse proxy), in which case it is the LAST X-Forwarded-For entry.
+ * Last, not first: the proxy appends the address it saw, so a value a client prepends never wins.
+ * The nginx example must overwrite the header (proxy_set_header X-Forwarded-For $remote_addr) so
+ * the last entry is the real client (PLANS-NOTES decision 4). With trust off, or a non-loopback
+ * peer, the header is ignored.
+ */
+export function clientKey(req: KeyedRequest, trustProxy: boolean): string {
+  const peer = req.socket.remoteAddress;
+  if (trustProxy && peer && isLoopbackHost(peer.replace(MAPPED_PREFIX, ''))) {
+    const header = req.headers['x-forwarded-for'];
+    const joined = Array.isArray(header) ? header[header.length - 1] : header;
+    const last = typeof joined === 'string' ? joined.split(',').pop()?.trim() : undefined;
+    if (last) return normalizeIp(last);
+  }
+  return normalizeIp(peer);
 }
