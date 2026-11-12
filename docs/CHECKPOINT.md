@@ -1,4 +1,4 @@
-# Checkpoint 2026-11-11 (agent-manager-fe) - Phase 6 complete, all pushed (origin = 6c71bf7)
+# Checkpoint 2026-11-12 (agent-manager-fe) - Phase 8 wave 11 merged (local, unpushed)
 
 ## Decisions (user, standing)
 - Per wave: plan (gsd-planner) -> check (gsd-plan-checker) -> parallel gsd-executor worktrees (ff-only to master sha first) -> merge --no-ff -> full gate -> push only on explicit user go-ahead (each push needs a fresh "yes"; approvals expire).
@@ -27,3 +27,11 @@
 
 ## Push command
 `GH_TOKEN=$(gh auth token --user bsommers) git push origin master` (active gh account nonont1010 has no write access). Ask first.
+
+
+## Phase 8 (auth) status 2026-11-12
+- Pushed: origin/master = 84193b1 (d8a04ac checkpoint + xterm dimensions fix 1345b39 + Phase 8 CONTEXT).
+- Local only (ahead of origin): D-13 lock (hello body), 08-RESEARCH, 5 plans (08-01..05) checked, wave 11 merged (08-01 server auth core, 08-03 FE token/transport). Gate green: root 104 files/2123 tests (+1 todo), server 30/749, tsc x2, builds, contract:check OK, tmuxKill 0.
+- User confirmed the 8 default decisions (08-01 PLANS-NOTES). Token delivery = hello body.
+- Next: wave 12 = 08-02 (server wiring, owns index.ts/apiRouter.ts) + 08-04 (FE dialog/logout) in parallel worktrees (ff-only to master sha), merge, gate; then wave 13 = 08-05 (smoke, docs, QA). Push only on fresh "yes".
+- Executor worktrees symlink node_modules; old worktrees under .claude/worktrees/ can be removed after merge.
