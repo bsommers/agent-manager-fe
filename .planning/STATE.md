@@ -1,6 +1,25 @@
+---
+gsd_state_version: "1.0"
+milestone: v1.1
+milestone_name: Fan-out Close-out (active)
+current_phase_name: "wave 3: 02-03, 05-02, 05-03, plus pulled-forward Phase 10 slice 10-01/10-02"
+status: Wave 2 merged and green. Phase 3 (transport + connection UI) is complete pending manual QA. Phase 1 stays open for the human QA checkpoint only.
+stopped_at: Phase 8 context gathered
+last_updated: "2026-11-12T04:00:09.423Z"
+last_activity: 2026-11-08
+last_activity_desc: "Phase 2.1 complete (02.1-03 merged); gate passed (root 77 files / 1324 tests, server 13 / 208, tsc, builds, contract:check). INT-12 done. Flaky: server hardening liveness test under load"
+state_head: ffc0dd556a405a52a505043e712d61473e20c797
+progress:
+  total_phases: 37
+  completed_phases: 0
+  total_plans: 27
+  completed_plans: 27
+---
+
 # State
 
 ## Current Position
+
 Milestone: v1.1 Fan-out Close-out (active, open only for a human QA checkpoint); v2.0 Live-Connected Command Center and v2.1 Multi-Backend and Fleet defined in ROADMAP.md
 Phase: waves 1-3 merged (wave 3: 02-03, 05-02, 05-03, plus pulled-forward Phase 10 slice 10-01/10-02); wave 4 9.1 bug fixes merged; 02-04 merged (contract snapshot includes agent:kill killSession/confirm; contract:update was a no-op); Phase 2.1 wave 5 (02.1-01 JSON Schema, 02.1-02 operations catalog) merged; 02.1-03 (wave 6) merged, Phase 2.1 complete; Phase 6 plans 06-01..06-07 all merged (waves 7-10), live QA of W8+W9 passed; next: plan 05-04, Phase 1 close, Phase 8, Phase 7
 Status: Wave 2 merged and green. Phase 3 (transport + connection UI) is complete pending manual QA. Phase 1 stays open for the human QA checkpoint only.
@@ -74,6 +93,7 @@ Later plans already written (not wave 2): 02-03 (wave 3, needs 02-02: gateway-to
 Merge gate after each wave (run from the repo root after `npm ci` in the root and in `server/`): `npm run build:protocol && npm test && npx tsc --noEmit && npm run build && npm --prefix server test && npm --prefix server run build`, plus the collision script for the next wave. Expected counts only grow from 311 (root) and 98 (server).
 
 ## Decisions
+
 - Contract: `docs/superpowers/specs/2026-11-07-fe-be-contract.md` reconciles the backend integration plan and the UI/integration milestones (log in its section 15).
 - Port 8088 is canonical (code + ADR-006); `VITE_BACKEND_URL` is the FE setting, `VITE_WS_URL` stays as deprecated alias.
 - Shared schema lives in `packages/protocol` (`@agent-manager/protocol`); FE resolves it by Vite alias + tsconfig paths, server by `file:` dependency to the built `dist`.
@@ -88,20 +108,30 @@ Merge gate after each wave (run from the repo root after `npm ci` in the root an
 - External repos (cvm, climah, mads, mad) are read-only inputs; adapters use recorded fixtures committed here.
 
 ## Open items for a human
+
 1. Run the manual QA in `docs/qa-test-plan.md` section 5 (live tmux + browser) and record the per-step result in `.planning/phases/01-*/01-EVIDENCE.md`; this closes Phase 1.
 2. When creating worktrees for wave 2, base them on current master: wave-1 executors started from the pre-planning commit 95521d0 and had to fast-forward before they could read their plans.
 
 ## Open questions (from the backend plan, to resolve in Phases 24-26)
+
 1. Does climah expose an approve/deny command for gates, or must one be added upstream?
 2. Is a climah `Agent` per run, per level or per agent name within a run (proposed: per agent name)?
 3. cvm interactive attach (WS PTY) is out of scope; track as upstream feature.
 4. mads has no remote; it needs one before becoming a hard dependency (Phase 26 is optional).
 
 ## Interim behavior to remember
+
 - Since the Phase 10 slice, live mode starts with an empty roster filled from the gateway; Demo mode (`VITE_DEMO_MODE=1`) keeps the seed agents.
 - Until 03-02 merges there is no visible connection indicator in the UI (the state exists in `connectionStore` only).
 
 ## Notes
+
 - Onboarded 2026-11-07. Fan-out/search code merged on master; docs plan checkboxes ticked by plan 01-01.
 - Other agents write new files in docs/superpowers/plans/; do not commit them from GSD.
 - Original baseline at 05b3782: root 23 files / 132 tests, server 7 files / 51 tests.
+
+## Session
+
+**Last session:** 2026-11-12T04:00:09.373Z
+**Stopped at:** Phase 8 context gathered
+**Resume file:** .planning/phases/08-auth-and-secure-transport/08-CONTEXT.md
