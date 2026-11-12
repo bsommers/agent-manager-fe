@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Transport, type WebSocketLike } from '../Transport';
+import { ACK_TIMEOUT_MS, CLOSE_RATE_LIMITED, MAX_RETRY_FLOOR_MS } from '../Transport';
 
 class FakeWebSocket implements WebSocketLike {
   static instances: FakeWebSocket[] = [];
@@ -289,5 +290,314 @@ describe('Transport (reconnect and heartbeat)', () => {
     expect(vi.getTimerCount()).toBe(1);
     t.close();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('Transport (hello hook and auth_failed latch)', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  function makeHello(frame: () => string | null, expectAck: () => boolean = () => false) {
+    FakeWebSocket.instances = [];
+    const log: string[] = [];
+    const states: Array<Record<string, unknown>> = [];
+    class LoggingWs extends FakeWebSocket {
+      send(data: string) {
+        log.push(`send:${data}`);
+        super.send(data);
+      }
+    }
+    const t = new Transport({
+      url: 'ws://x/ws',
+      WebSocketImpl: LoggingWs,
+      hello: { frame, expectAck },
+      onState: (p) => {
+        states.push(p);
+        if (p.state) log.push(`state:${String(p.state)}`);
+      },
+      onFrame: () => {},
+    });
+    return { t, log, states, ws: () => FakeWebSocket.instances[FakeWebSocket.instances.length - 1] };
+  }
+
+  it('sends the hello frame first, before the open state is reported', () => {
+    const { t, log, ws } = makeHello(() => '{"type":"hello"}');
+    t.connect();
+    ws().simulateOpen();
+    expect(log).toEqual(['state:connecting', 'send:{"type":"hello"}', 'state:open']);
+    expect(ws().sent[0]).toBe('{"type":"hello"}');
+  });
+
+  it('a frame returning null sends nothing', () => {
+    const { t, ws, states } = makeHello(() => null);
+    t.connect();
+    ws().simulateOpen();
+    expect(ws().sent).toEqual([]);
+    expect(states[states.length - 1]).toMatchObject({ state: 'open' });
+  });
+
+  it('a throwing send does not prevent the open state', () => {
+    FakeWebSocket.instances = [];
+    const states: Array<Record<string, unknown>> = [];
+    class ThrowingWs extends FakeWebSocket {
+      send(): void {
+        throw new Error('boom');
+      }
+    }
+    const t = new Transport({
+      url: 'ws://x/ws',
+      WebSocketImpl: ThrowingWs,
+      hello: { frame: () => 'x', expectAck: () => false },
+      onState: (p) => states.push(p),
+      onFrame: () => {},
+    });
+    t.connect();
+    FakeWebSocket.instances[0].simulateOpen();
+    expect(states[states.length - 1]).toMatchObject({ state: 'open' });
+  });
+
+  it('calls frame() again on every attempt so a token set between attempts is used', () => {
+    let n = 0;
+    const { t, ws } = makeHello(() => `hello-${++n}`);
+    t.connect();
+    ws().simulateOpen();
+    ws().simulateClose();
+    vi.advanceTimersByTime(60000);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    ws().simulateOpen();
+    expect(ws().sent).toEqual(['hello-2']);
+  });
+
+  it('without a hello option nothing is sent on open', () => {
+    FakeWebSocket.instances = [];
+    const t = new Transport({ url: 'ws://x/ws', WebSocketImpl: FakeWebSocket, onState: () => {}, onFrame: () => {} });
+    t.connect();
+    FakeWebSocket.instances[0].simulateOpen();
+    expect(FakeWebSocket.instances[0].sent).toEqual([]);
+  });
+
+  it('close 4401 ends in auth_failed with no timers and no second socket for 10 minutes', () => {
+    const { t, states, ws } = makeHello(() => 'h');
+    t.connect();
+    ws().simulateOpen();
+    ws().simulateClose(4401);
+    expect(states[states.length - 1]).toMatchObject({
+      state: 'auth_failed',
+      nextRetryAt: null,
+      lastError: 'authentication failed (code 4401)',
+    });
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('reconnectNow is a no-op after 4401; connect() starts a fresh attempt and clears the state', () => {
+    const { t, states, ws } = makeHello(() => 'h');
+    t.connect();
+    ws().simulateOpen();
+    ws().simulateClose(4401);
+    t.reconnectNow();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    t.connect();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(states[states.length - 1]).toMatchObject({ state: 'connecting', lastError: null });
+    ws().simulateOpen();
+    expect(states[states.length - 1]).toMatchObject({ state: 'open' });
+  });
+
+  it('events on the abandoned socket after 4401 change nothing', () => {
+    const { t, states, ws } = makeHello(() => 'h');
+    t.connect();
+    const first = ws();
+    first.simulateOpen();
+    first.simulateClose(4401);
+    const before = states.length;
+    first.onopen?.();
+    first.onmessage?.({ data: 'x' });
+    expect(states).toHaveLength(before);
+  });
+});
+
+describe('Transport (hello_ack watchdog)', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  function make(expectAck: boolean, ackTimeoutMs?: number, withHeartbeat = false) {
+    FakeWebSocket.instances = [];
+    const states: Array<Record<string, unknown>> = [];
+    const t = new Transport({
+      url: 'ws://x/ws',
+      WebSocketImpl: FakeWebSocket,
+      heartbeat: withHeartbeat ? undefined : false,
+      hello: { frame: () => 'h', expectAck: () => expectAck, ...(ackTimeoutMs ? { ackTimeoutMs } : {}) },
+      onState: (p) => states.push(p),
+      onFrame: () => {},
+    });
+    return { t, states, last: () => states[states.length - 1], ws: () => FakeWebSocket.instances[FakeWebSocket.instances.length - 1] };
+  }
+
+  it('exports the spec constants', () => {
+    expect(ACK_TIMEOUT_MS).toBe(3000);
+    expect(CLOSE_RATE_LIMITED).toBe(4429);
+    expect(MAX_RETRY_FLOOR_MS).toBe(15 * 60 * 1000);
+  });
+
+  it('stays open until 3000 ms, then abandons to auth_failed with exactly one socket and no timers', () => {
+    const { t, last, ws } = make(true);
+    t.connect();
+    ws().simulateOpen();
+    expect(last()).toMatchObject({ state: 'open' });
+    vi.advanceTimersByTime(2999);
+    expect(last()).toMatchObject({ state: 'open' });
+    vi.advanceTimersByTime(1);
+    expect(last()).toMatchObject({
+      state: 'auth_failed',
+      nextRetryAt: null,
+      lastError: 'gateway did not acknowledge authentication',
+    });
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+    t.reconnectNow();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('acknowledge() before the deadline cancels the watchdog', () => {
+    const { t, last, ws } = make(true);
+    t.connect();
+    ws().simulateOpen();
+    vi.advanceTimersByTime(1000);
+    t.acknowledge();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(60000);
+    expect(last()).toMatchObject({ state: 'open' });
+  });
+
+  it('expectAck false arms no timer', () => {
+    const { t, last, ws } = make(false);
+    t.connect();
+    ws().simulateOpen();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(60000);
+    expect(last()).toMatchObject({ state: 'open' });
+  });
+
+  it('honours a custom ack timeout', () => {
+    const { t, last, ws } = make(true, 500);
+    t.connect();
+    ws().simulateOpen();
+    vi.advanceTimersByTime(499);
+    expect(last()).toMatchObject({ state: 'open' });
+    vi.advanceTimersByTime(1);
+    expect(last()).toMatchObject({ state: 'auth_failed' });
+  });
+
+  it('the watchdog is cleared by close(), by a socket close and by connect()', () => {
+    const a = make(true);
+    a.t.connect();
+    a.ws().simulateOpen();
+    a.t.close();
+    expect(vi.getTimerCount()).toBe(0);
+
+    const b = make(true);
+    b.t.connect();
+    b.ws().simulateOpen();
+    b.ws().simulateClose();
+    // only the retry timer remains
+    expect(vi.getTimerCount()).toBe(1);
+    b.t.close();
+
+    const c = make(true);
+    c.t.connect();
+    c.ws().simulateOpen();
+    c.t.connect();
+    expect(vi.getTimerCount()).toBe(0);
+    c.t.close();
+  });
+
+  it('a heartbeat does not extend or replace the ack watchdog (token set, heartbeat on)', () => {
+    const { t, last, ws } = make(true, undefined, true);
+    t.connect();
+    ws().simulateOpen();
+    expect(vi.getTimerCount()).toBe(2);
+    vi.advanceTimersByTime(3000);
+    expect(last()).toMatchObject({ state: 'auth_failed' });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('Transport (close 4429)', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  function make() {
+    FakeWebSocket.instances = [];
+    const states: Array<Record<string, unknown>> = [];
+    const t = new Transport({
+      url: 'ws://x/ws',
+      WebSocketImpl: FakeWebSocket,
+      heartbeat: false,
+      backoff: { baseMs: 500, factor: 1, capMs: 500 },
+      random: () => 1,
+      onState: (p) => states.push(p),
+      onFrame: () => {},
+    });
+    return { t, last: () => states[states.length - 1], ws: () => FakeWebSocket.instances[FakeWebSocket.instances.length - 1] };
+  }
+
+  it('waits at least the advertised retry-after-ms', () => {
+    const { t, last, ws } = make();
+    t.connect();
+    ws().simulateOpen();
+    const now = Date.now();
+    ws().onclose?.({ code: 4429, reason: 'retry-after-ms=20000' });
+    expect(last()).toMatchObject({ state: 'reconnecting', lastError: 'rate limited (code 4429)' });
+    expect(last().nextRetryAt as number).toBeGreaterThanOrEqual(now + 20000);
+    vi.advanceTimersByTime(19999);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('caps the floor at 15 minutes', () => {
+    const { t, last, ws } = make();
+    t.connect();
+    ws().simulateOpen();
+    const now = Date.now();
+    ws().onclose?.({ code: 4429, reason: 'retry-after-ms=99999999' });
+    expect(last().nextRetryAt).toBe(now + MAX_RETRY_FLOOR_MS);
+  });
+
+  it.each([[undefined], [''], ['soon'], ['retry-after-ms=-5'], ['retry-after-ms=1.5'], ['x retry-after-ms=9000'], ['retry-after-ms=9000 x'], ['retry-after-ms=1234567890123']])(
+    'reason %j adds no floor',
+    (reason) => {
+      const { t, last, ws } = make();
+      t.connect();
+      ws().simulateOpen();
+      const now = Date.now();
+      ws().onclose?.({ code: 4429, reason });
+      expect(last()).toMatchObject({ state: 'reconnecting', lastError: 'rate limited (code 4429)' });
+      expect(last().nextRetryAt as number).toBeLessThanOrEqual(now + 500);
+    },
+  );
+
+  it('a larger backoff than the floor wins', () => {
+    FakeWebSocket.instances = [];
+    const states: Array<Record<string, unknown>> = [];
+    const t = new Transport({
+      url: 'ws://x/ws',
+      WebSocketImpl: FakeWebSocket,
+      heartbeat: false,
+      backoff: { baseMs: 8000, factor: 1, capMs: 8000 },
+      random: () => 1,
+      onState: (p) => states.push(p),
+      onFrame: () => {},
+    });
+    t.connect();
+    FakeWebSocket.instances[0].simulateOpen();
+    const now = Date.now();
+    FakeWebSocket.instances[0].onclose?.({ code: 4429, reason: 'retry-after-ms=1000' });
+    expect(states[states.length - 1].nextRetryAt).toBe(now + 8000);
   });
 });

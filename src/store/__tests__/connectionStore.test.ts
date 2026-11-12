@@ -18,6 +18,8 @@ describe('connectionStore', () => {
       lastError: 'e',
       lastConnectedAt: 99,
       malformedFrames: 4,
+      epoch: 'ep-1',
+      authRequired: true,
     };
     useConnectionStore.getState().applySnapshot(snap);
     expect(useConnectionStore.getState()).toMatchObject(snap);
@@ -28,8 +30,20 @@ describe('connectionStore', () => {
     expect(useConnectionStore.getState().mode).toBe('demo');
     useConnectionStore.getState().applySnapshot({
       state: 'open', attempt: 1, nextRetryAt: null, lastError: null, lastConnectedAt: 1, malformedFrames: 0,
+      epoch: null, authRequired: null,
     });
     useConnectionStore.getState().reset();
     expect(useConnectionStore.getState()).toMatchObject({ mode: 'live', state: 'connecting', attempt: 0 });
+  });
+
+  it('epoch and authRequired start null, are copied by applySnapshot and restored by reset', () => {
+    expect(useConnectionStore.getState()).toMatchObject({ epoch: null, authRequired: null });
+    useConnectionStore.getState().applySnapshot({
+      state: 'open', attempt: 0, nextRetryAt: null, lastError: null, lastConnectedAt: 1, malformedFrames: 0,
+      epoch: 'ep-9', authRequired: false,
+    });
+    expect(useConnectionStore.getState()).toMatchObject({ epoch: 'ep-9', authRequired: false });
+    useConnectionStore.getState().reset();
+    expect(useConnectionStore.getState()).toMatchObject({ epoch: null, authRequired: null });
   });
 });

@@ -19,6 +19,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
       lastError: s.lastError,
       lastConnectedAt: s.lastConnectedAt,
       malformedFrames: s.malformedFrames,
+      epoch: s.epoch,
+      authRequired: s.authRequired,
     }),
   setMode: (mode) => set({ mode }),
   reset: () => set({ mode: 'live', ...INITIAL_SNAPSHOT }),

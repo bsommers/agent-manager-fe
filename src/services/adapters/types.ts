@@ -10,6 +10,10 @@ export interface ConnSnapshot {
   lastError: string | null;
   lastConnectedAt: number | null;
   malformedFrames: number;
+  /** Gateway epoch from the last valid hello_ack; null until acknowledged and after a deliberate disconnect. */
+  epoch: string | null;
+  /** hello_ack auth.required; null until acknowledged. */
+  authRequired: boolean | null;
 }
 
 export type StateListener = (snapshot: ConnSnapshot) => void;
@@ -37,4 +41,6 @@ export const INITIAL_SNAPSHOT: ConnSnapshot = {
   lastError: null,
   lastConnectedAt: null,
   malformedFrames: 0,
+  epoch: null,
+  authRequired: null,
 };

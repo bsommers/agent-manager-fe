@@ -2,7 +2,23 @@ import type { ConnSnapshot } from '../adapters/types';
 import { computeDelay, DEFAULT_BACKOFF, type BackoffConfig } from './backoff';
 
 const WS_OPEN = 1;
-const CLOSE_AUTH_FAILED = 4401;
+/** Close code: unauthenticated or hello timeout (contract spec 2.6). */
+export const CLOSE_AUTH_FAILED = 4401;
+/** Close code: rate limited; the reason may carry retry-after-ms=N (contract spec 2.6). */
+export const CLOSE_RATE_LIMITED = 4429;
+/** With a token configured the gateway must acknowledge within this long (contract spec 2.5). */
+export const ACK_TIMEOUT_MS = 3000;
+/** Upper bound on the delay floor taken from a 4429 reason. */
+export const MAX_RETRY_FLOOR_MS = 15 * 60 * 1000;
+
+const RETRY_AFTER_PATTERN = /^retry-after-ms=(\d{1,9})$/;
+
+function retryFloorFromReason(reason: unknown): number {
+  if (typeof reason !== 'string') return 0;
+  const m = RETRY_AFTER_PATTERN.exec(reason);
+  if (!m) return 0;
+  return Math.min(Number(m[1]), MAX_RETRY_FLOOR_MS);
+}
 
 export interface WebSocketLike {
   readyState: number;
@@ -26,6 +42,20 @@ export interface HeartbeatConfig {
 
 export const DEFAULT_HEARTBEAT: HeartbeatConfig = { intervalMs: 15000, timeoutMs: 10000 };
 
+/**
+ * Handshake hook (contract spec 2.5). `frame` builds the serialized hello (or null to send
+ * nothing) and is called at every socket open, so a token set between attempts is used. The frame
+ * is written straight to the socket from the open handler, before the open state is reported; it
+ * never goes through send().
+ */
+export interface HelloOptions {
+  frame: () => string | null;
+  /** True when a hello_ack is required (a token is configured). */
+  expectAck: () => boolean;
+  /** Overrides ACK_TIMEOUT_MS. */
+  ackTimeoutMs?: number;
+}
+
 export interface TransportOptions {
   url: string;
   WebSocketImpl?: WebSocketCtor;
@@ -37,6 +67,7 @@ export interface TransportOptions {
   /** Retries allowed before giving up; default unlimited. */
   maxRetries?: number;
   random?: () => number;
+  hello?: HelloOptions;
 }
 
 /**
@@ -52,12 +83,16 @@ export class Transport {
   private readonly heartbeat: HeartbeatConfig | false;
   private readonly maxRetries: number;
   private readonly random: () => number;
+  private readonly hello: HelloOptions | undefined;
 
   private socket: WebSocketLike | null = null;
   private attempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private pongTimer: ReturnType<typeof setTimeout> | null = null;
+  private ackTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Set after a 4401: nothing reconnects until connect() is called again. */
+  private authLatched = false;
 
   constructor(opts: TransportOptions) {
     this.url = opts.url;
@@ -68,10 +103,12 @@ export class Transport {
     this.heartbeat = opts.heartbeat === undefined ? DEFAULT_HEARTBEAT : opts.heartbeat;
     this.maxRetries = opts.maxRetries ?? Infinity;
     this.random = opts.random ?? Math.random;
+    this.hello = opts.hello;
   }
 
   connect(): void {
     this.teardown();
+    this.authLatched = false;
     this.attempt = 0;
     this.onState({ state: 'connecting', attempt: 0, nextRetryAt: null, lastError: null });
     this.openSocket();
@@ -79,8 +116,14 @@ export class Transport {
 
   /** Manual retry: no-op while open, otherwise reset backoff and connect now. */
   reconnectNow(): void {
+    if (this.authLatched) return;
     if (this.socket && this.socket.readyState === WS_OPEN) return;
     this.connect();
+  }
+
+  /** The gateway acknowledged the hello: cancel the ack watchdog. */
+  acknowledge(): void {
+    this.clearTimer('ack');
   }
 
   /** Returns true only when the text was written to an open socket. */
@@ -96,6 +139,7 @@ export class Transport {
 
   close(): void {
     this.teardown();
+    this.authLatched = false;
     this.attempt = 0;
     this.onState({ state: 'closed', attempt: 0, nextRetryAt: null });
   }
@@ -111,8 +155,10 @@ export class Transport {
     this.socket = socket;
     socket.onopen = () => {
       if (this.socket !== socket) return;
+      this.sendHello(socket);
       this.onState({ state: 'open', lastConnectedAt: Date.now(), lastError: null, nextRetryAt: null });
       this.armIdleTimer();
+      this.armAckTimer(socket);
     };
     socket.onmessage = (ev) => {
       if (this.socket !== socket) return;
@@ -130,7 +176,9 @@ export class Transport {
       if (this.socket !== socket) return;
       this.socket = null;
       this.clearHeartbeat();
+      this.clearTimer('ack');
       if (ev?.code === CLOSE_AUTH_FAILED) {
+        this.authLatched = true;
         this.onState({
           state: 'auth_failed',
           nextRetryAt: null,
@@ -138,12 +186,45 @@ export class Transport {
         });
         return;
       }
+      if (ev?.code === CLOSE_RATE_LIMITED) {
+        this.handleUnexpectedClose(
+          `rate limited (code ${CLOSE_RATE_LIMITED})`,
+          retryFloorFromReason(ev.reason),
+        );
+        return;
+      }
       this.handleUnexpectedClose(`connection closed (code ${ev?.code ?? 'unknown'})`);
     };
   }
 
-  private handleUnexpectedClose(reason: string): void {
-    const delay = computeDelay(this.attempt, this.backoff, this.random);
+  private sendHello(socket: WebSocketLike): void {
+    if (!this.hello) return;
+    try {
+      const frame = this.hello.frame();
+      if (frame !== null) socket.send(frame);
+    } catch {
+      /* a failed hello surfaces as a missing ack or a server close, never as a throw here */
+    }
+  }
+
+  private armAckTimer(socket: WebSocketLike): void {
+    this.clearTimer('ack');
+    if (!this.hello || !this.hello.expectAck()) return;
+    this.ackTimer = setTimeout(() => {
+      this.ackTimer = null;
+      if (this.socket !== socket) return;
+      this.abandonSocket();
+      this.authLatched = true;
+      this.onState({
+        state: 'auth_failed',
+        nextRetryAt: null,
+        lastError: 'gateway did not acknowledge authentication',
+      });
+    }, this.hello.ackTimeoutMs ?? ACK_TIMEOUT_MS);
+  }
+
+  private handleUnexpectedClose(reason: string, delayFloorMs = 0): void {
+    const delay = Math.max(computeDelay(this.attempt, this.backoff, this.random), delayFloorMs);
     const nextAttempt = this.attempt + 1;
     if (nextAttempt > this.maxRetries) {
       this.attempt = nextAttempt;
@@ -184,6 +265,7 @@ export class Transport {
     const socket = this.socket;
     this.socket = null;
     this.clearHeartbeat();
+    this.clearTimer('ack');
     if (socket) {
       socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
       try {
@@ -194,8 +276,8 @@ export class Transport {
     }
   }
 
-  private clearTimer(which: 'retry' | 'idle' | 'pong'): void {
-    const key = `${which}Timer` as 'retryTimer' | 'idleTimer' | 'pongTimer';
+  private clearTimer(which: 'retry' | 'idle' | 'pong' | 'ack'): void {
+    const key = `${which}Timer` as 'retryTimer' | 'idleTimer' | 'pongTimer' | 'ackTimer';
     if (this[key] !== null) {
       clearTimeout(this[key] as ReturnType<typeof setTimeout>);
       this[key] = null;
