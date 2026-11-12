@@ -31,8 +31,10 @@ Remote access works only with a token over TLS; local use stays zero-config. Del
 - **D-11:** FE allows `ws://` only for loopback (localhost, 127.0.0.0/8, ::1); any other host must be `wss://`, otherwise a visible error and no fallback.
 - **D-12:** Auth is enforced whenever `AGENT_MANAGER_TOKEN` is set, including on loopback. Unset means zero-config local with no auth.
 
+### Token delivery
+- **D-13:** Token is sent in the `hello` message body (user confirmed 2026-11-12). Not in the URL, not a subprotocol, no one-time ticket. `hello_ack` returns contract version, auth result and `epoch`. Server must scrub the token from any logged frame. — **Reversibility:** one-way — changes the `hello` shape in the protocol surface snapshot and fixtures.
+
 ### Claude's Discretion
-- Token delivery was not discussed. Defaults: token sent in the `hello` message body (never URL or subprotocol logs); `hello_ack` returns contract version, auth result and `epoch`.
 - Exact failure threshold, backoff window, minimum token length and dialog wording.
 - Token and its hash must never reach logs or the diagnostics export (test-asserted per roadmap criterion 3).
 
