@@ -1,4 +1,4 @@
-# Checkpoint 2026-11-12 (agent-manager-fe) - Phase 8 wave 11 merged (local, unpushed)
+# Checkpoint 2026-11-13 (agent-manager-fe) - Phase 8 wave 11 merged (local, unpushed; verified)
 
 ## Decisions (user, standing)
 - Per wave: plan (gsd-planner) -> check (gsd-plan-checker) -> parallel gsd-executor worktrees (ff-only to master sha first) -> merge --no-ff -> full gate -> push only on explicit user go-ahead (each push needs a fresh "yes"; approvals expire).
@@ -35,3 +35,5 @@
 - User confirmed the 8 default decisions (08-01 PLANS-NOTES). Token delivery = hello body.
 - Next: wave 12 = 08-02 (server wiring, owns index.ts/apiRouter.ts) + 08-04 (FE dialog/logout) in parallel worktrees (ff-only to master sha), merge, gate; then wave 13 = 08-05 (smoke, docs, QA). Push only on fresh "yes".
 - Executor worktrees symlink node_modules; old worktrees under .claude/worktrees/ can be removed after merge.
+
+- Verified 2026-11-13: tree clean at d4a57f1, master 16 ahead of origin (84193b1), no extra worktrees. Resume: "start wave 12".
