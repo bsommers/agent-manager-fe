@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { OPERATIONS, checkSurfaceCoverage, listOperations } from '@agent-manager/protocol';
 import { buildCommands } from '../commands';
 import { useAgentStore } from '../../store/agentStore';
 import { resetUiStore } from '../../store/uiStore';
 import type { Agent } from '../../types/agent';
+import { setToken, clearToken } from '../../services/auth/tokenStore';
 
 const mk = (id: string, name: string): Agent => ({
   id,
@@ -18,7 +19,7 @@ const mk = (id: string, name: string): Agent => ({
 });
 
 /** UI-only commands: no operation behind them. A new command must be added here deliberately. */
-const UI_ONLY_ALLOWLIST = [/^filter\.focus$/, /^help\.open$/, /^layout\.(grid|focus|cascade)$/, /^agent\.goto\..+$/];
+const UI_ONLY_ALLOWLIST = [/^filter\.focus$/, /^help\.open$/, /^layout\.(grid|focus|cascade)$/, /^auth\.logout$/, /^agent\.goto\..+$/];
 
 describe('palette versus operations catalog', () => {
   beforeEach(() => {
@@ -73,5 +74,26 @@ describe('palette versus operations catalog', () => {
     const goto = buildCommands().filter((c) => c.id.startsWith('agent.goto.'));
     expect(goto).toHaveLength(3);
     for (const c of goto) expect(c.operation).toBeUndefined();
+  });
+});
+
+describe('palette versus catalog with a token set', () => {
+  beforeEach(() => {
+    resetUiStore();
+    setToken('x'.repeat(24));
+    useAgentStore.setState({ agents: [mk('a1', 'Alpha')], pending: {}, activeAgentId: null, layoutMode: 'grid' });
+  });
+  afterEach(() => clearToken());
+
+  it('catalog coverage still holds and auth.logout is allowlisted UI-only', () => {
+    const list = buildCommands();
+    expect(list.map((c) => c.id)).toContain('auth.logout');
+    const ids = list.filter((c) => c.operation !== undefined).map((c) => c.id);
+    expect(checkSurfaceCoverage('palette', ids)).toEqual({ missing: [], unknown: [], duplicate: [] });
+    const unlisted = list
+      .filter((c) => c.operation === undefined)
+      .map((c) => c.id)
+      .filter((id) => !UI_ONLY_ALLOWLIST.some((re) => re.test(id)));
+    expect(unlisted).toEqual([]);
   });
 });

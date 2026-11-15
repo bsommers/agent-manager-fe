@@ -2,6 +2,7 @@ import React, { useId, useMemo, useRef, useState } from 'react';
 import { Command as CommandIcon } from 'lucide-react';
 import { useUiStore } from '../../store/uiStore';
 import { useAgentStore } from '../../store/agentStore';
+import { useAuthStore } from '../../services/auth/tokenStore';
 import { useModalFocus } from '../../hooks/useModalFocus';
 import { OverlayPortal } from './OverlayPortal';
 import { buildCommands, filterCommands, MAX_PALETTE_RESULTS } from '../../keyboard/commands';
@@ -12,6 +13,7 @@ const PaletteDialog: React.FC = () => {
   const isBroadcastOpen = useUiStore((s) => s.isBroadcastOpen);
   const agents = useAgentStore((s) => s.agents);
   const pending = useAgentStore((s) => s.pending);
+  const hasToken = useAuthStore((s) => s.hasToken);
 
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -26,9 +28,9 @@ const PaletteDialog: React.FC = () => {
     initialFocusRef: inputRef,
   });
 
-  // buildCommands reads live store state; recompute when the roster or broadcast flag changes.
+  // buildCommands reads live store state; recompute when the roster, broadcast flag or token presence changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const commands = useMemo(() => buildCommands(), [agents, pending, isBroadcastOpen]);
+  const commands = useMemo(() => buildCommands(), [agents, pending, isBroadcastOpen, hasToken]);
   const matched = useMemo(() => filterCommands(commands, query, commands.length), [commands, query]);
   const results = matched.slice(0, MAX_PALETTE_RESULTS);
   const truncated = matched.length > results.length;
