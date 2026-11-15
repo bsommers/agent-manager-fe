@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type Overlay = 'palette' | 'help' | 'search' | 'addAgent';
+export type Overlay = 'palette' | 'help' | 'search' | 'addAgent' | 'token';
 
 export interface FocusRequest {
   target: string;

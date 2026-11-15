@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
-import { Cpu, Activity, Search, Command } from 'lucide-react';
+import { Cpu, Activity, Search, Command, LogOut } from 'lucide-react';
+import { useAuthStore } from '../../services/auth/tokenStore';
+import { logout } from '../../services/session/logout';
 import { useAgentStore } from '../../store/agentStore';
 import { GlobalSearchModal } from './GlobalSearchModal';
 import { ConnectionStatusChip } from './ConnectionStatusChip';
@@ -12,6 +14,7 @@ export const Header: React.FC = () => {
   const isSearchOpen = useUiStore((s) => s.overlay === 'search');
   const openOverlay = useUiStore((s) => s.openOverlay);
   const closeOverlay = useUiStore((s) => s.closeOverlay);
+  const hasToken = useAuthStore((s) => s.hasToken);
 
   const activeCount = agents.filter((a) => a.status === 'running').length;
   const thinkingCount = agents.filter((a) => a.status === 'thinking').length;
@@ -72,6 +75,18 @@ export const Header: React.FC = () => {
               Ctrl+Shift+F
             </kbd>
           </button>
+
+          {hasToken && (
+            <button
+              type="button"
+              onClick={() => logout()}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#090d16] hover:bg-slate-900 border border-slate-800 hover:border-red-500/50 text-slate-300 hover:text-red-300 transition text-xs shadow-sm"
+              title="Ends the session: closes the connection and clears the roster, logs and token for this tab"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="font-medium">Log out</span>
+            </button>
+          )}
 
           <div className="h-4 w-[1px] bg-slate-800" />
 
