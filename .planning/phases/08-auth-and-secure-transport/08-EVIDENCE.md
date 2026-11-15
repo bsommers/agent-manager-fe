@@ -50,4 +50,20 @@ Per-step results from a human run: not yet recorded.
 
 ## C. Gate results
 
-<!-- gsd:write-continue -->
+| # | Command | Exit | Result |
+|---|---------|------|--------|
+| 1 | `npm run build:protocol && npm test` | 0 | 113 files passed, 2281 tests passed, 2 todo (Phase 21 hand-offs); includes the server suite |
+| 2 | `npx tsc --noEmit` (root) | 0 | clean |
+| 3 | `npx tsc --noEmit` (server) | 0 | clean |
+| 4 | `npm run build` | 0 | clean |
+| 5 | `npm --prefix server test` | 0 | 33 files, 845 tests passed |
+| 6 | `npm --prefix server run build` | 0 | clean |
+| 7 | `npm run build:protocol` | 0 | clean |
+| 8 | `npm run contract:check` | 0 | OK relative to HEAD (no surface change) |
+| 9 | `node server/scripts/smoke-auth.mjs` | 0 | 9 passed, 0 failed |
+| 10 | `node .planning/tools/check-wave-collisions.mjs --pending` | 0 | wave 13: 08-05 alone, disjoint ownership |
+| 11 | stale-sentence gate (`grep -rn` for the six baseline patterns over docs, server/README.md, README.md) | prints nothing | 0 matching lines (baseline 6 in 3 files) |
+
+The known `hardening.test.ts` "never terminates a responsive client" flake did not occur.
+
+No file under `src/`, `server/src`, `packages/`, root `package.json`, lockfiles or `.github/` changed in this plan.
