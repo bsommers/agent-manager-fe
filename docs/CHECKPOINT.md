@@ -48,3 +48,6 @@
 - 08-EVIDENCE.md: 12 browser QA steps PENDING-HUMAN (7, 11 pass via smoke; 2, 5 server-side only).
 - Remaining for Phase 8: code review, verify, live QA on 18090/13000, STATE.md + REQUIREMENTS INT-02 tick. Hand-offs: Phase 13 keys `agent-manager.*`; Phase 21 Copy diagnostics via redact.ts.
 - Push needs fresh "yes".
+
+## Refresh (verified): tree clean, master 35 ahead of origin (84193b1), single worktree, no background jobs.
+- Next step: "review and verify" for Phase 8 (code-review + verifier agents, sonnet, parallel), then live QA 18090/13000, then STATE.md + INT-02 tick. Push only on fresh "yes".
