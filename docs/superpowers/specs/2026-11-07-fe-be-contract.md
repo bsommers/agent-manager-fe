@@ -14,10 +14,10 @@ Keywords MUST, SHOULD, MAY are used in the RFC 2119 sense.
 | Topic | Decision |
 |---|---|
 | Canonical port | **8088**. Matches `server/src/config.ts`, `agentSocket.ts`, `docs/RUNNING.md` and ADR-006 (8080 is routinely occupied on dev machines). The 8080 in the August backend design/plan is superseded. |
-| Canonical host (bind) | `127.0.0.1` by default. Non-loopback bind is refused until token auth ships (Phase 8). |
+| Canonical host (bind) | `127.0.0.1` by default. Non-loopback bind is refused unless `AGENT_MANAGER_TOKEN` is set (24 to 512 printable ASCII characters). |
 | Endpoints | One origin, one port: WS `/ws`, HTTP `/api/*`, legacy `GET /health`. |
 | FE configuration | `VITE_BACKEND_URL` (origin, default `http://localhost:8088`). `VITE_WS_URL` stays as a deprecated alias (full `ws://` URL) used only when `VITE_BACKEND_URL` is unset. `VITE_DEMO_MODE=1` selects explicit Demo mode. |
-| Server configuration | `PORT` (8088), `HOST` (127.0.0.1), `ALLOWED_ORIGINS`, `AGENT_MANAGER_TOKEN` (Phase 8). |
+| Server configuration | `PORT` (8088), `HOST` (127.0.0.1), `ALLOWED_ORIGINS`, `AGENT_MANAGER_TOKEN`, `AGENT_MANAGER_TRUST_PROXY`. |
 | Auth | First WS message `hello` carries the token; HTTP uses `Authorization: Bearer`. Tokens never appear in URLs. |
 | Versioning | Integer `contract` major (currently 1) in `hello`/`hello_ack`. Additive changes are announced through capability flags, not minor numbers. |
 | Shared schema | `packages/protocol`. Neither side imports from the other's source tree. |
@@ -36,7 +36,7 @@ Keywords MUST, SHOULD, MAY are used in the RFC 2119 sense.
 | HTTP API | `http://localhost:8088/api/...` | `Content-Type: application/json` required on bodies. |
 | Legacy health | `GET /health` | Unchanged `{status, agents, timestamp}`. Kept for the whole of contract 1. |
 
-Remote use MUST be `wss://`/`https://` (typically a reverse proxy in front of the loopback-bound gateway). The FE refuses plain `ws://` to a non-loopback host (Phase 8).
+Remote use MUST be `wss://`/`https://` (typically a reverse proxy in front of the loopback-bound gateway). The FE refuses plain `ws://` to a non-loopback host.
 
 ### 2.2 Connection states (FE)
 
@@ -45,10 +45,10 @@ Remote use MUST be `wss://`/`https://` (typically a reverse proxy in front of th
 | State | Meaning |
 |---|---|
 | `connecting` | First attempt in flight. |
-| `open` | Socket open (and, for contract 1 gateways, `hello_ack` received). |
+| `open` | Socket open. It is reported when the socket opens, not after `hello_ack`; with a token set, a missing `hello_ack` within 3 s ends in `auth_failed`, so a rejected token shows a brief `open` before `auth_failed`. |
 | `reconnecting` | Socket lost; backoff timer or attempt in flight. |
 | `closed` | Deliberate disconnect or retry budget exhausted. |
-| `auth_failed` | Gateway closed with 4401 or answered `UNAUTHENTICATED`. No automatic retry until the token changes. |
+| `auth_failed` | Gateway closed with 4401, answered `UNAUTHENTICATED`, or (with a token set) sent no `hello_ack` within 3 s. No automatic retry until the user submits a token. |
 
 The FE connection store additionally records `mode: 'live' | 'demo'`. Demo mode is explicit (`VITE_DEMO_MODE=1` or `?demo=1`); no failure path may enter it. In Demo mode output is simulated and the UI MUST say so.
 
@@ -70,15 +70,15 @@ Application-level because browsers cannot observe WS ping frames:
 ```
 client                                   gateway
   | -- WS upgrade (Origin checked) ------> |
-  | <-- (no token configured) agent:init_list   [legacy-compatible snapshot]
+  | <-- (no token configured) agent:init_list   [sent once, on connect]
   | -- hello {contract, token?, epoch?, resumeFrom?} -> |
   | <-- hello_ack {contract, epoch, auth, limits, backends} |
-  | <-- agent:init_list                    |
+  | <-- (token configured) agent:init_list      [sent once, after hello_ack]
   | <-- agent:output {replay:true}* / agent:gap* (per resumeFrom) |
 ```
 
-- A gateway with `AGENT_MANAGER_TOKEN` set sends nothing until a valid `hello` arrives. First message not a valid `hello`, or no `hello` within 5 s: close **4401**. Token comparison MUST be constant-time.
-- A gateway without a token sends `agent:init_list` immediately (legacy behavior) and again after `hello_ack`. The FE treats `agent:init_list` as an idempotent full snapshot.
+- A gateway with `AGENT_MANAGER_TOKEN` set sends nothing until a valid `hello` arrives, and registers the socket for roster and broadcast traffic only after it. First message not a valid `hello`, a first frame over 16 KiB, or no `hello` within 5 s: close **4401** (reason `unauthenticated`). Token comparison MUST be constant-time. Only a wrong token counts toward the failure throttle; a missing token, a malformed or oversize frame and the deadline do not.
+- `agent:init_list` is sent once per connection. A gateway without a token sends it immediately on connect (legacy behavior) and answers a later `hello` with `hello_ack` only, without re-sending the snapshot. A gateway with a token sends it right after `hello_ack`. The FE still treats `agent:init_list` as an idempotent full snapshot.
 - If a FE has a token configured and receives no `hello_ack` within 3 s, it MUST NOT proceed (state `auth_failed`, message "gateway did not acknowledge authentication").
 - If a FE has no token configured and receives no `hello_ack` within 3 s, it proceeds as a contract-0 (legacy) gateway with default capabilities (section 9.3).
 
@@ -90,6 +90,8 @@ client                                   gateway
 | 4401 | Unauthenticated / hello timeout | `auth_failed`, no auto-retry. |
 | 4429 | Rate limited | Back off at least the advertised `retryAfterMs`. |
 | other / abnormal | Network loss | `reconnecting`. |
+
+The 4401 close reason is `unauthenticated`. The 4429 close reason is `retry-after-ms=N` (milliseconds until the lock lapses); the HTTP form is `429 RATE_LIMITED` with a `Retry-After` header in seconds.
 
 ---
 
@@ -172,7 +174,7 @@ Rules:
   - `agent:create.backend` is a lowercase token of at most 64 characters; `params` has at most 32 entries, keys of at most 64 characters, values that are strings of at most 1024 characters, finite numbers or booleans. Consumers still validate `params` against the backend `AgentSpec`.
   - `reqId` is 1..128 characters wherever it appears.
 - Responses go only to the requesting connection (`agent:ack`, `agent:history_chunk`); state changes (`agent:added`, `agent:removed`, `agent:updated`, `agent:status_change`, `agent:output`) go to every connection.
-- Roster announcements (gateway, Phase 6): `agent:init_list` is sent to a connection when it connects (and again after `hello_ack` once Phase 8 lands) and at no other time; the gateway no longer broadcasts a snapshot after a create, close or kill. `agent:added` (a create), `agent:removed` (a close or a session kill, `reason: 'killed'` in this build; a close only says the agent left the roster and never ends its tmux session) and `agent:updated` (a rename or retag) announce each change to every connection, requester included. The requester's `agent:ack` is a response to it alone and may arrive before or after the event, so a client applies both idempotently: an `agent:added` for a known id replaces the record, and an `agent:removed` or `agent:updated` for an unknown id is ignored. A failed or refused operation announces nothing. A driver exit is not a removal: it is an `agent:status_change` `disconnected` and the agent stays listed (and in later snapshots) until closed. After a reconnect the connect snapshot is the single source of truth; missed events are not replayed (Phase 11 adds `seq` and resume).
+- Roster announcements (gateway, Phase 6): `agent:init_list` is sent to a connection when it connects (after `hello_ack` when a token is configured; once per connection either way) and at no other time; the gateway no longer broadcasts a snapshot after a create, close or kill. `agent:added` (a create), `agent:removed` (a close or a session kill, `reason: 'killed'` in this build; a close only says the agent left the roster and never ends its tmux session) and `agent:updated` (a rename or retag) announce each change to every connection, requester included. The requester's `agent:ack` is a response to it alone and may arrive before or after the event, so a client applies both idempotently: an `agent:added` for a known id replaces the record, and an `agent:removed` or `agent:updated` for an unknown id is ignored. A failed or refused operation announces nothing. A driver exit is not a removal: it is an `agent:status_change` `disconnected` and the agent stays listed (and in later snapshots) until closed. After a reconnect the connect snapshot is the single source of truth; missed events are not replayed (Phase 11 adds `seq` and resume).
 
 ### 4.3 Operations catalog
 
@@ -285,7 +287,7 @@ An operation flagged `destructive` in the catalog names a `confirmParam`. The ga
 - A refusal is `agent:error` `USAGE` to the requester only on WS and a `400` `USAGE` error envelope on HTTP. The message form is `<field> requires <confirmParam>: true` (for `agent.kill`: `killSession requires confirm: true`). Nothing runs on a refusal: no registry lookup, no process, no driver close, no roster change, and nothing is stored for idempotency, so the same `reqId` or `Idempotency-Key` can be retried with a valid confirmation.
 - The check precedes every lookup, so an unknown agent id without confirmation is `USAGE`, and with confirmation `NOT_FOUND`.
 - The rule set is derived from the catalog at startup. A destructive operation with no `confirmParam` stops the gateway from starting; a new destructive operation needs only the flag and the parameter.
-- `confirm` is an explicit-intent gate against accidental callers (scripts, devtools, a UI regression). It is not authentication: any client that can reach the gateway can set it. Authentication is Phase 8.
+- `confirm` is an explicit-intent gate against accidental callers (scripts, devtools, a UI regression). It is not authentication: any client that can reach the gateway can set it. It sits behind token authentication (section 2.5, section 7) and does not replace it.
 - The UI confirmation modal only sets the parameter; the gateway is the check. The service layer repeats the gate (defense in depth) so a direct call cannot skip it.
 - HTTP form: `POST /api/agents/:id/kill` with body `{ "confirm": true }` and an optional `Idempotency-Key`. The route implies `killSession`; a body `killSession` is ignored; the confirmation is never read from the path or the query. `DELETE /api/agents/:id` stays `agent.close` and never touches tmux.
 
@@ -293,7 +295,7 @@ An operation flagged `destructive` in the catalog names a `confirmParam`. The ga
 
 ## 7. HTTP API
 
-All routes except `GET /health` and the minimal form of `GET /api/health` require `Authorization: Bearer <token>` when a token is configured. Success bodies carry `"ok": true`.
+All routes except `GET /health` and the minimal form of `GET /api/health` require `Authorization: Bearer <token>` when a token is configured. Health has three forms: legacy `GET /health` (drops `agents` when a token is configured), `GET /api/health` without an `Authorization` header (the minimal form, no `agents`), and `GET /api/health` with a valid Bearer (adds `agents`); a wrong Bearer on `/api/health` is a `401 UNAUTHENTICATED` that counts toward the throttle. Missing or wrong credentials are `401 UNAUTHENTICATED` with `WWW-Authenticate: Bearer`; a throttled source is `429 RATE_LIMITED`. Success bodies carry `"ok": true`.
 
 | Route | Request | Response | Phase |
 |---|---|---|---|
@@ -384,10 +386,10 @@ Gateway rules: credentials for backends (cvmd token) stay server-side and never 
 
 ## 11. Security requirements
 
-1. Bind `127.0.0.1` by default. Binding a non-loopback `HOST` is refused unless token auth is active (Phase 8); until then it is refused unconditionally (Phase 4).
+1. Bind `127.0.0.1` by default. Binding a non-loopback `HOST` is refused unless a valid `AGENT_MANAGER_TOKEN` (24 to 512 printable ASCII characters, validated whenever it is set) is configured. TLS is terminated by a reverse proxy; the gateway speaks plain HTTP and WS.
 2. WS upgrade checks `Origin` against `ALLOWED_ORIGINS` (default `http://localhost:3000,http://127.0.0.1:3000,http://localhost:4173,http://127.0.0.1:4173`). A missing `Origin` (non-browser client) is allowed; a present but unlisted one gets HTTP 403.
 3. Frame cap 1 MiB; input cap 64 KiB; broadcast target cap 64; per-connection rate limit returns `RATE_LIMITED`.
-4. Tokens: never in a URL, a log line, an error message or diagnostics export. FE keeps the token in memory by default; persisting it is an explicit opt-in. Logout clears roster, log buffers and token.
+4. Tokens: never in a URL, a log line, an error message or diagnostics export. FE keeps the token in memory and in the tab's `sessionStorage` (key `agent-manager.token`), never in persistent storage. Logout clears roster, log buffers and token, and removes every `agent-manager.` storage key.
 5. Malformed frames never crash either side: they are dropped, counted and (gateway) answered with `agent:error USAGE` when a `reqId` is present.
 6. Logs are redacted per adapter before persistence where the backend provides a redaction rule; persistence has a per-agent size cap and rotation.
 7. Terminal links are opened with `rel="noopener noreferrer"`; the app ships a CSP (Phase 21).
@@ -471,3 +473,4 @@ packages/protocol/            @agent-manager/protocol
 | 18 | - | - | `agent:kill` carries two catalogued operations, `agent.close` (killSession absent or false) and `agent.kill` (killSession true, destructive, requires `confirm`). The HTTP kill form is left to Phase 6, which adds it additively. |
 | 20 | - | A destructive operation's policy was a check inside one handler, with no HTTP form | Phase 6 derives the policy from the catalog's `destructive` flag and `confirmParam` in one gateway stage shared by WS and HTTP (section 6.5), and adds `POST /api/agents/:id/kill` with body `{ confirm: true }` (additive, a binding added; no `CONTRACT_VERSION` bump). `confirm` is explicit intent, not authentication. |
 | 19 | Full `agent:init_list` snapshot after every mutation | Contract defines `agent:added/removed/updated` for Phase 6 | Events replace post-mutation snapshots; `agent:init_list` on connect only. A snapshot per change costs O(roster) per client and invites treating it as an acknowledgement; the events are idempotent by agent id and a reconnect resyncs from the one snapshot. A pre-Phase-6 FE (snapshots only) keeps a stale roster until it reconnects; FE and gateway of this repository ship together. |
+| 21 | - | `open` before or after `hello_ack` | Immediate `open` plus a 3 s `hello_ack` watchdog when a token is set (a brief `open` can precede `auth_failed`); `agent:init_list` is sent once per connection (after `hello_ack` with a token, on connect without). Supersedes the "again after `hello_ack`" sentence of the original 2.5. |

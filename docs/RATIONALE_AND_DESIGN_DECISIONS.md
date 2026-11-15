@@ -224,6 +224,8 @@ Accepted on 2026-11-08 (GW-04, first half).
 ### Status
 Accepted on 2026-11-08 (INT-03). Supersedes the name-based reconciliation of ADR-008 (the Phase 10 slice).
 
+Updated by ADR-013: agent:init_list is sent once per connection, after hello_ack when a token is set.
+
 ### Context
 ADR-008 matched a pending create to the roster by name, mode and targetHost, so a pane could attach to another client's identical agent. Failures had no types, the gateway answered every mutation with a full `agent:init_list` snapshot, and a request caught by a disconnect was silently lost.
 
@@ -264,9 +266,47 @@ Phase 09.1 made the gateway refuse `agent:kill { killSession: true }` without `c
 ### Consequences
 - **Pros**: a new destructive operation needs only the catalog flag and a confirm parameter, and the walk test covers it; no surface can skip the check; the FE modal is pure UX.
 - **Cons**: one more route in the public contract and the surface snapshot (a costly-to-reverse addition).
-- **Residual risk**: `confirm` is asserted by the client. It stops accidents, not a caller that can reach the gateway; authentication is Phase 8.
+- **Residual risk**: `confirm` is asserted by the client. It stops accidents, not a caller that can reach the gateway; token authentication (ADR-013) now sits in front of the gateway when `AGENT_MANAGER_TOKEN` is set, and `confirm` does not replace it.
 
 ### Alternatives considered
 - Per-handler checks: the shape that already drifted; each new surface repeats the check.
 - A confirmation token round trip (server issues a token, client echoes it): stronger against replays but adds state and a second request for a single-user local tool; revisit with authentication.
 - FE-only confirmation: not a safety boundary, since scripts and other clients bypass the UI.
+
+---
+
+## ADR-013: Token Auth in the Hello Body, TLS at the Proxy, Bind Policy (Phase 8)
+
+### Status
+Accepted on 2026-11-15 (INT-02).
+
+### Context
+Until Phase 8 the gateway had no authentication and refused every non-loopback `HOST`, so the only remote path was an SSH port forward. Remote access needs a credential on both surfaces (WebSocket and `/api`), a failure mode the UI can handle without a reconnect storm, and a place for TLS. The `hello` message already carried an optional `token` (pinned in Phase 2), so the contract did not need to change.
+
+### Decision
+- A shared-secret token is sent in the `hello` body. Never a URL, query string, subprotocol, cookie or one-time ticket: those leak into logs, history and referrers.
+- The gateway registers a socket for broadcast and the roster only after a valid `hello`; an unauthenticated socket receives nothing and no frame other than the hello is processed. Failures close `4401` (reason `unauthenticated`); a throttled source closes `4429` (reason `retry-after-ms=N`).
+- One bounded per-source throttle is shared by WebSocket and HTTP: 5 wrong tokens in 60 s lock the source for 60 s, doubling to 15 min; 10 000 tracked sources; IPv6 keyed by /64. Only wrong tokens count. Behind a proxy, `AGENT_MANAGER_TRUST_PROXY=1` keys the throttle by the last `X-Forwarded-For` entry when the peer is loopback; the documented nginx example overwrites that header so the last entry cannot be client-supplied.
+- `/api` requires `Authorization: Bearer <token>` on every route except the minimal `GET /api/health`. Health has three forms (legacy `/health` without `agents` when a token is set; minimal `/api/health`; `/api/health` with a Bearer adding `agents`); a wrong Bearer on health is a counted 401 so the extra field is not an unthrottled oracle.
+- Tokens are compared as SHA-256 digests with `timingSafeEqual`.
+- Token rules: 24 to 512 printable ASCII characters, validated whenever set (loopback too), never trimmed, empty means unset. A non-loopback `HOST` requires a valid token or start-up is refused.
+- TLS is terminated by a reverse proxy (D-09); the gateway speaks plain HTTP and WS and in-gateway TLS is not built. The FE refuses `ws://` to any non-loopback host (D-11).
+- The FE keeps the token in memory plus `sessionStorage` (D-01); logout closes sockets, empties the stores and sweeps every `agent-manager.`-prefixed storage key (D-03).
+- The FE reports `open` as soon as the socket opens and runs a 3 s `hello_ack` watchdog instead of opening only after the ack (a deviation from the original spec 2.2 wording; reasoning: the transport's state machine and its heartbeat start at socket open, and a watchdog gives the same guarantee, `auth_failed` with no retry, without a second pre-open state).
+- `agent:init_list` is sent once per connection (after `hello_ack` when a token is set), not again after `hello_ack` as the original 2.5 said.
+- The pre-auth first frame is capped at 16 KiB.
+- The contract is unchanged: the `hello` shape was already pinned in Phase 2, and `hello_ack` already carried `auth.required`.
+
+### Consequences
+- **Pros**: no new dependency; one module per concern (digest guard, handshake verdict, throttle); local use is unchanged (no token, loopback); the same credential works for scripts over `/api`; the token never appears in a URL or a log, test-asserted with canary values.
+- **Cons**: a shared secret, not a per-user identity; no rotation or revocation beyond restarting with a new token; the UI can show a brief Connected state before a 4401; `sessionStorage` is readable by same-origin script, so an XSS in the UI exposes the token (the CSP lands in Phase 21); when no trusted proxy header is available the throttle key is shared by every client behind that proxy.
+- **Residual risk**: the operator must set up the proxy correctly. The docs give a working nginx example and the troubleshooting entries for the common mistakes (Host header, appended `X-Forwarded-For`, origin list).
+
+### Alternatives considered
+- Token in the URL or a WebSocket subprotocol: leaks into proxy and access logs and browser history.
+- A one-time ticket obtained over HTTP: more moving parts and state for a single-user tool.
+- A cookie session: brings CSRF handling and a login surface the gateway does not otherwise need.
+- Per-user accounts or OIDC: out of scope for a single-operator gateway; revisit with multi-user needs.
+- In-gateway TLS: certificate handling and renewal belong to the proxy the operator already runs.
+- Strict open-after-ack: reporting `open` only after `hello_ack` would add a pre-open state to the transport for no extra guarantee over the watchdog.
+- Rate limiting by token rather than by source: it would treat the secret as an identifier and let one attacker lock out the legitimate holder.

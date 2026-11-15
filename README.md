@@ -154,6 +154,12 @@ npm run start:frontend
 
 ---
 
+## 🔐 Authentication and Remote Access
+
+Local use is zero-config: the gateway binds loopback and needs no token. Set `AGENT_MANAGER_TOKEN` (24 to 512 printable ASCII characters) to require a token on the WebSocket (`hello`) and on `/api` (`Authorization: Bearer`); a non-loopback `HOST` is refused without one. TLS is the reverse proxy's job; the gateway speaks plain HTTP/WS. See [docs/RUNNING.md](docs/RUNNING.md) for setup, an nginx TLS example and troubleshooting.
+
+---
+
 ## 🧪 Testing & Verification
 
 Run the full-stack test suite across both frontend and backend repositories:

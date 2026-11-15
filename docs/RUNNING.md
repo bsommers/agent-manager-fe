@@ -83,7 +83,9 @@ Both backend and frontend can be customized via environment variables:
 | Variable | Default Value | Description |
 | :--- | :--- | :--- |
 | `PORT` | `8088` | HTTP & WebSocket server port |
-| `HOST` | `127.0.0.1` | Interface the gateway binds to. A non-loopback value is refused until token authentication ships (Phase 8) |
+| `HOST` | `127.0.0.1` | Interface the gateway binds to. A non-loopback value is accepted only when `AGENT_MANAGER_TOKEN` is set; otherwise start-up is refused with a message naming `HOST` and `AGENT_MANAGER_TOKEN` |
+| `AGENT_MANAGER_TOKEN` | *(unset)* | Shared secret. Unset or empty means no authentication (zero-config local use, loopback only). When set it must be 24 to 512 printable ASCII characters (no spaces or control characters, a trailing newline counts), is checked even on loopback, and is never trimmed. Generate one with `openssl rand -base64 32`. Load it from a secret store or an untracked env file; do not put it on a command line other users can read |
+| `AGENT_MANAGER_TRUST_PROXY` | `0` | `1`/`true` or `0`/`false`. When on and the socket peer is loopback (your reverse proxy), the auth throttle is keyed by the last `X-Forwarded-For` entry instead of the peer address. Turn it on only behind a proxy that overwrites that header (see the nginx example below) |
 | `ALLOWED_ORIGINS` | Vite dev and preview origins on `localhost` and `127.0.0.1` | Comma-separated browser origins allowed to open the WebSocket; other origins are rejected with HTTP 403 |
 | `SHELL` | `/bin/bash` | Default shell binary used by PTY driver |
 | `SSH_AUTH_SOCK` | System `SSH_AUTH_SOCK` | Path to active SSH agent socket |
@@ -108,15 +110,92 @@ VITE_BACKEND_URL=http://localhost:9090 npm run start:frontend
 
 For the gateway's security model and variables see [server/README.md](../server/README.md).
 
+### Authentication
+
+Local use stays zero-config: with `AGENT_MANAGER_TOKEN` unset the gateway binds loopback and needs no token. Set the variable and authentication is enforced on every surface, including loopback:
+
+```bash
+# Read the secret from a store or an untracked file; never commit it.
+export AGENT_MANAGER_TOKEN="$(openssl rand -base64 32)"
+npm run start:backend
+```
+
+- **WebSocket**: with a token, the gateway sends nothing until the first frame is a valid `hello` carrying the token (`{ "type": "hello", "contract": 1, "token": "..." }`) within 5 seconds. It answers `hello_ack` (contract, epoch, `auth.required`, limits, backends) and then `agent:init_list`. A wrong, missing or malformed token, a first frame over 16 KiB, a first frame that is not a `hello` and the 5 second deadline all close the socket with code `4401` (reason `unauthenticated`).
+- **HTTP**: every `/api` route except the minimal `GET /api/health` needs `Authorization: Bearer <token>`; otherwise `401 UNAUTHENTICATED` with `WWW-Authenticate: Bearer`. The token is never read from a URL, cookie or body.
+- **Health**: `GET /api/health` without a header returns the minimal form (`ok`, `contract`, `epoch`, `backends`); with a valid Bearer it also returns `agents`; a wrong Bearer is a counted `401`. The legacy `GET /health` drops `agents` when a token is set.
+- **Throttle**: 5 wrong tokens within 60 seconds from one source lock it for 60 seconds, doubling up to 15 minutes. A locked source gets close code `4429` (reason `retry-after-ms=N`) on WebSocket and `429 RATE_LIMITED` with `Retry-After` on HTTP, even with the right token. Only wrong tokens count. WebSocket and HTTP share one table (at most 10 000 sources; IPv6 sources are keyed by their /64).
+- **Logging**: the token, frames and headers are never logged; JSON parse errors are reported with a fixed message.
+- **Bind rule**: a non-loopback `HOST` needs a valid token, otherwise the gateway refuses to start.
+
+To query a running gateway without putting the token on the command line, write it from the environment into a private curl config file:
+
+```bash
+umask 077
+printf 'header = "Authorization: Bearer %s"\n' "$AGENT_MANAGER_TOKEN" > "$HOME/.agent-manager-curl"
+curl -s -K "$HOME/.agent-manager-curl" "http://127.0.0.1:$PORT/api/agents"
+```
+
+(A `-H` header value is visible in the process list for the duration of the command.)
+
+`server/scripts/smoke-auth.mjs` runs the built gateway on free ports and verifies all of the above end to end (`npm --prefix server run build && node server/scripts/smoke-auth.mjs`).
+
 ### Remote access
 
-Pointing the frontend at a non-loopback `ws://` address is not supported directly: the gateway binds to loopback only and has no authentication or TLS until Phase 8. Until then, use an SSH local port forward to the loopback-bound gateway:
+Two supported ways to reach a gateway from another machine. The gateway itself speaks plain HTTP and WS only; **TLS is terminated by a reverse proxy and in-gateway TLS is not built** (decision D-09).
+
+**1. SSH local port forward (zero config).** Keep the gateway on loopback and forward its port:
 
 ```bash
 ssh -L 8088:127.0.0.1:8088 user@remote-host
 ```
 
 Then open the frontend locally; it keeps talking to `http://localhost:8088`.
+
+**2. Token plus a TLS reverse proxy.** The gateway stays on loopback behind the proxy with `AGENT_MANAGER_TOKEN` set and `AGENT_MANAGER_TRUST_PROXY=1`. List the UI's https origin in `ALLOWED_ORIGINS` (the WebSocket upgrade and mutating `/api` calls check `Origin`), and build the frontend with `VITE_BACKEND_URL` set to the https gateway origin. The frontend refuses `http://` / `ws://` to any non-loopback host, so a plaintext remote backend shows a configuration error and opens no socket.
+
+Example nginx server block. It assumes the gateway runs with `PORT=9090` on `127.0.0.1`; match the port to your `PORT`. Nothing here asks you to move or stop whatever already listens elsewhere.
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name agent.example.com;
+
+    # Point these at your certificate files.
+    ssl_certificate     /etc/ssl/agent.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/agent.example.com/privkey.pem;
+
+    location /ws {
+        proxy_pass http://127.0.0.1:9090;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        # The gateway's DNS-rebinding guard accepts only loopback names (or the configured HOST) here.
+        proxy_set_header Host 127.0.0.1:9090;
+        # OVERWRITE, never append: the gateway keys its throttle on the last entry, so the last entry
+        # must be the address nginx saw, not a value the client supplied.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        # Keep an idle terminal socket open (the gateway pings every 30 s).
+        proxy_read_timeout 3600s;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:9090;
+        proxy_set_header Host 127.0.0.1:9090;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+}
+```
+
+With that proxy, start the gateway as:
+
+```bash
+PORT=9090 AGENT_MANAGER_TRUST_PROXY=1 ALLOWED_ORIGINS=https://agent.example.com \
+  AGENT_MANAGER_TOKEN="$(cat /path/to/secret)" npm run start:backend
+```
+
+Leave `AGENT_MANAGER_TRUST_PROXY` off without such a proxy: with it on, a proxy that appends to `X-Forwarded-For` (or a client that can reach the gateway from loopback itself) lets a client pick its own throttle key. With it off behind a proxy, all clients share one throttle key (see Troubleshooting).
+
+In the browser: the token dialog opens on authentication failure, the token is kept in the tab's session storage (key `agent-manager.token`) and cleared on **Log out** or when the tab closes, and **Log out** is in the header and the command palette while a token is set. Log out empties the roster, log buffers and the token, and removes every `agent-manager.*` storage key.
 
 ### Connection states
 
@@ -128,7 +207,7 @@ The header chip and the banner below it always show the true connection state:
 | **Connected** | none | Live and healthy |
 | **Reconnecting (attempt N)** | "Connection lost", countdown and a **Retry now** button | The link dropped; the client retries with jittered exponential backoff and a heartbeat |
 | **Disconnected** | "Disconnected from backend" with a **Reconnect** button | Retries stopped; click Reconnect to try again |
-| **Auth failed** | "Authentication failed" | The backend rejected the connection; no retry is offered |
+| **Auth failed** | "Authentication failed" with an **Enter token** button | The gateway closed the socket with `4401` (wrong or missing token), or did not acknowledge the hello within 3 seconds. The client stops retrying until you submit a token in the dialog |
 | **DEMO** | "Demo mode" | Explicit Demo mode: output is simulated and no backend is connected |
 
 ### Agent roster
@@ -198,3 +277,23 @@ npm run build && cd server && npm run build
 ### Issue 7: A closed agent's tmux session is still running
 - **Cause**: Closing an agent never kills its tmux session, by design.
 - **Solution**: Use "Kill tmux session..." in the pane footer before closing. From a terminal you can list sessions with `tmux list-sessions` and end one with `tmux kill-session -t <name>`. Use this manual alternative too for sessions whose names contain spaces or other unusual characters (the gateway refuses to kill those) and for sessions that have no agent.
+
+### Issue 8: The gateway refuses to start naming `HOST` or `AGENT_MANAGER_TOKEN`
+- **Cause**: `HOST` is not a loopback address and no token is set, or the token is shorter than 24 or longer than 512 characters, or contains a space, a non-ASCII character or a control character. A trailing newline (for example from `echo` or an env file) counts as a control character; the gateway never trims the secret.
+- **Solution**: Set a valid token (`openssl rand -base64 32`; use `printf %s` when writing it to a file so no newline is added) or bind `127.0.0.1`. The message states the rule but never the value.
+
+### Issue 9: "Authentication failed" again after entering the token
+- **Cause**: The token differs from the gateway's (check for a stale shell or a trailing newline), or the source is throttled after repeated wrong tokens, or the proxy sends a `Host` the gateway rejects.
+- **Solution**: Re-enter the token. If the connection is closed with `4429`, wait for the lock to lapse (60 seconds at first). Check the proxy's `Host` line (Issue 12).
+
+### Issue 10: Everyone is locked out (`4429` / `429`) behind a proxy
+- **Cause**: `AGENT_MANAGER_TRUST_PROXY` is off, so every proxied client has the proxy's loopback address as its source and they share one throttle key.
+- **Solution**: Use a proxy that overwrites `X-Forwarded-For` with `$remote_addr` (example above) and start the gateway with `AGENT_MANAGER_TRUST_PROXY=1`.
+
+### Issue 11: "gateway did not acknowledge authentication" or "Plaintext ws:// ... is refused"
+- **Cause**: For the first, the gateway is older than the authentication phase, or something between the browser and the gateway blocks the first frame; the client gives up after 3 seconds. For the second, `VITE_BACKEND_URL` is `http://` to a non-loopback host.
+- **Solution**: Run a current gateway and check the proxy forwards WebSocket frames. Use an `https://` backend URL behind TLS, or a loopback host.
+
+### Issue 12: `403 host not allowed` or `403 Origin not allowed` through the proxy
+- **Cause**: The proxy forwards the public `Host` (the gateway accepts only `127.0.0.1`, `localhost`, `[::1]` or the configured `HOST`), or the browser origin is missing from `ALLOWED_ORIGINS` (the upgrade is refused with HTTP 403).
+- **Solution**: Set `proxy_set_header Host 127.0.0.1:<gateway port>;` and add the UI's exact https origin to `ALLOWED_ORIGINS`.

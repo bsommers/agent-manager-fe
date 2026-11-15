@@ -110,6 +110,49 @@ sequenceDiagram
     Term-->>User: Renders ANSI formatted terminal output on Canvas
 ```
 
+### 2.3 Authentication and secure transport (Phase 8)
+
+With `AGENT_MANAGER_TOKEN` set, a socket is not part of the roster or broadcast set until it proves it holds the token. TLS is the reverse proxy's job; the gateway itself speaks plain HTTP and WS (ADR-013).
+
+```mermaid
+sequenceDiagram
+    participant UI as Frontend (Transport)
+    participant Proxy as Reverse proxy (TLS, optional)
+    participant GW as Gateway (index.ts)
+    participant Th as Throttle (shared WS + HTTP)
+
+    UI->>Proxy: wss upgrade (Origin checked at the gateway)
+    Proxy->>GW: ws upgrade, Host 127.0.0.1:PORT, X-Forwarded-For overwritten
+    GW->>Th: check(source)
+    alt source locked
+        GW-->>UI: close 4429 retry-after-ms=N
+    else open to hello
+        UI->>GW: hello { contract, token }  (within 5 s, at most 16 KiB)
+        alt valid token
+            GW-->>UI: hello_ack { contract, epoch, auth, limits, backends }
+            GW-->>UI: agent:init_list (once per connection)
+            Note over GW: socket added to the roster and broadcast set only now
+        else wrong token
+            GW->>Th: recordFailure(source)
+            GW-->>UI: close 4401 unauthenticated
+        else missing, malformed, not a hello, or deadline
+            GW-->>UI: close 4401 unauthenticated (not counted)
+        end
+    end
+```
+
+Rules worth knowing:
+
+- **Registration order.** `SessionManager.addClient` runs only after a valid hello, so an unauthenticated socket can never receive a roster or output.
+- **Throttle and proxy key.** One bounded table (5 wrong tokens per 60 s, lock 60 s doubling to 15 min, 10 000 sources, IPv6 by /64) is shared by WS and `/api`. With `AGENT_MANAGER_TRUST_PROXY=1` and a loopback peer the key is the last `X-Forwarded-For` entry, which is why the nginx example overwrites that header.
+- **HTTP.** `/api` requires `Authorization: Bearer <token>` except the minimal `GET /api/health`; the Host and Origin guards run first.
+- **Frontend.** `src/services/auth/tokenStore.ts` holds the token in memory and in `sessionStorage` (`agent-manager.token`). `Transport` latches `auth_failed` on a 4401 (or a missing `hello_ack` after 3 s) and does not retry; `TokenDialog` collects a new token and `submitToken` makes one connection attempt. `src/services/session/logout.ts` closes the sockets, resets the stores and removes every `agent-manager.`-prefixed key from session and local storage.
+
+Hand-offs for later phases:
+
+- Phase 21's "Copy diagnostics" export must pass its payload through `src/services/redact.ts` so the token never leaves the app.
+- Phase 13 workspace persistence must name every storage key `agent-manager.*` (for example `agent-manager.workspace`), because logout sweeps that prefix and nothing else.
+
 ---
 
 ## 3. Frontend Architecture
@@ -169,7 +212,7 @@ Transport-agnostic agent operations (ADR-010). It imports no WebSocket, Express 
 #### Destructive operation policy
 `server/src/gateway/policy.ts` derives the rules from the operations catalog (`destructiveRules`): one per operation whose `destructive` flag is true, carrying its `confirmParam`. A destructive operation without one stops the gateway from starting. `AgentApi.execute` (`dispatch.ts`) resolves the operation of each message and calls `checkDestructivePolicy` first, before the idempotency cache, any registry lookup and any process. A request whose confirm parameter is not exactly `true` is refused with `USAGE` (`agent:error` on WS, the error envelope on HTTP), nothing runs and nothing is cached. WS and HTTP share this single path, so a new surface gets the check by calling `execute`.
 
-`AgentService.destroy` keeps its own identical gate as defense in depth; it is called only from `dispatch.ts` (a static test enforces this). The HTTP form is `POST /api/agents/:id/kill` with body `{ "confirm": true }`; `DELETE /api/agents/:id` is the non-destructive close. `confirm` is explicit intent, not authentication (Phase 8). See ADR-012.
+`AgentService.destroy` keeps its own identical gate as defense in depth; it is called only from `dispatch.ts` (a static test enforces this). The HTTP form is `POST /api/agents/:id/kill` with body `{ "confirm": true }`; `DELETE /api/agents/:id` is the non-destructive close. `confirm` is an explicit-intent gate that sits behind token authentication (see ADR-013); it is not a substitute for it. See ADR-012.
 
 #### `serviceResult.ts`
 `ServiceError { code, message, retryable, agentId? }`, `ServiceResult<T>`, the `ok` and `fail` helpers and `errorFrame`, the single builder of `agent:error` frames. Every service error message is a fixed string; underlying error text goes only to the server log.
