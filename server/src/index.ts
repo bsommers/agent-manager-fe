@@ -10,10 +10,14 @@ import { createAuthGuard, safeLogError } from './gateway/auth.js';
 import { createAuthThrottle } from './gateway/authThrottle.js';
 import type { ThrottleOptions } from './gateway/authThrottle.js';
 import {
+  CLOSE_RATE_LIMITED,
   CLOSE_UNAUTHENTICATED,
+  HELLO_TIMEOUT_MS,
   UNAUTHENTICATED_REASON,
   buildHelloAck,
   checkHello,
+  clientKey,
+  rateLimitReason,
 } from './gateway/handshake.js';
 
 export interface BootstrapOptions {
@@ -114,13 +118,26 @@ export async function bootstrap(
   heartbeat.unref();
   wss.on('close', () => clearInterval(heartbeat));
 
-  wss.on('connection', (ws: WebSocket) => {
+  wss.on('connection', (ws: WebSocket, req) => {
     alive.set(ws, true);
     ws.on('pong', () => alive.set(ws, true));
 
     // With a token the socket is not in the broadcast set (and gets no roster) until a valid hello.
     let authed = guard === undefined;
     let closing = false;
+    let deadline: NodeJS.Timeout | undefined;
+    const clearDeadline = () => {
+      if (deadline) clearTimeout(deadline);
+      deadline = undefined;
+    };
+    // The query string of the upgrade request is never read: only the socket address and, with
+    // trustProxy on, the forwarded header decide the throttle key (D-06, D-08).
+    const key = guard ? clientKey(req, trustProxy) : '';
+    const refuse = (code: number, reason: string) => {
+      closing = true;
+      clearDeadline();
+      ws.close(code, reason);
+    };
     const ack = () => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(buildHelloAck({ epoch, authRequired: guard !== undefined })));
@@ -129,6 +146,7 @@ export async function bootstrap(
 
     // Listeners first, so any early close below leaves nothing unhandled.
     ws.on('close', () => {
+      clearDeadline();
       sessionManager.removeClient(ws);
     });
 
@@ -136,20 +154,45 @@ export async function bootstrap(
       // A label only: the error object can carry request text.
       const label = (err as NodeJS.ErrnoException).code ?? err.name;
       console.error('WebSocket client error:', label);
+      clearDeadline();
       sessionManager.removeClient(ws);
     });
 
-    if (authed) sessionManager.addClient(ws);
+    if (authed) {
+      sessionManager.addClient(ws);
+    } else {
+      // A locked source is refused before any frame is evaluated, even if it holds the right token.
+      const gate = throttle.check(key);
+      if (!gate.allowed) {
+        refuse(CLOSE_RATE_LIMITED, rateLimitReason(gate.retryAfterMs));
+        return;
+      }
+      // D-07: no valid hello in time closes 4401. unref'd so it never keeps the process alive.
+      deadline = setTimeout(() => {
+        deadline = undefined;
+        if (!authed && !closing) refuse(CLOSE_UNAUTHENTICATED, UNAUTHENTICATED_REASON);
+      }, options.helloTimeoutMs ?? HELLO_TIMEOUT_MS);
+      deadline.unref();
+    }
 
     ws.on('message', (data: string) => {
       if (!authed) {
+        // Pre-auth: nothing but a valid hello is processed, and nothing is logged.
         if (closing) return;
-        const verdict = checkHello(data.toString(), guard!);
-        if (verdict.kind === 'reject') {
-          closing = true;
-          ws.close(CLOSE_UNAUTHENTICATED, UNAUTHENTICATED_REASON);
+        const gate = throttle.check(key);
+        if (!gate.allowed) {
+          refuse(CLOSE_RATE_LIMITED, rateLimitReason(gate.retryAfterMs));
           return;
         }
+        const verdict = checkHello(data.toString(), guard!);
+        if (verdict.kind === 'reject') {
+          // Only a wrong token counts toward the throttle; missing, malformed and oversize do not.
+          if (verdict.reason === 'bad_token') throttle.recordFailure(key);
+          refuse(CLOSE_UNAUTHENTICATED, UNAUTHENTICATED_REASON);
+          return;
+        }
+        throttle.recordSuccess(key);
+        clearDeadline();
         authed = true;
         ack();
         sessionManager.addClient(ws);

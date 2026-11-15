@@ -1,6 +1,8 @@
 // WebSocket authentication over a real server (plan 08-02). Drivers and tmux are mocked; the port is 0.
 import { describe, it, expect, afterEach, vi } from 'vitest';
 
+const drivers = vi.hoisted(() => [] as Array<{ onData: (data: string) => void }>);
+
 vi.mock('../src/services/TmuxDiscovery.js', () => ({
   discoverTmuxSessions: vi.fn().mockResolvedValue([]),
 }));
@@ -10,10 +12,12 @@ vi.mock('../src/services/TmuxDriver.js', () => ({
     _session: string,
     _cols: number,
     _rows: number,
-    _onData: (data: string) => void,
+    onData: (data: string) => void,
     _onExit: (code: number) => void
   ) {
-    return { write: vi.fn(), resize: vi.fn(), close: vi.fn() };
+    const driver = { write: vi.fn(), resize: vi.fn(), close: vi.fn(), onData };
+    drivers.push(driver);
+    return driver;
   }),
 }));
 
@@ -26,6 +30,8 @@ import { CONTRACT_VERSION, parseServerMessage } from '@agent-manager/protocol';
 import {
   TOKEN,
   WRONG_SAME_LENGTH,
+  makeClock,
+  tinyThrottle,
   authenticate,
   bearer,
   closeAllClients,
@@ -44,6 +50,7 @@ afterEach(async () => {
   await closeAllGateways();
   restoreConsole();
   delete process.env.AGENT_MANAGER_TOKEN;
+  drivers.length = 0;
 });
 
 describe('tracer: hello with a token yields hello_ack then the roster', () => {
@@ -242,6 +249,240 @@ describe('log shape', () => {
     await vi.waitFor(() => expect(spies.calls('error').length).toBe(1), { timeout: 2000 });
     expect(spies.calls('error')[0][0]).toBe('Invalid WebSocket message received:');
     expect(spies.calls('error')[0][1]).toBeInstanceOf(Error);
+  });
+});
+
+describe('hello deadline', () => {
+  it('closes a silent client 4401 near the deadline with zero frames', async () => {
+    const gw = await startGateway({ token: TOKEN, helloTimeoutMs: 150 });
+    const started = Date.now();
+    const c = openClient(gw.port);
+    await c.opened;
+    const closed = await c.closed;
+    expect(closed).toEqual({ code: 4401, reason: 'unauthenticated' });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(100);
+    expect(c.frames).toEqual([]);
+  });
+
+  it('does not close a client that authenticated in time', async () => {
+    const gw = await startGateway({ token: TOKEN, helloTimeoutMs: 150 });
+    const c = await authenticate(gw.port);
+    await quiet(350);
+    expect(c.ws.readyState).toBe(c.ws.OPEN);
+  });
+
+  it('leaves no error output and no stray socket when the client closes before the deadline', async () => {
+    const spies = installConsoleSpies();
+    const gw = await startGateway({ token: TOKEN, helloTimeoutMs: 150 });
+    const c = openClient(gw.port);
+    await c.opened;
+    c.ws.close(1000);
+    await c.closed;
+    await quiet(300);
+    expect(spies.calls('error')).toHaveLength(0);
+    expect(gw.handle.wss.clients.size).toBe(0);
+  });
+});
+
+const preAuthFrames: Array<[string, () => string]> = [
+  ['a ping first', () => JSON.stringify({ type: 'ping', t: 1 })],
+  [
+    'an agent:create first',
+    () => JSON.stringify({ type: 'agent:create', name: 'pre', mode: 'tmux', targetHost: 'qa_pre' }),
+  ],
+  ['malformed JSON', () => '{"type":"hello",'],
+  ['the JSON text null', () => 'null'],
+  ['an array', () => '[1,2,3]'],
+  ['an object with no type', () => '{"contract":1}'],
+  ['a hello with no contract', () => JSON.stringify({ type: 'hello', token: TOKEN })],
+  ['a hello with a 513 character token', () => JSON.stringify(hello('t'.repeat(513)))],
+  ['a hello whose token has a control character', () => JSON.stringify(hello(`${TOKEN}\u0001`))],
+  ['an oversize but otherwise perfect hello', () => JSON.stringify(hello(TOKEN)) + ' '.repeat(16385)],
+];
+
+describe('pre-auth rules', () => {
+  it.each(preAuthFrames)('closes 4401 with no frame for %s', async (_label, make) => {
+    const gw = await startGateway({ token: TOKEN });
+    const c = openClient(gw.port);
+    await c.opened;
+    c.send(make());
+    expect(await c.closed).toEqual({ code: 4401, reason: 'unauthenticated' });
+    expect(c.frames).toEqual([]);
+    expect(gw.handle.sessionManager.getAgentCount()).toBe(0);
+  });
+
+  it('accepts a hello of exactly 16384 bytes', async () => {
+    const gw = await startGateway({ token: TOKEN });
+    const base = JSON.stringify(hello(TOKEN));
+    const c = openClient(gw.port);
+    await c.opened;
+    c.send(base + ' '.repeat(16384 - Buffer.byteLength(base)));
+    await vi.waitFor(() => expect(c.frames.length).toBeGreaterThanOrEqual(2), { timeout: 2000 });
+    expect(c.frames[0].type).toBe('hello_ack');
+  });
+
+  it('ignores every further frame once a reject has started the close', async () => {
+    const gw = await startGateway({ token: TOKEN });
+    const spies = installConsoleSpies();
+    const c = openClient(gw.port);
+    await c.opened;
+    for (let i = 0; i < 20; i++) c.send('junk');
+    expect(await c.closed).toEqual({ code: 4401, reason: 'unauthenticated' });
+    expect(spies.dump()).toBe('');
+  });
+});
+
+describe('silence before auth', () => {
+  it('shows an unauthenticated socket nothing of what an authenticated client does', async () => {
+    const gw = await startGateway({ token: TOKEN, helloTimeoutMs: 600 });
+    const a = await authenticate(gw.port);
+    const b = openClient(gw.port);
+    await b.opened;
+
+    a.send({ type: 'agent:create', name: 'sil', mode: 'tmux', targetHost: 'qa_sil' });
+    await vi.waitFor(() => expect(a.frames.some((f) => f.type === 'agent:added')).toBe(true), { timeout: 2000 });
+    await vi.waitFor(() => expect(drivers.length).toBe(1), { timeout: 2000 });
+    drivers[0].onData('secret terminal output');
+    await vi.waitFor(() => expect(a.frames.some((f) => f.type === 'agent:output')).toBe(true), {
+      timeout: 2000,
+    });
+
+    expect(b.frames).toEqual([]);
+    expect(gw.handle.sessionManager.getAgentCount()).toBe(1);
+    expect(await b.closed).toEqual({ code: 4401, reason: 'unauthenticated' });
+    expect(b.frames).toEqual([]);
+  });
+});
+
+describe('token in the upgrade URL', () => {
+  it('is ignored: no hello means zero frames and 4401', async () => {
+    const gw = await startGateway({ token: TOKEN, helloTimeoutMs: 150 });
+    const c = openClient(gw.port, { path: `/ws?token=${TOKEN}` });
+    await c.opened;
+    expect(await c.closed).toEqual({ code: 4401, reason: 'unauthenticated' });
+    expect(c.frames).toEqual([]);
+  });
+
+  it('does not rescue a hello carrying a wrong token', async () => {
+    const gw = await startGateway({ token: TOKEN });
+    const c = openClient(gw.port, { path: `/ws?token=${TOKEN}` });
+    await c.opened;
+    c.send(hello(WRONG_SAME_LENGTH));
+    expect((await c.closed).code).toBe(4401);
+    expect(c.frames).toEqual([]);
+  });
+});
+
+describe('throttle', () => {
+  async function failOnce(port: number, headers?: Record<string, string>, token = WRONG_SAME_LENGTH) {
+    const c = openClient(port, { headers });
+    await c.opened;
+    c.send(hello(token));
+    return c.closed;
+  }
+
+  /** Connects and tries a hello; resolves with the close info, or undefined when the socket stayed open. */
+  async function attempt(port: number, token: string, headers?: Record<string, string>) {
+    const c = openClient(port, { headers });
+    await c.opened;
+    if (c.ws.readyState === c.ws.OPEN) {
+      try {
+        c.send(hello(token));
+      } catch {
+        // already closing
+      }
+    }
+    const first = await Promise.race([c.closed, quiet(300).then(() => undefined)]);
+    return { c, closed: first };
+  }
+
+  it('locks the key after maxFailures: 4429 with retry-after-ms, even for the right token', async () => {
+    const clock = makeClock();
+    const gw = await startGateway({ token: TOKEN, throttle: tinyThrottle(clock) });
+    for (let i = 0; i < 3; i++) expect((await failOnce(gw.port)).code).toBe(4401);
+
+    const { c, closed } = await attempt(gw.port, TOKEN);
+    expect(closed?.code).toBe(4429);
+    expect(closed?.reason).toMatch(/^retry-after-ms=[1-9]\d*$/);
+    expect(c.frames).toEqual([]);
+  });
+
+  it('lets a correct hello succeed after the lock lapses and resets the key', async () => {
+    const clock = makeClock();
+    const gw = await startGateway({ token: TOKEN, throttle: tinyThrottle(clock) });
+    for (let i = 0; i < 3; i++) await failOnce(gw.port);
+    clock.advance(1500);
+    const ok = await authenticate(gw.port);
+    expect(ok.frames[0].type).toBe('hello_ack');
+    // the success reset the key: two more wrong tokens do not lock it
+    await failOnce(gw.port);
+    await failOnce(gw.port);
+    const again = await authenticate(gw.port);
+    expect(again.frames[0].type).toBe('hello_ack');
+  });
+
+  it('does not count missing tokens, malformed frames or deadline expiries', async () => {
+    const clock = makeClock();
+    const gw = await startGateway({ token: TOKEN, throttle: tinyThrottle(clock), helloTimeoutMs: 40 });
+    for (let i = 0; i < 4; i++) {
+      const missing = openClient(gw.port);
+      await missing.opened;
+      missing.send(hello(undefined));
+      expect((await missing.closed).code).toBe(4401);
+
+      const junk = openClient(gw.port);
+      await junk.opened;
+      junk.send('{{{');
+      expect((await junk.closed).code).toBe(4401);
+
+      const silent = openClient(gw.port);
+      await silent.opened;
+      expect((await silent.closed).code).toBe(4401);
+    }
+    const ok = await authenticate(gw.port);
+    expect(ok.frames[0].type).toBe('hello_ack');
+  });
+
+  it('keys per source with trustProxy on: the last X-Forwarded-For entry decides', async () => {
+    const clock = makeClock();
+    const gw = await startGateway({ token: TOKEN, trustProxy: true, throttle: tinyThrottle(clock) });
+    const A = { 'x-forwarded-for': '203.0.113.7' };
+    const B = { 'x-forwarded-for': '198.51.100.9' };
+    for (let i = 0; i < 3; i++) await failOnce(gw.port, A);
+    expect((await attempt(gw.port, TOKEN, A)).closed?.code).toBe(4429);
+    const b = await authenticate(gw.port, TOKEN, { headers: B });
+    expect(b.frames[0].type).toBe('hello_ack');
+    // a client cannot dodge its own lock by prepending an entry
+    const spoof = { 'x-forwarded-for': '1.2.3.4, 203.0.113.7' };
+    expect((await attempt(gw.port, TOKEN, spoof)).closed?.code).toBe(4429);
+  });
+
+  it('ignores the forwarded header with trustProxy off: both values share one key', async () => {
+    const clock = makeClock();
+    const gw = await startGateway({ token: TOKEN, trustProxy: false, throttle: tinyThrottle(clock) });
+    for (let i = 0; i < 3; i++) await failOnce(gw.port, { 'x-forwarded-for': '203.0.113.7' });
+    const { closed } = await attempt(gw.port, TOKEN, { 'x-forwarded-for': '198.51.100.9' });
+    expect(closed?.code).toBe(4429);
+  });
+
+  it('closes 4429 with no unhandled error and no console output', async () => {
+    const clock = makeClock();
+    const gw = await startGateway({ token: TOKEN, throttle: tinyThrottle(clock) });
+    for (let i = 0; i < 3; i++) await failOnce(gw.port);
+    const spies = installConsoleSpies();
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    process.on('uncaughtException', unhandled);
+    try {
+      const { closed } = await attempt(gw.port, TOKEN);
+      expect(closed?.code).toBe(4429);
+      await quiet(100);
+    } finally {
+      process.off('unhandledRejection', unhandled);
+      process.off('uncaughtException', unhandled);
+    }
+    expect(unhandled).not.toHaveBeenCalled();
+    expect(spies.dump()).toBe('');
   });
 });
 
