@@ -4,6 +4,7 @@ import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
 import { ConnectionBanner } from '../ConnectionBanner';
 import { useConnectionStore } from '../../../store/connectionStore';
 import { agentSocket } from '../../../services/agentSocket';
+import { useUiStore, resetUiStore } from '../../../store/uiStore';
 
 let reconnectSpy: MockInstance<[], void>;
 
@@ -15,6 +16,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetUiStore();
   useConnectionStore.getState().reset();
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -89,11 +91,22 @@ describe('ConnectionBanner', () => {
     expect(reconnectSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('shows auth_failed alert without a retry button', () => {
+  it('shows auth_failed alert with only an Enter token button', () => {
     useConnectionStore.setState({ mode: 'live', state: 'auth_failed' });
     render(<ConnectionBanner />);
     expect(screen.getByRole('alert')).toHaveTextContent('Authentication failed');
-    expect(screen.queryByRole('button')).toBeNull();
+    const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveAccessibleName('Enter token');
+    expect(screen.queryByRole('button', { name: /retry|reconnect/i })).toBeNull();
+  });
+
+  it('Enter token opens the token overlay and never reconnects', () => {
+    useConnectionStore.setState({ mode: 'live', state: 'auth_failed' });
+    render(<ConnectionBanner />);
+    fireEvent.click(screen.getByRole('button', { name: 'Enter token' }));
+    expect(useUiStore.getState().overlay).toBe('token');
+    expect(reconnectSpy).not.toHaveBeenCalled();
   });
 
   it('clears the interval on unmount', () => {

@@ -7,9 +7,12 @@ import { AddAgentModal } from './components/agent/AddAgentModal';
 import { NotificationToastManager } from './components/layout/NotificationToastManager';
 import { CommandPalette } from './components/layout/CommandPalette';
 import { ShortcutHelp } from './components/layout/ShortcutHelp';
+import { TokenDialog } from './components/layout/TokenDialog';
+import { useAuthPrompt } from './hooks/useAuthPrompt';
 import { useUiStore } from './store/uiStore';
 
 export default function App() {
+  useAuthPrompt();
   const isAddModalOpen = useUiStore((s) => s.overlay === 'addAgent');
   const openOverlay = useUiStore((s) => s.openOverlay);
   const closeOverlay = useUiStore((s) => s.closeOverlay);
@@ -26,6 +29,7 @@ export default function App() {
       <AddAgentModal isOpen={isAddModalOpen} onClose={() => closeOverlay('addAgent')} />
       <CommandPalette />
       <ShortcutHelp />
+      <TokenDialog />
       <NotificationToastManager />
     </div>
   );
