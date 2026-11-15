@@ -1,4 +1,4 @@
-# Checkpoint 2026-11-13 (agent-manager-fe) - Phase 8 wave 11 merged (local, unpushed; verified)
+# Checkpoint 2026-11-15 (agent-manager-fe) - Phase 8 waves 11+12 merged (local, unpushed; gate green)
 
 ## Decisions (user, standing)
 - Per wave: plan (gsd-planner) -> check (gsd-plan-checker) -> parallel gsd-executor worktrees (ff-only to master sha first) -> merge --no-ff -> full gate -> push only on explicit user go-ahead (each push needs a fresh "yes"; approvals expire).
@@ -37,3 +37,8 @@
 - Executor worktrees symlink node_modules; old worktrees under .claude/worktrees/ can be removed after merge.
 
 - Verified 2026-11-13: tree clean at d4a57f1, master 16 ahead of origin (84193b1), no extra worktrees. Resume: "start wave 12".
+
+## Update 2026-11-15: wave 12 merged
+- 08-02 (server wiring) and 08-04 (FE dialog/logout) merged --no-ff; master 27 ahead of origin (84193b1), unpushed.
+- Gate: root 113 files / 2281 tests (+2 todo), server 33 / 845, tsc x2, builds, build:protocol, contract:check OK, tmuxKill 0.
+- Next: wave 13 = 08-05 (smoke-auth.mjs, operator docs + nginx, ADR-013, QA checklist, 08-EVIDENCE.md). Must record: Phase 13 workspace storage keys must be named `agent-manager.*` (logout prefix sweep). Then review, verify, Phase 8 live QA (18090/13000). Push needs fresh "yes".
