@@ -84,10 +84,11 @@ export async function bootstrap(
   const sessionManager = new SessionManager();
   await sessionManager.initialize();
 
+  // Exempt from auth by the spec, so it must not carry roster information when a token is set.
   app.get('/health', (req, res) => {
     res.json({
       status: 'ok',
-      agents: sessionManager.getAgentCount(),
+      ...(guard ? {} : { agents: sessionManager.getAgentCount() }),
       timestamp: new Date().toISOString(),
     });
   });
@@ -100,6 +101,9 @@ export async function bootstrap(
       allowedOrigins,
       host,
       epoch,
+      auth: guard,
+      throttle,
+      clientKey: (req) => clientKey(req, trustProxy),
     })
   );
 

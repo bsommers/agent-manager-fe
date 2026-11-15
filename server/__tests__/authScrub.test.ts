@@ -22,6 +22,7 @@ import {
   CANARY_HEX,
   CANARY_PREFIX,
   authenticate,
+  bearer,
   closeAllClients,
   closeAllGateways,
   hello,
@@ -29,12 +30,13 @@ import {
   makeClock,
   openClient,
   quiet,
+  request,
   restoreConsole,
   secretsIn,
   startGateway,
   tinyThrottle,
 } from './helpers/authHarness.js';
-import type { TestClient } from './helpers/authHarness.js';
+import type { Res, TestClient } from './helpers/authHarness.js';
 
 afterEach(async () => {
   closeAllClients();
@@ -142,5 +144,82 @@ describe('scrub: WebSocket', () => {
     c.send({ type: 'ping', t: 5 });
     await vi.waitFor(() => expect(c.frames.some((f) => f.type === 'pong')).toBe(true), { timeout: 2000 });
     expectClean([...c.raw, spies.dump()]);
+  });
+});
+
+describe('scrub: HTTP', () => {
+  const JSON_HEADERS = { 'content-type': 'application/json' };
+
+  /** Every response body and every response header joined into one string. */
+  const sink = (res: Res) => `${res.text}\n${JSON.stringify(res.headers)}`;
+
+  it('a wrong Bearer carrying the canary is a plain 401 that echoes nothing', async () => {
+    const gw = await startGateway({ token: CANARY });
+    const spies = installConsoleSpies();
+    const res = await request(gw.port, 'GET', '/api/agents', { headers: bearer(NEAR_MISS) });
+    expect(res.status).toBe(401);
+    expectClean([sink(res), spies.dump()]);
+  });
+
+  it('the canary in the query string, the path and a cookie is never echoed or logged', async () => {
+    const gw = await startGateway({ token: CANARY });
+    const spies = installConsoleSpies();
+    const responses = [
+      await request(gw.port, 'GET', `/api/agents?token=${CANARY}`),
+      await request(gw.port, 'GET', `/api/agents/${CANARY}`),
+      await request(gw.port, 'GET', `/api/${CANARY}`),
+      await request(gw.port, 'GET', '/api/agents', { headers: { cookie: `token=${CANARY}` } }),
+    ];
+    for (const res of responses) expect(res.status).toBe(401);
+    expectClean([...responses.map(sink), spies.dump()]);
+  });
+
+  it('the canary in an invalid JSON body is not echoed, unauthenticated or authenticated', async () => {
+    const gw = await startGateway({ token: CANARY });
+    const spies = installConsoleSpies();
+    const bad = `{"token":"${CANARY}"`;
+    const anon = await request(gw.port, 'POST', '/api/agents', { headers: JSON_HEADERS, body: bad });
+    const authed = await request(gw.port, 'POST', '/api/agents', {
+      headers: { ...JSON_HEADERS, ...bearer(CANARY) },
+      body: bad,
+    });
+    expect(anon.status).toBe(401);
+    expect(authed.status).toBe(400);
+    expectClean([sink(anon), sink(authed), spies.dump()]);
+  });
+
+  it('a throttled HTTP request (429) carries no secret in body, headers or logs', async () => {
+    const clock = makeClock();
+    const gw = await startGateway({ token: CANARY, throttle: tinyThrottle(clock) });
+    const spies = installConsoleSpies();
+    const seen: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      seen.push(sink(await request(gw.port, 'GET', '/api/agents', { headers: bearer(NEAR_MISS) })));
+    }
+    const locked = await request(gw.port, 'GET', `/api/agents?token=${CANARY}`, { headers: bearer(CANARY) });
+    expect(locked.status).toBe(429);
+    expectClean([...seen, sink(locked), spies.dump()]);
+  });
+
+  it('a foreign Origin or Host refusal does not echo the request', async () => {
+    const gw = await startGateway({ token: CANARY });
+    const spies = installConsoleSpies();
+    const origin = await request(gw.port, 'POST', '/api/agents', {
+      headers: { ...JSON_HEADERS, origin: `http://${CANARY}.example`, ...bearer(CANARY) },
+      body: '{}',
+    });
+    const host = await request(gw.port, 'GET', '/api/agents', { headers: { host: `${CANARY}.example` } });
+    expect(origin.status).toBe(403);
+    expect(host.status).toBe(403);
+    expectClean([sink(origin), sink(host), spies.dump()]);
+  });
+
+  it('an authenticated request leaks nothing: bodies, headers and logs stay clean', async () => {
+    const gw = await startGateway({ token: CANARY });
+    const spies = installConsoleSpies();
+    const res = await request(gw.port, 'GET', '/api/health', { headers: bearer(CANARY) });
+    const legacy = await request(gw.port, 'GET', '/health');
+    expect(res.status).toBe(200);
+    expectClean([sink(res), sink(legacy), spies.dump()]);
   });
 });
