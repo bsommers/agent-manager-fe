@@ -17,7 +17,9 @@ npm test               # vitest
 | Variable          | Default                                                                                   | Notes |
 | ----------------- | ----------------------------------------------------------------------------------------- | ----- |
 | `PORT`            | `8088`                                                                                    | HTTP + WebSocket port. |
-| `HOST`            | `127.0.0.1`                                                                               | Must be a loopback address (`127.x.y.z`, `localhost`, `::1`). Any other value is refused at startup until token authentication ships. |
+| `HOST`            | `127.0.0.1`                                                                               | Loopback (`127.x.y.z`, `localhost`, `::1`) needs nothing. Any other value is accepted only when `AGENT_MANAGER_TOKEN` is set; otherwise startup is refused with a message naming `HOST` and `AGENT_MANAGER_TOKEN`. |
+| `AGENT_MANAGER_TOKEN` | *(unset)*                                                                             | Shared secret. Unset or empty: no authentication (zero-config local use). Otherwise 24 to 512 printable ASCII characters, no spaces or control characters (a trailing newline counts), validated even on loopback, never trimmed. An invalid value aborts startup with the rule but never the value. |
+| `AGENT_MANAGER_TRUST_PROXY` | `0`                                                                             | `1`/`true` or `0`/`false`. With a loopback proxy in front, key the auth throttle by the last `X-Forwarded-For` entry. Only with a proxy that overwrites that header. |
 | `ALLOWED_ORIGINS` | `http://localhost:3000`, `http://127.0.0.1:3000`, `http://localhost:4173`, `http://127.0.0.1:4173` | Comma-separated list of exact `http(s)` origins (no path, no credentials, **no wildcard**). Invalid entries abort startup. |
 
 Fixed limits: WebSocket frames larger than 1 MiB close the connection with code 1009.
@@ -25,12 +27,52 @@ Protocol pings are sent every 30 s; sockets that do not answer are terminated.
 
 ## Security model
 
-- Loopback only: the listener binds `127.0.0.1` by default and refuses any non-loopback `HOST`.
+- Loopback by default: the listener binds `127.0.0.1`. A non-loopback `HOST` is refused unless `AGENT_MANAGER_TOKEN` is set.
 - Origin allowlist: a WebSocket upgrade whose `Origin` is not in `ALLOWED_ORIGINS` is rejected with HTTP 403
   (blocks cross-site WebSocket hijacking from pages in your browser). Clients that send no `Origin`
   (local non-browser tools) are accepted.
-- There is no authentication yet. Never expose the port beyond the local machine.
-- For remote use, tunnel with SSH local port forwarding, e.g. `ssh -L 8088:127.0.0.1:8088 user@host`.
+- Token authentication (below) when `AGENT_MANAGER_TOKEN` is set; no authentication when it is not (loopback only).
+- TLS is the reverse proxy's job; the gateway speaks plain HTTP and WS. See [docs/RUNNING.md](../docs/RUNNING.md) for
+  an nginx example. For ad hoc remote use, tunnel with SSH local port forwarding, e.g. `ssh -L 8088:127.0.0.1:8088 user@host`.
+
+## Authentication
+
+Enforced whenever `AGENT_MANAGER_TOKEN` is set, loopback included. Unset keeps the zero-config local mode.
+
+- **Handshake order.** The first frame must be `{ "type": "hello", "contract": 1, "token": "<token>" }` within 5 s
+  and at most 16 KiB. The gateway answers `hello_ack` (contract, epoch, `auth.required`, limits, backends) and then
+  `agent:init_list`. An unauthenticated socket receives nothing and is not in the broadcast set; no frame other than
+  the hello is processed before it. The token is never read from the URL, a subprotocol or a cookie. With no token
+  configured the gateway sends `agent:init_list` once on connect and answers a `hello` with `hello_ack`.
+- **Close codes.** `4401` (reason `unauthenticated`): wrong or missing token, malformed or oversize first frame, a
+  first frame that is not a `hello`, or the 5 s deadline. `4429` (reason `retry-after-ms=N`): the source is throttled.
+- **HTTP.** `Authorization: Bearer <token>` on every `/api` route except the minimal `GET /api/health`; failures are
+  `401 UNAUTHENTICATED` with `WWW-Authenticate: Bearer`, throttled sources `429 RATE_LIMITED` with `Retry-After`.
+  The Host and Origin guards run first. Three health forms: `GET /api/health` without a header is minimal (`ok`,
+  `contract`, `epoch`, `backends`); with a valid Bearer it adds `agents`; a wrong Bearer is a counted `401`. The legacy
+  `GET /health` drops `agents` when a token is set.
+- **Throttle.** One bounded table shared by WebSocket and HTTP: 5 wrong tokens in 60 s lock the source for 60 s,
+  doubling to a 15 min cap; at most 10 000 tracked sources; IPv6 sources are keyed by their /64. Only wrong tokens
+  count (missing, malformed, oversize and timeouts do not). A locked source is refused even with the right token.
+  Behind a proxy set `AGENT_MANAGER_TRUST_PROXY=1` (the key is then the last `X-Forwarded-For` entry when the peer
+  is loopback); otherwise all proxied clients share one key and the startup log says so.
+- **Comparison and logging.** Tokens are compared as SHA-256 digests with `timingSafeEqual`. The token, frames and
+  headers are never logged; a JSON error is reported with a fixed message; close reasons and error bodies are fixed
+  strings.
+- **`confirm` is not authentication.** The destructive gate (`confirm: true`) is an explicit-intent check that sits
+  behind authentication; it does not replace it.
+
+```bash
+# Read the token from the environment. A -H value is visible in the process list while curl runs;
+# on a shared host put the header in a curl config file (curl -K) instead.
+curl -s -H "Authorization: Bearer $AGENT_MANAGER_TOKEN" http://127.0.0.1:$PORT/api/agents
+curl -s http://127.0.0.1:$PORT/api/health   # minimal form, no header needed
+```
+
+Smoke test: `npm run build && node scripts/smoke-auth.mjs` (from `server/`) starts the built gateway on free ports with
+a random token and checks bind refusal, the token length rule, WebSocket 4401 and 4429, the handshake order, the
+Bearer rule, the health forms and that the token never reaches the gateway's output. It exits non-zero on any
+failure.
 
 ## Messages
 
@@ -78,7 +120,7 @@ no handler touches the registry, a driver or tmux. The legacy `GET /health` is u
 
 | Route                    | Request                                   | Success                                  | Notes |
 | ------------------------ | ----------------------------------------- | ---------------------------------------- | ----- |
-| `GET /api/health`        | none                                      | `200 { ok, contract, epoch, backends, agents }` | `backends` is `[{ "id": "local", "up": true }]`; `epoch` is a random id per process; `agents` is an integer count. |
+| `GET /api/health`        | none (optional Bearer)                    | `200 { ok, contract, epoch, backends }`, plus `agents` with a valid Bearer when a token is set | `backends` is `[{ "id": "local", "up": true }]`; `epoch` is a random id per process; `agents` is an integer count. |
 | `GET /api/agents`        | none                                      | `200 { ok: true, agents: Agent[] }`      | The current roster. |
 | `POST /api/agents`       | JSON body: `name`, `mode`, `targetHost`, optional `initialCmd`; optional `Idempotency-Key` header | `201 { ok: true, agent }` | Same validation as `agent:create`. |
 | `DELETE /api/agents/:id` | none                                      | `200 { ok: true }`                       | Closes the agent and leaves its tmux session running. |
@@ -88,7 +130,7 @@ no handler touches the registry, a driver or tmux. The legacy `GET /health` is u
 Any other `/api` path or method answers `404 NOT_FOUND`. `DELETE /api/agents/:id` only closes the agent and never
 touches tmux; only the explicit `POST /api/agents/:id/kill` ends a session. The route implies `killSession`, reads
 `confirm` from the JSON body only (never the path or query) and is refused by the same gateway policy as the
-WebSocket. `confirm` is an explicit-intent gate against accidents, not authentication (Phase 8).
+WebSocket. `confirm` is an explicit-intent gate against accidents that sits behind authentication; it does not replace it.
 
 Failures use one envelope, `{ "ok": false, "error": { "code", "message", "retryable" } }`, with the status taken from
 the contract: `USAGE` 400, `UNAUTHENTICATED` 401, `FORBIDDEN` 403, `NOT_FOUND` 404, `CONFLICT` 409,
@@ -129,8 +171,8 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{"confirm":true}' \
   http://127.0.0.1:$PORT/api/agents/<agent-id>/kill                # ends the tmux session
 ```
 
-Not yet: logs and search (Phases 11 and 16), authentication (Phase 8; until then the API has the same trust
-model as the WebSocket, loopback plus the Origin and Host gates), rate limits (Phase 12), CORS (Phase 16).
+Not yet: logs and search (Phases 11 and 16), further rate limits (Phase 12), CORS (Phase 16). Authentication is described
+above: with `AGENT_MANAGER_TOKEN` set every route except the minimal health needs the Bearer.
 
 The authoritative wire contract is in
 [docs/superpowers/specs/2026-11-07-fe-be-contract.md](../docs/superpowers/specs/2026-11-07-fe-be-contract.md).
