@@ -768,6 +768,28 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
   };
 });
 
+/**
+ * Session teardown (logout): restores every state field to its initial value for the current mode
+ * and forgets the module-level roster tracking. The id counters stay monotonic so ids never repeat.
+ */
+export function resetAgentStore(): void {
+  const mode = useConnectionStore.getState().mode;
+  useAgentStore.setState({
+    agents: initialAgentsFor(mode),
+    pending: {},
+    killing: {},
+    rosterNotices: [],
+    activeAgentId: mode === 'demo' ? 'agent-1' : null,
+    layoutMode: 'grid',
+    searchQuery: '',
+  });
+  addedAt.clear();
+  removedAt.clear();
+  updatedAt.clear();
+  snapshotAt = 0;
+  snapshotIds = new Set<string>();
+}
+
 // Compatibility proxy for direct store references (agentStore.agents, agentStore.addAgent, etc.)
 export const agentStore = new Proxy({} as AgentStoreState & { subscribe: (listener: () => void) => () => void }, {
   get(_target, prop: string | symbol) {

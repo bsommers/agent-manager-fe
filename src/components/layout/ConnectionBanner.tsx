@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useConnectionStore } from '../../store/connectionStore';
 import { agentSocket } from '../../services/agentSocket';
+import { useUiStore } from '../../store/uiStore';
 
 function secondsUntil(nextRetryAt: number | null): number {
   if (nextRetryAt === null) return 0;
@@ -70,6 +71,9 @@ export const ConnectionBanner: React.FC = () => {
       <div role="alert" className={RED}>
         <strong>Authentication failed</strong>
         {lastError && <span>{lastError}</span>}
+        <button type="button" className={BTN} onClick={() => useUiStore.getState().openOverlay('token')}>
+          Enter token
+        </button>
       </div>
     );
   }

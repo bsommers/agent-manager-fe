@@ -23,6 +23,7 @@ Press `Ctrl+K`, type to filter, then choose. The palette reaches:
 - **Broadcast to agents**: opens the broadcast bar and focuses its command field. Sending still goes through the bar and its destructive-command confirmation.
 - **Search agent output** opens global search; **Filter agents** focuses the toolbar filter.
 - **New agent** opens the add-agent dialog; **Show keyboard shortcuts** opens the help list.
+- **Log out** (listed only while an access token is set): ends the session, closes the connection and clears the roster, logs and token for this tab.
 
 The palette contains no destructive command: nothing in it kills or closes an agent, sends terminal input or sends a broadcast. It shows at most 50 commands at a time; keep typing to narrow the list.
 

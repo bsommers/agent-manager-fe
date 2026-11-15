@@ -1,11 +1,15 @@
 import React from 'react';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CommandPalette } from '../CommandPalette';
 import { useAgentStore } from '../../../store/agentStore';
 import { useUiStore, resetUiStore } from '../../../store/uiStore';
 import type { Agent } from '../../../types/agent';
+import { setToken, clearToken } from '../../../services/auth/tokenStore';
+import { logout } from '../../../services/session/logout';
+
+vi.mock('../../../services/session/logout', () => ({ logout: vi.fn(() => ({ complete: true })) }));
 
 const mk = (id: string, name: string): Agent => ({
   id,
@@ -186,5 +190,46 @@ describe('CommandPalette', () => {
     act(() => useUiStore.getState().closeOverlay());
     openPalette();
     expect(screen.getByRole('combobox')).toHaveValue('');
+  });
+});
+
+describe('CommandPalette: Log out (D-04)', () => {
+  beforeEach(() => {
+    resetUiStore();
+    clearToken();
+    vi.mocked(logout).mockClear();
+    useAgentStore.setState({ agents: [mk('a1', 'Alpha')], pending: {}, activeAgentId: null, layoutMode: 'grid' });
+  });
+  afterEach(() => {
+    clearToken();
+    useAgentStore.setState({ agents: [] });
+  });
+
+  it('lists no Log out option without a token', () => {
+    render(<CommandPalette />);
+    openPalette();
+    expect(screen.queryByRole('option', { name: /log out/i })).toBeNull();
+  });
+
+  it('appears and disappears live while the palette is open', () => {
+    render(<CommandPalette />);
+    openPalette();
+    act(() => {
+      setToken('x'.repeat(24));
+    });
+    expect(screen.getByRole('option', { name: /log out/i })).toBeInTheDocument();
+    act(() => clearToken());
+    expect(screen.queryByRole('option', { name: /log out/i })).toBeNull();
+  });
+
+  it('choosing it closes the palette and calls logout', async () => {
+    const user = userEvent.setup();
+    setToken('x'.repeat(24));
+    render(<CommandPalette />);
+    openPalette();
+    await user.type(screen.getByRole('combobox'), 'log out');
+    await user.keyboard('{Enter}');
+    expect(logout).toHaveBeenCalledTimes(1);
+    expect(useUiStore.getState().overlay).toBeNull();
   });
 });

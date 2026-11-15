@@ -4,6 +4,10 @@ import { useAgentStore } from '../../store/agentStore';
 import { useUiStore, resetUiStore } from '../../store/uiStore';
 import { agentSocket } from '../../services/agentSocket';
 import type { Agent } from '../../types/agent';
+import { setToken, clearToken } from '../../services/auth/tokenStore';
+import { logout } from '../../services/session/logout';
+
+vi.mock('../../services/session/logout', () => ({ logout: vi.fn(() => ({ complete: true })) }));
 
 const cmd = (id: string, title: string, keywords = ''): Command => ({ id, title, keywords, run: () => {} });
 
@@ -150,5 +154,45 @@ describe('buildCommands', () => {
     expect(send).not.toHaveBeenCalled();
     expect(removeAgent).not.toHaveBeenCalled();
     expect(useAgentStore.getState().agents).toHaveLength(3);
+  });
+});
+
+describe('buildCommands: Log out (D-04)', () => {
+  beforeEach(() => {
+    clearToken();
+    vi.mocked(logout).mockClear();
+  });
+
+  it('is absent without a token', () => {
+    expect(buildCommands().map((c) => c.id)).not.toContain('auth.logout');
+  });
+
+  it('appears with a token, before the Go to commands, UI-only, and runs logout once', () => {
+    const agent: Agent = {
+      id: 'g1', name: 'Gee', mode: 'tmux', targetHost: 'h', status: 'running', unreadOutput: false,
+      layout: { isFloating: false }, createdAt: 1, lastActivity: 1,
+    };
+    useAgentStore.setState({ agents: [agent], pending: {} });
+    setToken('x'.repeat(24));
+    const list = buildCommands();
+    const idx = list.findIndex((c) => c.id === 'auth.logout');
+    expect(idx).toBeGreaterThan(-1);
+    expect(idx).toBeLessThan(list.findIndex((c) => c.id.startsWith('agent.goto.')));
+    const c = list[idx];
+    expect(c.title).toBe('Log out');
+    expect(c.operation).toBeUndefined();
+    expect(c.keywords).toEqual(expect.stringContaining('token'));
+    expect(c.keywords).toEqual(expect.stringContaining('sign out'));
+    expect(c.keywords).toEqual(expect.stringContaining('session'));
+    c.run();
+    expect(logout).toHaveBeenCalledTimes(1);
+    useAgentStore.setState({ agents: [] });
+  });
+
+  it('disappears again once the token is removed', () => {
+    setToken('x'.repeat(24));
+    expect(buildCommands().map((c) => c.id)).toContain('auth.logout');
+    clearToken();
+    expect(buildCommands().map((c) => c.id)).not.toContain('auth.logout');
   });
 });

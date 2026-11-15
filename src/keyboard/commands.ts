@@ -2,6 +2,8 @@ import { OPERATIONS } from '@agent-manager/protocol';
 import type { OperationName, PaletteOperationName } from '@agent-manager/protocol';
 import { useAgentStore } from '../store/agentStore';
 import { useUiStore } from '../store/uiStore';
+import { useAuthStore } from '../services/auth/tokenStore';
+import { logout } from '../services/session/logout';
 import { SHORTCUTS, formatKeys } from './shortcuts';
 
 export interface Command {
@@ -100,6 +102,18 @@ export function buildCommands(): Command[] {
       run: () => useAgentStore.getState().arrangeCascade(),
     },
   ];
+
+  // Logout is UI-only (local state) and offered only while a token is set (D-04).
+  if (useAuthStore.getState().hasToken) {
+    commands.push({
+      id: 'auth.logout',
+      title: 'Log out',
+      keywords: 'token sign out session logout disconnect',
+      run: () => {
+        logout();
+      },
+    });
+  }
 
   for (const agent of agentState.agents) {
     if (Object.prototype.hasOwnProperty.call(agentState.pending, agent.id)) continue;

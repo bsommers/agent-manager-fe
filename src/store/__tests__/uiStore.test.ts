@@ -42,6 +42,20 @@ describe('uiStore', () => {
     expect(useUiStore.getState().overlay).toBe('palette');
   });
 
+  it("openOverlay('token') opens the token dialog and replaces another overlay", () => {
+    useUiStore.getState().openOverlay('palette');
+    useUiStore.getState().openOverlay('token');
+    expect(useUiStore.getState().overlay).toBe('token');
+  });
+
+  it("closeOverlay('token') closes it only when it is the open one", () => {
+    useUiStore.getState().openOverlay('token');
+    useUiStore.getState().closeOverlay('palette');
+    expect(useUiStore.getState().overlay).toBe('token');
+    useUiStore.getState().closeOverlay('token');
+    expect(useUiStore.getState().overlay).toBeNull();
+  });
+
   it('requestFocus records the target and increments the nonce each time', () => {
     useUiStore.getState().requestFocus('broadcast');
     expect(useUiStore.getState().focusRequest).toEqual({ target: 'broadcast', nonce: 1 });
