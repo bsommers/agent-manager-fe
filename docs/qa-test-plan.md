@@ -86,3 +86,30 @@ Covers multi-agent broadcast, the destructive-command gate, global log search, a
 
 ### Kill tmux session
 13. Add Agent `qa-a` again with target host `localhost:qa_a`. Expected: the pane attaches to the surviving session. Click Kill tmux session on `qa-a`. Expected: a confirmation names `qa_a`. Choose Cancel: the modal closes and `qa_a` is still listed by `tmux list-sessions`. Click Kill tmux session again and choose Kill session. Expected: the pane disappears after the gateway confirms and `tmux list-sessions` no longer lists `qa_a`. Do not kill any tmux session other than `qa_a`.
+
+---
+
+## 6. Manual QA: Auth and secure transport (Phase 8)
+
+Covers the browser-side behavior of token authentication. The server side of steps 2, 5, 7 and 11 is already automated by `server/scripts/smoke-auth.mjs` (run it first: `npm --prefix server run build && node server/scripts/smoke-auth.mjs`); everything else needs a browser. Use a free port for the gateway and a throwaway token, and do not touch gateways or tmux sessions that are not yours.
+
+**Environment:** `export AGENT_MANAGER_TOKEN="$(openssl rand -base64 32)"`, start the gateway with `PORT=<free port> npm run start:backend`, and start the UI with `VITE_BACKEND_URL=http://localhost:<free port> npm run start:frontend` (add that UI origin to `ALLOWED_ORIGINS` if it is not a default one).
+
+1. Open the UI configured for the token gateway. Expected: the masked token dialog appears and no roster or panes are shown.
+2. Enter a wrong token. Expected (browser): the dialog reappears with the "Authentication failed" hint after exactly one attempt; the Network tab shows one WebSocket and no further reconnects. (Server side automated: smoke check 4.)
+3. Enter the right token. Expected: the chip shows Connected and the roster arrives.
+4. Inspect the Network and Application tabs. Expected: the WebSocket URL has no query string, no request URL contains the token, and the only storage entry is `agent-manager.token` in session storage.
+5. Submit five wrong tokens, then a sixth. Expected (browser): the UI reports a connection problem and the gateway closes with 4429; after the lock lapses (about 60 seconds) a correct token connects. (Server side automated: smoke check 8.)
+6. Reload the tab. Expected: the session persists and connects without the dialog. Close the tab and open the UI again. Expected: the dialog appears.
+7. Run `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:<port>/api/agents` and again with `-K` a curl config file holding the Bearer header. Expected: `401` and `200`. (Automated: smoke check 7.)
+8. Click Log out in the header. Expected: roster, panes and terminal output disappear, session storage is empty, and the dialog opens.
+9. Open the command palette. Expected: "Log out" is listed only while signed in (not before a token is entered, not after logging out).
+10. Configure the UI with an `http://` non-loopback backend URL (for example `VITE_BACKEND_URL=http://example.test`). Expected: the banner shows the plaintext refusal and the Network tab shows no WebSocket.
+11. Start the gateway with `HOST` set to a non-loopback address and no token. Expected: it refuses to start with a message naming `AGENT_MANAGER_TOKEN`. (Automated: smoke check 1.)
+12. Optional, with a TLS proxy set up per docs/RUNNING.md: open the UI over https. Expected: the wss connection works, and a client cannot influence the throttle by sending its own `X-Forwarded-For`.
+
+Cleanup: unset `AGENT_MANAGER_TOKEN`, stop only the gateway and UI you started, and delete any curl config file you created.
+
+### Persistence hand-off
+
+Any future storage key (for example Phase 13 workspace persistence) must start with `agent-manager.`. Logout sweeps exactly that prefix from session and local storage, so a key outside it would survive a logout.
