@@ -1,4 +1,4 @@
-# Checkpoint 2026-11-15 (agent-manager-fe) - Phase 8 waves 11+12 merged (local, unpushed; gate green)
+# Checkpoint 2026-11-15 (agent-manager-fe) - Phase 8 all 3 waves merged (local, unpushed; gate green)
 
 ## Decisions (user, standing)
 - Per wave: plan (gsd-planner) -> check (gsd-plan-checker) -> parallel gsd-executor worktrees (ff-only to master sha first) -> merge --no-ff -> full gate -> push only on explicit user go-ahead (each push needs a fresh "yes"; approvals expire).
@@ -42,3 +42,9 @@
 - 08-02 (server wiring) and 08-04 (FE dialog/logout) merged --no-ff; master 27 ahead of origin (84193b1), unpushed.
 - Gate: root 113 files / 2281 tests (+2 todo), server 33 / 845, tsc x2, builds, build:protocol, contract:check OK, tmuxKill 0.
 - Next: wave 13 = 08-05 (smoke-auth.mjs, operator docs + nginx, ADR-013, QA checklist, 08-EVIDENCE.md). Must record: Phase 13 workspace storage keys must be named `agent-manager.*` (logout prefix sweep). Then review, verify, Phase 8 live QA (18090/13000). Push needs fresh "yes".
+
+## Update 2026-11-15: wave 13 merged (Phase 8 code+docs complete)
+- 08-05 merged; smoke-auth.mjs 9/9 PASS; gate: root 113/2281, server 33/845, tsc x2, builds, contract OK, tmuxKill 0. Master ~34 ahead of origin (84193b1), unpushed.
+- 08-EVIDENCE.md: 12 browser QA steps PENDING-HUMAN (7, 11 pass via smoke; 2, 5 server-side only).
+- Remaining for Phase 8: code review, verify, live QA on 18090/13000, STATE.md + REQUIREMENTS INT-02 tick. Hand-offs: Phase 13 keys `agent-manager.*`; Phase 21 Copy diagnostics via redact.ts.
+- Push needs fresh "yes".
