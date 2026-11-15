@@ -356,13 +356,15 @@ describe('frame validation', () => {
     expect(a.frames.slice(base).map((f) => f.type)).toEqual(['pong']);
   });
 
-  it('accepts a hello and ignores it', async () => {
+  it('answers a hello with hello_ack and nothing else', async () => {
     const err = spyConsole('error');
     const a = await connect();
     const base = a.frames.length;
     send(a, { type: 'hello', contract: 1 });
     await settle(a);
-    expect(a.frames.slice(base).map((f) => f.type)).toEqual(['pong']);
+    expect(a.frames.slice(base).map((f) => f.type)).toEqual(['hello_ack', 'pong']);
+    expect(parseServerMessage(a.frames[base]).ok).toBe(true);
+    expect(a.frames[base].auth).toEqual({ required: false });
     expect(err).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,10 @@ import type { NextFunction, Request, RequestHandler, Response, Router } from 'ex
 import { CONTRACT_VERSION, listHttpRoutes, parseClientMessage } from '../protocol/wsProtocol.js';
 import type { WSMessageClient } from '../protocol/wsProtocol.js';
 import type { AgentApi } from '../gateway/dispatch.js';
+import { bearerOf } from '../gateway/auth.js';
+import type { AuthGuard } from '../gateway/auth.js';
+import { createAuthThrottle, normalizeIp } from '../gateway/authThrottle.js';
+import type { AuthThrottle } from '../gateway/authThrottle.js';
 import { rejectionFor } from '../gateway/wsFrames.js';
 import type { AgentService } from '../services/AgentService.js';
 import { errorEnvelope, outcomeToHttp, sanitizeField, statusFor } from './envelope.js';
@@ -18,6 +22,12 @@ export interface ApiRouterDeps {
   epoch: string;
   /** The address the gateway is bound to; its name is accepted in the Host header besides the loopback names. */
   host: string;
+  /** When present, every route except the minimal health needs `Authorization: Bearer <token>` (D-08). */
+  auth?: AuthGuard;
+  /** The throttle shared with the WebSocket gate; only wrong tokens are recorded. */
+  throttle?: AuthThrottle;
+  /** The throttle key of a request; the default is the normalized socket address. */
+  clientKey?: (req: Request) => string;
 }
 
 /** JSON bodies larger than this are PAYLOAD_TOO_LARGE. */
@@ -121,8 +131,39 @@ function oneLine(err: unknown): string {
  * talks to the gateway over WebSocket, and a cross-origin page cannot read or preflight these routes.
  */
 export function createApiRouter(deps: ApiRouterDeps): Router {
-  const { api, service, allowedOrigins, epoch, host } = deps;
+  const { api, service, allowedOrigins, epoch, host, auth } = deps;
+  const throttle = deps.throttle ?? createAuthThrottle();
+  const keyOf = deps.clientKey ?? ((req: Request) => normalizeIp(req.socket.remoteAddress));
   const router = express.Router();
+
+  /** 401 with the challenge and a fixed message: never the header, query or body. */
+  const unauthenticated = (res: Response): void => {
+    res.setHeader('WWW-Authenticate', 'Bearer');
+    sendError(res, 'UNAUTHENTICATED', 'authentication required', false);
+  };
+
+  /**
+   * Checks the Authorization header of a request that carries one. Consults the throttle first (a
+   * locked source is refused even with the right token), records a failure only for a wrong or
+   * malformed credential, and replies itself on failure. Reads the header only: no query, cookie or body.
+   */
+  const checkBearer = (req: Request, res: Response): boolean => {
+    const key = keyOf(req);
+    const gate = throttle.check(key);
+    if (!gate.allowed) {
+      res.setHeader('Retry-After', String(Math.max(1, Math.ceil(gate.retryAfterMs / 1000))));
+      sendError(res, 'RATE_LIMITED', 'too many failed attempts', true);
+      return false;
+    }
+    const candidate = bearerOf(req.headers.authorization);
+    if (candidate === undefined || !auth!.verify(candidate)) {
+      throttle.recordFailure(key);
+      unauthenticated(res);
+      return false;
+    }
+    throttle.recordSuccess(key);
+    return true;
+  };
 
   const bound = host.trim().toLowerCase();
   const allowedHostNames = new Set<string>([
@@ -159,15 +200,37 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
     next();
   });
 
-  router.get('/health', (_req, res) => {
-    res.status(200).json({
+  // Health is open in its minimal form so a probe can see the gateway is up. The agent count is
+  // roster information: it needs a valid Bearer, and a wrong one is a counted failure so the field
+  // is not an unthrottled token oracle.
+  router.get('/health', (req, res) => {
+    const base = {
       ok: true,
       contract: CONTRACT_VERSION,
       epoch,
       backends: [{ id: 'local', up: true }],
-      agents: service.count(),
-    });
+    };
+    if (auth) {
+      if (req.headers.authorization === undefined) {
+        res.status(200).json(base);
+        return;
+      }
+      if (!checkBearer(req, res)) return;
+    }
+    res.status(200).json({ ...base, agents: service.count() });
   });
+
+  // Everything below, including the UNSUPPORTED stubs and the 404 handler, is behind the token, so an
+  // unauthenticated caller learns nothing about which paths exist and no body is read before auth.
+  if (auth) {
+    router.use((req, res, next) => {
+      if (req.headers.authorization === undefined) {
+        unauthenticated(res);
+        return;
+      }
+      if (checkBearer(req, res)) next();
+    });
+  }
 
   router.get('/agents', (_req, res) => {
     res.status(200).json({ ok: true, agents: service.list() });
