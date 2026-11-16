@@ -93,6 +93,8 @@ export class Transport {
   private ackTimer: ReturnType<typeof setTimeout> | null = null;
   /** Set after a 4401: nothing reconnects until connect() is called again. */
   private authLatched = false;
+  /** The socket is open but the gateway has not yet acknowledged the hello: state is not yet 'open' (IN-01). */
+  private awaitingAck = false;
 
   constructor(opts: TransportOptions) {
     this.url = opts.url;
@@ -124,10 +126,22 @@ export class Transport {
   /** The gateway acknowledged the hello: cancel the ack watchdog. */
   acknowledge(): void {
     this.clearTimer('ack');
+    if (!this.awaitingAck) return;
+    this.awaitingAck = false;
+    if (this.socket) this.reportOpen();
   }
 
-  /** Returns true only when the text was written to an open socket. */
+  private reportOpen(): void {
+    this.onState({ state: 'open', lastConnectedAt: Date.now(), lastError: null, nextRetryAt: null });
+  }
+
+  /** Returns true only when the text was written to an open, acknowledged socket. */
   send(text: string): boolean {
+    if (this.awaitingAck) return false;
+    return this.write(text);
+  }
+
+  private write(text: string): boolean {
     if (!this.socket || this.socket.readyState !== WS_OPEN) return false;
     try {
       this.socket.send(text);
@@ -156,7 +170,9 @@ export class Transport {
     socket.onopen = () => {
       if (this.socket !== socket) return;
       this.sendHello(socket);
-      this.onState({ state: 'open', lastConnectedAt: Date.now(), lastError: null, nextRetryAt: null });
+      // With a token the connection is not usable (nor "Connected") until the hello_ack arrives (IN-01).
+      this.awaitingAck = Boolean(this.hello && this.hello.expectAck());
+      if (!this.awaitingAck) this.reportOpen();
       this.armIdleTimer();
       this.armAckTimer(socket);
     };
@@ -175,6 +191,7 @@ export class Transport {
     socket.onclose = (ev) => {
       if (this.socket !== socket) return;
       this.socket = null;
+      this.awaitingAck = false;
       this.clearHeartbeat();
       this.clearTimer('ack');
       if (ev?.code === CLOSE_AUTH_FAILED) {
@@ -209,7 +226,7 @@ export class Transport {
 
   private armAckTimer(socket: WebSocketLike): void {
     this.clearTimer('ack');
-    if (!this.hello || !this.hello.expectAck()) return;
+    if (!this.awaitingAck || !this.hello) return;
     this.ackTimer = setTimeout(() => {
       this.ackTimer = null;
       if (this.socket !== socket) return;
@@ -252,7 +269,7 @@ export class Transport {
     this.idleTimer = setTimeout(() => {
       this.idleTimer = null;
       const ping: PingFrame = { type: 'ping', t: Date.now() };
-      this.send(JSON.stringify(ping));
+      this.write(JSON.stringify(ping));
       this.pongTimer = setTimeout(() => {
         this.pongTimer = null;
         this.abandonSocket();
@@ -264,6 +281,7 @@ export class Transport {
   private abandonSocket(): void {
     const socket = this.socket;
     this.socket = null;
+    this.awaitingAck = false;
     this.clearHeartbeat();
     this.clearTimer('ack');
     if (socket) {

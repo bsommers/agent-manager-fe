@@ -442,13 +442,13 @@ describe('Transport (hello_ack watchdog)', () => {
     expect(MAX_RETRY_FLOOR_MS).toBe(15 * 60 * 1000);
   });
 
-  it('stays open until 3000 ms, then abandons to auth_failed with exactly one socket and no timers', () => {
+  it('stays not-open until 3000 ms, then abandons to auth_failed with exactly one socket and no timers', () => {
     const { t, last, ws } = make(true);
     t.connect();
     ws().simulateOpen();
-    expect(last()).toMatchObject({ state: 'open' });
+    expect(last()).toMatchObject({ state: 'connecting' });
     vi.advanceTimersByTime(2999);
-    expect(last()).toMatchObject({ state: 'open' });
+    expect(last()).toMatchObject({ state: 'connecting' });
     vi.advanceTimersByTime(1);
     expect(last()).toMatchObject({
       state: 'auth_failed',
@@ -461,6 +461,46 @@ describe('Transport (hello_ack watchdog)', () => {
     expect(FakeWebSocket.instances).toHaveLength(1);
     vi.advanceTimersByTime(10 * 60 * 1000);
     expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('does not report open before the ack, then reports open with lastConnectedAt on acknowledge (IN-01)', () => {
+    const { t, states, last, ws } = make(true);
+    t.connect();
+    ws().simulateOpen();
+    expect(states.some((p) => p.state === 'open')).toBe(false);
+    expect(states.some((p) => 'lastConnectedAt' in p)).toBe(false);
+    t.acknowledge();
+    expect(last()).toMatchObject({ state: 'open', lastError: null, nextRetryAt: null });
+    expect(typeof last().lastConnectedAt).toBe('number');
+  });
+
+  it('refuses send() until the ack, but the hello itself was written first (IN-01)', () => {
+    const { t, ws } = make(true);
+    t.connect();
+    ws().simulateOpen();
+    expect(ws().sent).toEqual(['h']);
+    expect(t.send('data')).toBe(false);
+    t.acknowledge();
+    expect(t.send('data')).toBe(true);
+    expect(ws().sent).toEqual(['h', 'data']);
+  });
+
+  it('a rejected token never shows open: 4401 goes connecting -> auth_failed (IN-01)', () => {
+    const { t, states, ws } = make(true);
+    t.connect();
+    ws().simulateOpen();
+    ws().simulateClose(4401);
+    expect(states.some((p) => p.state === 'open')).toBe(false);
+    expect(states[states.length - 1]).toMatchObject({ state: 'auth_failed' });
+  });
+
+  it('acknowledge() without an awaiting ack (no token) does not emit state', () => {
+    const { t, states, ws } = make(false);
+    t.connect();
+    ws().simulateOpen();
+    const n = states.length;
+    t.acknowledge();
+    expect(states).toHaveLength(n);
   });
 
   it('acknowledge() before the deadline cancels the watchdog', () => {
@@ -488,7 +528,7 @@ describe('Transport (hello_ack watchdog)', () => {
     t.connect();
     ws().simulateOpen();
     vi.advanceTimersByTime(499);
-    expect(last()).toMatchObject({ state: 'open' });
+    expect(last()).toMatchObject({ state: 'connecting' });
     vi.advanceTimersByTime(1);
     expect(last()).toMatchObject({ state: 'auth_failed' });
   });
