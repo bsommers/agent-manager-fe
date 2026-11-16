@@ -22,6 +22,8 @@ export type MessageListener = (msg: WSMessageServer) => void;
 export interface BackendAdapter {
   readonly id: string;
   readonly mode: BackendMode;
+  /** Set when connect() is a no-op (for example a configuration error); the text is safe to show. */
+  readonly disabledReason?: string | null;
   connect(): void;
   disconnect(): void;
   reconnectNow(): void;

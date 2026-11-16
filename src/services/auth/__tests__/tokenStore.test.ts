@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   getToken,
   setToken,
+  setCandidate,
+  commitCandidate,
   clearToken,
   validateToken,
   useAuthStore,
@@ -28,6 +30,33 @@ describe('tokenStore', () => {
 
   it('setToken stores in memory and getToken returns it', () => {
     expect(setToken(TOKEN)).toEqual({ ok: true });
+    expect(getToken()).toBe(TOKEN);
+  });
+
+  it('a candidate is used by getToken but never stored until committed (WR-03)', () => {
+    expect(setCandidate(TOKEN)).toEqual({ ok: true });
+    expect(getToken()).toBe(TOKEN);
+    expect(sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+    expect(useAuthStore.getState().hasToken).toBe(false);
+    commitCandidate();
+    expect(sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBe(TOKEN);
+    expect(useAuthStore.getState().hasToken).toBe(true);
+    expect(getToken()).toBe(TOKEN);
+  });
+
+  it('clearToken drops a pending candidate and commitCandidate without one is a no-op', () => {
+    commitCandidate();
+    expect(sessionStorage.length).toBe(0);
+    setCandidate(TOKEN);
+    clearToken();
+    expect(getToken()).toBeUndefined();
+    commitCandidate();
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it('setCandidate rejects an invalid value without touching the current token', () => {
+    setToken(TOKEN);
+    expect(setCandidate('has space').ok).toBe(false);
     expect(getToken()).toBe(TOKEN);
   });
 

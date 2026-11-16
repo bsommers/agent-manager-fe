@@ -90,6 +90,24 @@ describe('TokenDialog', () => {
     expect(input().value).toBe('');
   });
 
+  it('shows the disabled reason inline, stays open and stores nothing when the adapter is disabled (WR-03)', () => {
+    const adapter = agentSocket.getAdapter();
+    Object.defineProperty(adapter, 'disabledReason', { value: 'Backend URL is not allowed', configurable: true });
+    try {
+      render(<TokenDialog />);
+      open();
+      type(CANARY);
+      submit();
+      expect(screen.getByRole('alert').textContent).toBe('Backend URL is not allowed');
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(connect).not.toHaveBeenCalled();
+      expect(getToken()).toBeUndefined();
+      expect(sessionStorage.length).toBe(0);
+    } finally {
+      delete (adapter as { disabledReason?: unknown }).disabledReason;
+    }
+  });
+
   it('an invalid submit shows a fixed inline alert, stays open and does not connect', () => {
     render(<TokenDialog />);
     open();

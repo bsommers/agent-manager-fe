@@ -42,26 +42,53 @@ function writeStored(token: string | undefined): void {
 }
 
 // The only place the secret lives besides the one sessionStorage entry.
+/** A token the gateway has accepted (or one restored from this tab's sessionStorage). */
 let current: string | undefined = readStored();
+/** A typed token not yet confirmed by a hello_ack: memory only, never written to storage (WR-03). */
+let candidate: string | undefined;
 
 /** Zustand sees only whether a token exists; the secret itself never enters reactive state. */
 export const useAuthStore = create<{ hasToken: boolean }>(() => ({ hasToken: current !== undefined }));
 
+/** The token the next hello carries: an unconfirmed candidate wins over the stored one. */
 export function getToken(): string | undefined {
-  return current;
+  return candidate ?? current;
 }
 
+/** Stores a token immediately (memory and sessionStorage). The login flow uses setCandidate instead. */
 export function setToken(raw: string): { ok: true } | { ok: false; reason: string } {
   const r = validateToken(raw);
   if (!r.ok) return { ok: false, reason: r.reason };
   current = r.token;
+  candidate = undefined;
   writeStored(r.token);
   useAuthStore.setState({ hasToken: true });
   return { ok: true };
 }
 
+/**
+ * Holds a typed token in memory for the next connection attempt without persisting it. It becomes
+ * the stored token only through commitCandidate() once the gateway acknowledges it (WR-03).
+ */
+export function setCandidate(raw: string): { ok: true } | { ok: false; reason: string } {
+  const r = validateToken(raw);
+  if (!r.ok) return { ok: false, reason: r.reason };
+  candidate = r.token;
+  return { ok: true };
+}
+
+/** The gateway accepted the token in use: persist a pending candidate. No-op without one. */
+export function commitCandidate(): void {
+  if (candidate === undefined) return;
+  current = candidate;
+  candidate = undefined;
+  writeStored(current);
+  useAuthStore.setState({ hasToken: true });
+}
+
 export function clearToken(): void {
   current = undefined;
+  candidate = undefined;
   writeStored(undefined);
   useAuthStore.setState({ hasToken: false });
 }

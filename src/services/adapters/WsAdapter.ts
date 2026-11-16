@@ -22,6 +22,10 @@ export interface WsAdapterOptions {
    * hello (contract spec 2.5); without it nothing extra is sent (legacy behavior).
    */
   getToken?: () => string | undefined;
+  /** The gateway acknowledged a hello while requiring a token: the token in use is valid. */
+  onAuthAccepted?: () => void;
+  /** The connection entered auth_failed (4401 or no acknowledgement): the token in use is not valid. */
+  onAuthRejected?: () => void;
 }
 
 export class WsAdapter implements BackendAdapter {
@@ -31,10 +35,14 @@ export class WsAdapter implements BackendAdapter {
   private readonly stateListeners = new Set<StateListener>();
   private readonly messageListeners = new Set<MessageListener>();
   private readonly transport: Transport;
-  private readonly disabledReason: string | null;
+  readonly disabledReason: string | null;
+  private readonly onAuthAccepted: (() => void) | undefined;
+  private readonly onAuthRejected: (() => void) | undefined;
 
   constructor(url: string, opts: WsAdapterOptions = {}) {
     this.disabledReason = opts.disabledReason ?? null;
+    this.onAuthAccepted = opts.onAuthAccepted;
+    this.onAuthRejected = opts.onAuthRejected;
     this.transport = new Transport({
       url,
       WebSocketImpl: opts.WebSocketImpl,
@@ -108,6 +116,7 @@ export class WsAdapter implements BackendAdapter {
 
   private patch(patch: Partial<ConnSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...patch };
+    if (patch.state === 'auth_failed') this.notifyAuth(this.onAuthRejected);
     this.stateListeners.forEach((fn) => {
       try {
         fn(this.snapshot);
@@ -131,6 +140,15 @@ export class WsAdapter implements BackendAdapter {
     }
     this.transport.acknowledge();
     this.patch({ epoch: ack.epoch, authRequired: ack.auth.required });
+    if (ack.auth.required) this.notifyAuth(this.onAuthAccepted);
+  }
+
+  private notifyAuth(hook: (() => void) | undefined): void {
+    try {
+      hook?.();
+    } catch (e) {
+      console.error('auth hook threw', e);
+    }
   }
 
   private handleFrame(text: string): void {

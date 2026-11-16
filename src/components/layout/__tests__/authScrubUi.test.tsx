@@ -9,7 +9,7 @@ import { useAgentStore, resetAgentStore } from '../../../store/agentStore';
 import { useConnectionStore } from '../../../store/connectionStore';
 import { useLogBufferStore } from '../../../store/logBufferStore';
 import { useUiStore, resetUiStore, initialUiState } from '../../../store/uiStore';
-import { useAuthStore, clearToken, TOKEN_STORAGE_KEY } from '../../../services/auth/tokenStore';
+import { useAuthStore, clearToken, commitCandidate, TOKEN_STORAGE_KEY } from '../../../services/auth/tokenStore';
 import { INITIAL_SNAPSHOT } from '../../../services/adapters/types';
 import { buildCommands } from '../../../keyboard/commands';
 import { agentSocket } from '../../../services/agentSocket';
@@ -131,18 +131,21 @@ describe('token never leaves the one sessionStorage entry across the UI flow', (
     type(CANARY_1);
     assertNoLeak('typed 1', undefined);
     submit();
-    assertNoLeak('submitted 1', CANARY_1);
+    // Not persisted until the gateway acknowledges it (WR-03).
+    assertNoLeak('submitted 1', undefined);
     expect(screen.queryByRole('dialog')).toBeNull();
 
     // 3. The gateway rejects it again; the dialog re-prompts.
     act(() => useConnectionStore.setState({ state: 'auth_failed', lastError: 'Authentication failed' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-    assertNoLeak('failed again', CANARY_1);
+    assertNoLeak('failed again', undefined);
 
     // 4. Resubmit a different value; it succeeds.
     type(CANARY_2);
     submit();
-    assertNoLeak('submitted 2', CANARY_2);
+    assertNoLeak('submitted 2', undefined);
+    // hello_ack: the adapter's accepted hook persists the candidate.
+    act(() => commitCandidate());
     act(() => useConnectionStore.setState({ state: 'open', lastError: null }));
     assertNoLeak('open', CANARY_2);
     expect(sessionStorage.length).toBe(1);
@@ -177,6 +180,8 @@ describe('token never leaves the one sessionStorage entry across the UI flow', (
     act(() => useConnectionStore.setState({ state: 'auth_failed' }));
     type(CANARY_1);
     submit();
+    expect(sessionStorage.length).toBe(0);
+    act(() => commitCandidate());
     const keys: string[] = [];
     for (let i = 0; i < sessionStorage.length; i++) keys.push(sessionStorage.key(i) as string);
     expect(keys).toEqual(['agent-manager.token']);
@@ -206,6 +211,7 @@ describe('token never leaves the one sessionStorage entry across the UI flow', (
     act(() => useConnectionStore.setState({ state: 'auth_failed' }));
     type(CANARY_1);
     submit();
+    act(() => commitCandidate());
     act(() => useConnectionStore.setState({ state: 'open' }));
     act(() => {
       useAgentStore.setState({ agents: [agent('a1')], activeAgentId: 'a1' });

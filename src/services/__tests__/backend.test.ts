@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { vi, afterEach } from 'vitest';
 import { resolveBackendConfig, createBackend } from '../backend';
 import { isLoopbackHostname } from '../backend';
-import { setToken, clearToken } from '../auth/tokenStore';
+import { setToken, setCandidate, clearToken, getToken, TOKEN_STORAGE_KEY } from '../auth/tokenStore';
 import type { WebSocketLike } from '../transport/Transport';
 import { parseClientMessage } from '../wsProtocol';
 import { MockAdapter } from '../adapters/MockAdapter';
@@ -219,6 +219,61 @@ describe('createBackend wiring', () => {
     const r = parseClientMessage(JSON.parse(sock.sent[0]));
     expect(r.ok).toBe(true);
     if (r.ok && r.msg.type === 'hello') expect(r.msg.token).toBe('late-token-0123456789');
+    a.disconnect();
+  });
+
+  const ACK = {
+    type: 'hello_ack',
+    contract: 1,
+    epoch: 'ep-1',
+    server: { name: 'agent-manager-gateway', version: '1.0.0' },
+    auth: { required: true },
+    limits: { maxFrameBytes: 1048576, maxInputBytes: 65536, maxBroadcastTargets: 32 },
+    backends: [{ id: 'local', label: 'Local', up: true, capabilities: ['terminal'] }],
+  };
+
+  it('persists a candidate token only after hello_ack (WR-03)', () => {
+    FakeSocket.instances = [];
+    vi.stubGlobal('WebSocket', FakeSocket);
+    const a = createBackend(resolveBackendConfig({}, ''));
+    setCandidate('candidate-token-0123456789');
+    a.connect();
+    const sock = FakeSocket.instances[0];
+    sock.readyState = 1;
+    sock.onopen?.();
+    expect(sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+    sock.onmessage?.({ data: JSON.stringify(ACK) });
+    expect(sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBe('candidate-token-0123456789');
+    a.disconnect();
+  });
+
+  it('removes the token on a 4401 close (WR-03)', () => {
+    FakeSocket.instances = [];
+    vi.stubGlobal('WebSocket', FakeSocket);
+    const a = createBackend(resolveBackendConfig({}, ''));
+    setToken('stored-token-0123456789');
+    a.connect();
+    const sock = FakeSocket.instances[0];
+    sock.readyState = 1;
+    sock.onopen?.();
+    sock.onclose?.({ code: 4401, reason: 'unauthenticated' });
+    expect(getToken()).toBeUndefined();
+    expect(sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+    a.disconnect();
+  });
+
+  it('removes a rejected candidate and never stores it (WR-03)', () => {
+    FakeSocket.instances = [];
+    vi.stubGlobal('WebSocket', FakeSocket);
+    const a = createBackend(resolveBackendConfig({}, ''));
+    setCandidate('wrong-token-0123456789');
+    a.connect();
+    const sock = FakeSocket.instances[0];
+    sock.readyState = 1;
+    sock.onopen?.();
+    sock.onclose?.({ code: 4401, reason: 'unauthenticated' });
+    expect(getToken()).toBeUndefined();
+    expect(sessionStorage.length).toBe(0);
     a.disconnect();
   });
 

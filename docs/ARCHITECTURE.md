@@ -144,7 +144,7 @@ sequenceDiagram
 Rules worth knowing:
 
 - **Registration order.** `SessionManager.addClient` runs only after a valid hello, so an unauthenticated socket can never receive a roster or output.
-- **Throttle and proxy key.** One bounded table (5 wrong tokens per 60 s, lock 60 s doubling to 15 min, 10 000 sources, IPv6 by /64) is shared by WS and `/api`. With `AGENT_MANAGER_TRUST_PROXY=1` and a loopback peer the key is the last `X-Forwarded-For` entry, which is why the nginx example overwrites that header.
+- **Throttle and proxy key.** One bounded table (5 wrong tokens per 60 s, lock 60 s doubling to 15 min, 10 000 sources, IPv6 by /64) is shared by WS and `/api`. With `AGENT_MANAGER_TRUST_PROXY` unset (auto) or `1`, and a loopback peer, the key is the last `X-Forwarded-For` entry, which is why the nginx example overwrites that header.
 - **HTTP.** `/api` requires `Authorization: Bearer <token>` except the minimal `GET /api/health`; the Host and Origin guards run first.
 - **Frontend.** `src/services/auth/tokenStore.ts` holds the token in memory and in `sessionStorage` (`agent-manager.token`). `Transport` latches `auth_failed` on a 4401 (or a missing `hello_ack` after 3 s) and does not retry; `TokenDialog` collects a new token and `submitToken` makes one connection attempt. `src/services/session/logout.ts` closes the sockets, resets the stores and removes every `agent-manager.`-prefixed key from session and local storage.
 

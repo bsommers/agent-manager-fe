@@ -78,12 +78,16 @@ interface Entry {
 
 /**
  * Per-key failure throttle. Entries hold counters only (never a token or digest) in a Map that is
- * hard-bounded by maxKeys: expired entries are swept lazily on insert, then the oldest is evicted.
+ * hard-bounded by maxKeys: lapsed entries are swept lazily on insert, then the oldest UNLOCKED entry
+ * is evicted. A locked entry is never evicted to make room (WR-04); if every entry is locked, new
+ * keys share one overflow entry (outside the map, so the bound holds) and are throttled together.
  * No timers, so nothing needs unref or cleanup. Never logs.
  */
 export function createAuthThrottle(options: Partial<ThrottleOptions> = {}): AuthThrottle {
   const o: ThrottleOptions = { ...DEFAULT_THROTTLE, now: Date.now, ...options };
   const entries = new Map<string, Entry>();
+  /** Shared by every untracked key while the table is full of locked entries. */
+  let overflow: Entry | undefined;
 
   /** An entry is forgotten once its window and its lock (plus one window of grace for strikes) are over. */
   const lapsed = (e: Entry, now: number): boolean =>
@@ -93,54 +97,86 @@ export function createAuthThrottle(options: Partial<ThrottleOptions> = {}): Auth
     for (const [key, e] of entries) if (lapsed(e, now)) entries.delete(key);
   }
 
+  /** Frees one slot by dropping the oldest unlocked entry; false when every entry is locked. */
+  function evictUnlocked(now: number): boolean {
+    for (const [key, e] of entries) {
+      if (e.lockedUntil <= now) {
+        entries.delete(key);
+        return true;
+      }
+    }
+    return false;
+  }
+
   function check(rawKey: string): ThrottleCheck {
-    const e = entries.get(normalizeIp(rawKey));
+    const key = normalizeIp(rawKey);
     const now = o.now();
+    const e = entries.get(key) ?? (entries.size >= o.maxKeys ? overflow : undefined);
     if (e && now < e.lockedUntil) return { allowed: false, retryAfterMs: Math.max(1, e.lockedUntil - now) };
     return { allowed: true };
   }
 
-  function recordFailure(rawKey: string): void {
-    const key = normalizeIp(rawKey);
-    const now = o.now();
-    let e = entries.get(key);
-    if (e && lapsed(e, now)) {
-      entries.delete(key);
-      e = undefined;
-    }
-    if (e && now < e.lockedUntil) return; // already blocked: the lock is not extended
+  /** Applies one failure to an entry (or a fresh one) and returns the entry to store. */
+  function applyFailure(existing: Entry | undefined, now: number): Entry | undefined {
+    let e = existing;
+    if (e && lapsed(e, now)) e = undefined;
+    if (e && now < e.lockedUntil) return e; // already blocked: the lock is not extended
     if (!e) {
-      if (entries.size >= o.maxKeys) {
-        sweep(now);
-        while (entries.size >= o.maxKeys) {
-          const oldest = entries.keys().next();
-          if (oldest.done) break;
-          entries.delete(oldest.value);
-        }
-      }
       e = { failures: 0, windowStart: now, lockedUntil: 0, strikes: 0 };
-    } else {
-      entries.delete(key); // refresh insertion order
-      if (e.lockedUntil > 0) {
-        // A lock just lapsed: count afresh but remember the strikes.
-        e.failures = 0;
-        e.windowStart = now;
-        e.lockedUntil = 0;
-      } else if (now >= e.windowStart + o.windowMs) {
-        e.failures = 0;
-        e.windowStart = now;
-      }
+    } else if (e.lockedUntil > 0) {
+      // A lock just lapsed: count afresh but remember the strikes.
+      e.failures = 0;
+      e.windowStart = now;
+      e.lockedUntil = 0;
+    } else if (now >= e.windowStart + o.windowMs) {
+      e.failures = 0;
+      e.windowStart = now;
     }
     e.failures += 1;
     if (e.failures >= o.maxFailures) {
       e.lockedUntil = now + Math.min(o.lockMs * 2 ** e.strikes, o.maxLockMs);
       e.strikes += 1;
     }
-    entries.set(key, e);
+    return e;
   }
 
+  function recordFailure(rawKey: string): void {
+    const key = normalizeIp(rawKey);
+    const now = o.now();
+    const existing = entries.get(key);
+    if (existing) {
+      entries.delete(key); // refresh insertion order
+      entries.set(key, applyFailure(existing, now) as Entry);
+      return;
+    }
+    if (entries.size >= o.maxKeys) {
+      sweep(now);
+      if (entries.size >= o.maxKeys && !evictUnlocked(now)) {
+        // Every tracked source is locked: do not evict a lock. Share one overflow entry instead.
+        overflow = applyFailure(overflow, now);
+        return;
+      }
+    }
+    entries.set(key, applyFailure(undefined, now) as Entry);
+  }
+
+  /**
+   * A success clears the failure count but keeps the strike history (WR-02), so successes
+   * interleaved on a shared key cannot reset the doubling lockout. A locked entry is left alone. An
+   * entry with no strikes holds no history, so it is dropped.
+   */
   function recordSuccess(rawKey: string): void {
-    entries.delete(normalizeIp(rawKey));
+    const key = normalizeIp(rawKey);
+    const e = entries.get(key);
+    if (!e) return;
+    const now = o.now();
+    if (now < e.lockedUntil) return;
+    if (e.strikes === 0) {
+      entries.delete(key);
+      return;
+    }
+    e.failures = 0;
+    e.windowStart = now;
   }
 
   return { check, recordFailure, recordSuccess, size: () => entries.size };

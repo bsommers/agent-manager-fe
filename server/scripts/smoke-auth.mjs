@@ -209,8 +209,8 @@ async function main() {
 
   // 3. A valid token on loopback listens.
   const port = await freePort();
-  const main = await startGateway({ PORT: String(port), AGENT_MANAGER_TOKEN: TOKEN });
-  if (!check('3 with a valid token on loopback the gateway listens', main.listening, `exit=${main.record.code}`)) {
+  const gw = await startGateway({ PORT: String(port), AGENT_MANAGER_TOKEN: TOKEN });
+  if (!check('3 with a valid token on loopback the gateway listens', gw.listening, `exit=${gw.record.code}`)) {
     throw new Error('gateway did not start; cannot continue');
   }
 
