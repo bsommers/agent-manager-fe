@@ -85,7 +85,7 @@ Both backend and frontend can be customized via environment variables:
 | `PORT` | `8088` | HTTP & WebSocket server port |
 | `HOST` | `127.0.0.1` | Interface the gateway binds to. A non-loopback value is accepted only when `AGENT_MANAGER_TOKEN` is set; otherwise start-up is refused with a message naming `HOST` and `AGENT_MANAGER_TOKEN` |
 | `AGENT_MANAGER_TOKEN` | *(unset)* | Shared secret. Unset or empty means no authentication (zero-config local use, loopback only). When set it must be 24 to 512 printable ASCII characters (no spaces or control characters, a trailing newline counts), is checked even on loopback, and is never trimmed. Generate one with `openssl rand -base64 32`. Load it from a secret store or an untracked env file; do not put it on a command line other users can read |
-| `AGENT_MANAGER_TRUST_PROXY` | `0` | `1`/`true` or `0`/`false`. When on and the socket peer is loopback (your reverse proxy), the auth throttle is keyed by the last `X-Forwarded-For` entry instead of the peer address. Turn it on only behind a proxy that overwrites that header (see the nginx example below) |
+| `AGENT_MANAGER_TRUST_PROXY` | unset (auto) | Unset: when the socket peer is loopback (your local reverse proxy) the auth throttle is keyed by the last `X-Forwarded-For` entry instead of the peer address; a non-loopback peer is always keyed by its own address and its header is ignored. `1`/`true` behaves the same; `0`/`false` ignores the header entirely. Use a proxy that overwrites that header (see the nginx example below) |
 | `ALLOWED_ORIGINS` | Vite dev and preview origins on `localhost` and `127.0.0.1` | Comma-separated browser origins allowed to open the WebSocket; other origins are rejected with HTTP 403 |
 | `SHELL` | `/bin/bash` | Default shell binary used by PTY driver |
 | `SSH_AUTH_SOCK` | System `SSH_AUTH_SOCK` | Path to active SSH agent socket |
@@ -151,7 +151,7 @@ ssh -L 8088:127.0.0.1:8088 user@remote-host
 
 Then open the frontend locally; it keeps talking to `http://localhost:8088`.
 
-**2. Token plus a TLS reverse proxy.** The gateway stays on loopback behind the proxy with `AGENT_MANAGER_TOKEN` set and `AGENT_MANAGER_TRUST_PROXY=1`. List the UI's https origin in `ALLOWED_ORIGINS` (the WebSocket upgrade and mutating `/api` calls check `Origin`), and build the frontend with `VITE_BACKEND_URL` set to the https gateway origin. The frontend refuses `http://` / `ws://` to any non-loopback host, so a plaintext remote backend shows a configuration error and opens no socket.
+**2. Token plus a TLS reverse proxy.** The gateway stays on loopback behind the proxy with `AGENT_MANAGER_TOKEN` set (`AGENT_MANAGER_TRUST_PROXY` needs no setting: a loopback proxy is trusted automatically). List the UI's https origin in `ALLOWED_ORIGINS` (the WebSocket upgrade and mutating `/api` calls check `Origin`), and build the frontend with `VITE_BACKEND_URL` set to the https gateway origin. The frontend refuses `http://` / `ws://` to any non-loopback host, so a plaintext remote backend shows a configuration error and opens no socket.
 
 Example nginx server block. It assumes the gateway runs with `PORT=9090` on `127.0.0.1`; match the port to your `PORT`. Nothing here asks you to move or stop whatever already listens elsewhere.
 
@@ -189,11 +189,11 @@ server {
 With that proxy, start the gateway as:
 
 ```bash
-PORT=9090 AGENT_MANAGER_TRUST_PROXY=1 ALLOWED_ORIGINS=https://agent.example.com \
+PORT=9090 ALLOWED_ORIGINS=https://agent.example.com \
   AGENT_MANAGER_TOKEN="$(cat /path/to/secret)" npm run start:backend
 ```
 
-Leave `AGENT_MANAGER_TRUST_PROXY` off without such a proxy: with it on, a proxy that appends to `X-Forwarded-For` (or a client that can reach the gateway from loopback itself) lets a client pick its own throttle key. With it off behind a proxy, all clients share one throttle key (see Troubleshooting).
+The forwarded header is honoured only when the connecting peer is loopback, so a client reaching the gateway directly cannot choose its throttle key. A proxy that appends to `X-Forwarded-For` (instead of overwriting) or a client on the gateway host itself can still pick its own key; set `AGENT_MANAGER_TRUST_PROXY=0` to ignore the header, in which case all proxied clients share one throttle key (see Troubleshooting).
 
 In the browser: the token dialog opens on authentication failure, the token is kept in the tab's session storage (key `agent-manager.token`) and cleared on **Log out** or when the tab closes, and **Log out** is in the header and the command palette while a token is set. Log out empties the roster, log buffers and the token, and removes every `agent-manager.*` storage key.
 
@@ -287,8 +287,8 @@ npm run build && cd server && npm run build
 - **Solution**: Re-enter the token. If the connection is closed with `4429`, wait for the lock to lapse (60 seconds at first). Check the proxy's `Host` line (Issue 12).
 
 ### Issue 10: Everyone is locked out (`4429` / `429`) behind a proxy
-- **Cause**: `AGENT_MANAGER_TRUST_PROXY` is off, so every proxied client has the proxy's loopback address as its source and they share one throttle key.
-- **Solution**: Use a proxy that overwrites `X-Forwarded-For` with `$remote_addr` (example above) and start the gateway with `AGENT_MANAGER_TRUST_PROXY=1`.
+- **Cause**: `AGENT_MANAGER_TRUST_PROXY=0` is set, or the proxy runs on another host (a non-loopback peer's `X-Forwarded-For` is never trusted), so every proxied client has the proxy's address as its source and they share one throttle key.
+- **Solution**: Run the proxy on the gateway host (loopback) with a config that overwrites `X-Forwarded-For` with `$remote_addr` (example above), and leave `AGENT_MANAGER_TRUST_PROXY` unset.
 
 ### Issue 11: "gateway did not acknowledge authentication" or "Plaintext ws:// ... is refused"
 - **Cause**: For the first, the gateway is older than the authentication phase, or something between the browser and the gateway blocks the first frame; the client gives up after 3 seconds. For the second, `VITE_BACKEND_URL` is `http://` to a non-loopback host.

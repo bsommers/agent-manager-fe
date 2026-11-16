@@ -103,8 +103,12 @@ describe('assertBindPolicy', () => {
 });
 
 describe('parseTrustProxy', () => {
-  it.each([undefined, '', '0', 'false', 'FALSE', ' 0 '])('parses %j as false', (v) => {
+  it.each(['0', 'false', 'FALSE', ' 0 '])('parses %j as an explicit false', (v) => {
     expect(parseTrustProxy(v)).toBe(false);
+  });
+
+  it.each([undefined, '', '  '])('parses %j as auto (undefined)', (v) => {
+    expect(parseTrustProxy(v)).toBeUndefined();
   });
 
   it.each(['1', 'true', 'TRUE', ' 1 '])('parses %j as true', (v) => {
@@ -122,8 +126,8 @@ describe('CONFIG', () => {
     vi.resetModules();
   });
 
-  it('has a boolean TRUST_PROXY and no property naming a token', () => {
-    expect(typeof CONFIG.TRUST_PROXY).toBe('boolean');
+  it('has an auto-or-boolean TRUST_PROXY and no property naming a token', () => {
+    expect(['boolean', 'undefined']).toContain(typeof CONFIG.TRUST_PROXY);
     expect(Object.keys(CONFIG).filter((k) => /token/i.test(k))).toEqual([]);
   });
 

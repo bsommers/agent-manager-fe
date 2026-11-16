@@ -182,6 +182,21 @@ describe('clientKey', () => {
     expect(clientKey(req('5.5.5.5', '9.9.9.9'), true)).toBe('5.5.5.5');
   });
 
+  it('auto (undefined) honours the header from a loopback peer only', () => {
+    expect(clientKey(req('127.0.0.1', '9.9.9.9'))).toBe('9.9.9.9');
+    expect(clientKey(req('::1', '9.9.9.9'))).toBe('9.9.9.9');
+    expect(clientKey(req('::ffff:127.0.0.1', '6.6.6.6, 9.9.9.9'))).toBe('9.9.9.9');
+  });
+
+  it('auto (undefined) ignores a spoofed header from a non-loopback peer', () => {
+    expect(clientKey(req('5.5.5.5', '9.9.9.9'))).toBe('5.5.5.5');
+    expect(clientKey(req('2001:db8::1', '9.9.9.9'))).toBe(clientKey(req('2001:db8::1')));
+  });
+
+  it('an explicit false beats auto even for a loopback peer', () => {
+    expect(clientKey(req('127.0.0.1', '9.9.9.9'), false)).toBe('127.0.0.1');
+  });
+
   it('uses the last element of an array-valued header', () => {
     expect(clientKey(req('127.0.0.1', ['1.1.1.1', '2.2.2.2, 3.3.3.3']), true)).toBe('3.3.3.3');
   });

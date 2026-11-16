@@ -287,6 +287,18 @@ describe('counting and the shared throttle', () => {
     expect((await request(gw.port, 'GET', '/api/agents', { headers: { ...bearer(TOKEN), ...B } })).status).toBe(200);
   });
 
+  it('auto-trusts the forwarded header from a loopback peer when trustProxy is unset', async () => {
+    const clock = makeClock();
+    const gw = await startGateway({ token: TOKEN, throttle: tinyThrottle(clock) });
+    const A = { 'x-forwarded-for': '203.0.113.7' };
+    const B = { 'x-forwarded-for': '198.51.100.9' };
+    for (let i = 0; i < 3; i++) {
+      await request(gw.port, 'GET', '/api/agents', { headers: { ...bearer(WRONG_SAME_LENGTH), ...A } });
+    }
+    expect((await request(gw.port, 'GET', '/api/agents', { headers: { ...bearer(TOKEN), ...A } })).status).toBe(429);
+    expect((await request(gw.port, 'GET', '/api/agents', { headers: { ...bearer(TOKEN), ...B } })).status).toBe(200);
+  });
+
   it('shares one key across forwarded values with trustProxy off', async () => {
     const clock = makeClock();
     const gw = await startGateway({ token: TOKEN, trustProxy: false, throttle: tinyThrottle(clock) });

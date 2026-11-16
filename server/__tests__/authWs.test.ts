@@ -457,6 +457,17 @@ describe('throttle', () => {
     expect((await attempt(gw.port, TOKEN, spoof)).closed?.code).toBe(4429);
   });
 
+  it('auto-trusts the forwarded header from a loopback peer when trustProxy is unset', async () => {
+    const clock = makeClock();
+    const gw = await startGateway({ token: TOKEN, throttle: tinyThrottle(clock) });
+    const A = { 'x-forwarded-for': '203.0.113.7' };
+    const B = { 'x-forwarded-for': '198.51.100.9' };
+    for (let i = 0; i < 3; i++) await failOnce(gw.port, A);
+    expect((await attempt(gw.port, TOKEN, A)).closed?.code).toBe(4429);
+    const b = await authenticate(gw.port, TOKEN, { headers: B });
+    expect(b.frames[0].type).toBe('hello_ack');
+  });
+
   it('ignores the forwarded header with trustProxy off: both values share one key', async () => {
     const clock = makeClock();
     const gw = await startGateway({ token: TOKEN, trustProxy: false, throttle: tinyThrottle(clock) });
@@ -512,6 +523,22 @@ describe('startup lines', () => {
     expect(String(hints[0][0])).toMatch(/throttle/i);
     expect(spies.dump()).not.toContain(TOKEN);
     expect(spies.dump()).not.toContain(TOKEN.slice(0, 12));
+  });
+
+  it('logs the auto-trust line (loopback peers only) with a token and trustProxy unset', async () => {
+    const spies = installConsoleSpies();
+    const restoreEnv = wasNotTest();
+    try {
+      await startGateway({ token: TOKEN });
+    } finally {
+      restoreEnv();
+    }
+    const all = [...spies.calls('log'), ...spies.calls('info'), ...spies.calls('warn')];
+    const hints = trustHintLines(all);
+    expect(hints).toHaveLength(1);
+    expect(String(hints[0][0])).toMatch(/loopback/i);
+    expect(String(hints[0][0])).toMatch(/throttle/i);
+    expect(spies.dump()).not.toContain(TOKEN);
   });
 
   it('logs no proxy hint with trust on or without a token', async () => {

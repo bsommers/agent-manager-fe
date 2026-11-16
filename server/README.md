@@ -19,7 +19,7 @@ npm test               # vitest
 | `PORT`            | `8088`                                                                                    | HTTP + WebSocket port. |
 | `HOST`            | `127.0.0.1`                                                                               | Loopback (`127.x.y.z`, `localhost`, `::1`) needs nothing. Any other value is accepted only when `AGENT_MANAGER_TOKEN` is set; otherwise startup is refused with a message naming `HOST` and `AGENT_MANAGER_TOKEN`. |
 | `AGENT_MANAGER_TOKEN` | *(unset)*                                                                             | Shared secret. Unset or empty: no authentication (zero-config local use). Otherwise 24 to 512 printable ASCII characters, no spaces or control characters (a trailing newline counts), validated even on loopback, never trimmed. An invalid value aborts startup with the rule but never the value. |
-| `AGENT_MANAGER_TRUST_PROXY` | `0`                                                                             | `1`/`true` or `0`/`false`. With a loopback proxy in front, key the auth throttle by the last `X-Forwarded-For` entry. Only with a proxy that overwrites that header. |
+| `AGENT_MANAGER_TRUST_PROXY` | unset (auto)                                                                    | Unset: the auth throttle is keyed by the last `X-Forwarded-For` entry when the TCP peer is loopback (a local reverse proxy), otherwise by the peer address. `1`/`true` behaves the same; `0`/`false` ignores the header. A spoofed header from a non-loopback peer is never honoured. |
 | `ALLOWED_ORIGINS` | `http://localhost:3000`, `http://127.0.0.1:3000`, `http://localhost:4173`, `http://127.0.0.1:4173` | Comma-separated list of exact `http(s)` origins (no path, no credentials, **no wildcard**). Invalid entries abort startup. |
 
 Fixed limits: WebSocket frames larger than 1 MiB close the connection with code 1009.
@@ -54,8 +54,9 @@ Enforced whenever `AGENT_MANAGER_TOKEN` is set, loopback included. Unset keeps t
 - **Throttle.** One bounded table shared by WebSocket and HTTP: 5 wrong tokens in 60 s lock the source for 60 s,
   doubling to a 15 min cap; at most 10 000 tracked sources; IPv6 sources are keyed by their /64. Only wrong tokens
   count (missing, malformed, oversize and timeouts do not). A locked source is refused even with the right token.
-  Behind a proxy set `AGENT_MANAGER_TRUST_PROXY=1` (the key is then the last `X-Forwarded-For` entry when the peer
-  is loopback); otherwise all proxied clients share one key and the startup log says so.
+  By default (`AGENT_MANAGER_TRUST_PROXY` unset) a loopback peer (a local reverse proxy) keys the throttle by the last
+  `X-Forwarded-For` entry; a non-loopback peer is keyed by its own address and its header is ignored. `0`/`false`
+  turns the header off, so proxied clients share one key (the startup log says so).
 - **Comparison and logging.** Tokens are compared as SHA-256 digests with `timingSafeEqual`. The token, frames and
   headers are never logged; a JSON error is reported with a fixed message; close reasons and error bodies are fixed
   strings.

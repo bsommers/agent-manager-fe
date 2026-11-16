@@ -30,7 +30,10 @@ export interface BootstrapOptions {
    * authentication and the environment is ignored. When the key is absent AGENT_MANAGER_TOKEN is read.
    */
   token?: string;
-  /** Key the auth throttle by the last X-Forwarded-For entry when the socket peer is loopback. */
+  /**
+   * Key the auth throttle by the last X-Forwarded-For entry. undefined (default) is auto: only when the
+   * TCP peer is loopback. true/false override the auto choice (false never trusts the header).
+   */
   trustProxy?: boolean;
   /** How long a socket may stay silent before it is closed 4401. */
   helloTimeoutMs?: number;
@@ -251,9 +254,13 @@ export async function bootstrap(
             ? 'Authentication: enabled (AGENT_MANAGER_TOKEN)'
             : 'Authentication: disabled (loopback-only, no AGENT_MANAGER_TOKEN)'
         );
-        if (guard && !trustProxy) {
+        if (guard && trustProxy === undefined) {
           console.log(
-            'Behind a reverse proxy set AGENT_MANAGER_TRUST_PROXY=1, or all proxied clients share one auth throttle key.'
+            'Auth throttle: X-Forwarded-For is honoured when the connecting peer is loopback (a local reverse proxy); set AGENT_MANAGER_TRUST_PROXY=0 to ignore it.'
+          );
+        } else if (guard && trustProxy === false) {
+          console.log(
+            'AGENT_MANAGER_TRUST_PROXY=0: X-Forwarded-For is ignored, so clients behind a reverse proxy share one auth throttle key.'
           );
         }
       }

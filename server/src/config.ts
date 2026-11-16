@@ -62,12 +62,16 @@ export function assertBindPolicy(host: string, token: string | undefined): void 
   assertLoopbackBind(host);
 }
 
-/** AGENT_MANAGER_TRUST_PROXY: 1/true or 0/false/unset; anything else fails fast. */
-export function parseTrustProxy(value: string | undefined): boolean {
+/**
+ * AGENT_MANAGER_TRUST_PROXY: 1/true or 0/false is an explicit override; unset/empty is "auto"
+ * (undefined): X-Forwarded-For is honoured only when the TCP peer is loopback. Anything else fails fast.
+ */
+export function parseTrustProxy(value: string | undefined): boolean | undefined {
   const v = (value ?? '').trim().toLowerCase();
-  if (v === '' || v === '0' || v === 'false') return false;
+  if (v === '') return undefined;
+  if (v === '0' || v === 'false') return false;
   if (v === '1' || v === 'true') return true;
-  throw new Error('Invalid AGENT_MANAGER_TRUST_PROXY: use 1/true or 0/false (default off).');
+  throw new Error('Invalid AGENT_MANAGER_TRUST_PROXY: use 1/true, 0/false, or leave unset (auto: loopback peers only).');
 }
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -114,7 +118,7 @@ export const CONFIG = {
   PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 8088,
   HOST: rawHost ? rawHost : '127.0.0.1',
   ALLOWED_ORIGINS: parseAllowedOrigins(process.env.ALLOWED_ORIGINS),
-  /** Honour X-Forwarded-For from a loopback proxy when keying the auth throttle (default off). */
+  /** Explicit override for X-Forwarded-For keying; undefined = auto (honoured when the peer is loopback). */
   TRUST_PROXY: parseTrustProxy(process.env.AGENT_MANAGER_TRUST_PROXY),
   MAX_PAYLOAD_BYTES: 1048576,
   HEARTBEAT_MS: 30000,

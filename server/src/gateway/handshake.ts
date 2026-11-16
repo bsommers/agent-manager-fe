@@ -100,16 +100,17 @@ export interface KeyedRequest {
 const MAPPED_PREFIX = /^::ffff:/i;
 
 /**
- * The throttle key for a request: the normalized socket address, unless trustProxy is on and the
- * socket peer is loopback (the reverse proxy), in which case it is the LAST X-Forwarded-For entry.
+ * The throttle key for a request: the normalized socket address, unless the socket peer is loopback
+ * (the local reverse proxy) and trustProxy is not explicitly false (undefined = auto, true = explicit),
+ * in which case it is the LAST X-Forwarded-For entry.
  * Last, not first: the proxy appends the address it saw, so a value a client prepends never wins.
  * The nginx example must overwrite the header (proxy_set_header X-Forwarded-For $remote_addr) so
- * the last entry is the real client (PLANS-NOTES decision 4). With trust off, or a non-loopback
- * peer, the header is ignored.
+ * the last entry is the real client (PLANS-NOTES decision 4). With trust explicitly off, or a
+ * non-loopback peer, the header is ignored (a spoofed header from a direct peer never wins).
  */
-export function clientKey(req: KeyedRequest, trustProxy: boolean): string {
+export function clientKey(req: KeyedRequest, trustProxy?: boolean): string {
   const peer = req.socket.remoteAddress;
-  if (trustProxy && peer && isLoopbackHost(peer.replace(MAPPED_PREFIX, ''))) {
+  if (trustProxy !== false && peer && isLoopbackHost(peer.replace(MAPPED_PREFIX, ''))) {
     const header = req.headers['x-forwarded-for'];
     const joined = Array.isArray(header) ? header[header.length - 1] : header;
     const last = typeof joined === 'string' ? joined.split(',').pop()?.trim() : undefined;
