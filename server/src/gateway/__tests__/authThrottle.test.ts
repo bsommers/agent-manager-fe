@@ -72,16 +72,50 @@ describe('createAuthThrottle', () => {
     expect(lockout()).toBe(4000);
   });
 
-  it('resets on success so the next lockout starts at lockMs again', () => {
+  it('keeps strike history across a success so the next lockout still doubles (WR-02)', () => {
     const { throttle, advance } = make();
     for (let i = 0; i < 3; i++) throttle.recordFailure('k');
     advance(500);
-    for (let i = 0; i < 3; i++) throttle.recordFailure('k');
+    for (let i = 0; i < 3; i++) throttle.recordFailure('k'); // strikes 2, lock 1000
     advance(1000);
     throttle.recordSuccess('k');
-    expect(throttle.size()).toBe(0);
+    expect(throttle.size()).toBe(1);
+    for (let i = 0; i < 3; i++) throttle.recordFailure('k');
+    expect(throttle.check('k')).toEqual({ allowed: false, retryAfterMs: 2000 });
+  });
+
+  it('clears the failure count on success but never a lock', () => {
+    const { throttle, advance } = make();
+    for (let i = 0; i < 3; i++) throttle.recordFailure('k'); // strikes 1
+    advance(500);
+    throttle.recordFailure('k');
+    throttle.recordFailure('k');
+    throttle.recordSuccess('k'); // failures 2 -> 0
+    throttle.recordFailure('k');
+    expect(throttle.check('k').allowed).toBe(true);
+    for (let i = 0; i < 2; i++) throttle.recordFailure('k');
+    const locked = throttle.check('k');
+    expect(locked).toEqual({ allowed: false, retryAfterMs: 1000 });
+    advance(100);
+    throttle.recordSuccess('k'); // locked: untouched
+    expect(throttle.check('k')).toEqual({ allowed: false, retryAfterMs: 900 });
+  });
+
+  it('forgets strikes once the entry lapses', () => {
+    const { throttle, advance } = make();
+    for (let i = 0; i < 3; i++) throttle.recordFailure('k');
+    advance(500);
+    throttle.recordSuccess('k');
+    advance(10_000);
     for (let i = 0; i < 3; i++) throttle.recordFailure('k');
     expect(throttle.check('k')).toEqual({ allowed: false, retryAfterMs: 500 });
+  });
+
+  it('drops an entry without strikes on success', () => {
+    const { throttle } = make();
+    throttle.recordFailure('k');
+    throttle.recordSuccess('k');
+    expect(throttle.size()).toBe(0);
   });
 
   it('treats recordSuccess for an unknown key as a no-op', () => {

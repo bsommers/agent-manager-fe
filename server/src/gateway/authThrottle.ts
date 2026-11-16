@@ -139,8 +139,23 @@ export function createAuthThrottle(options: Partial<ThrottleOptions> = {}): Auth
     entries.set(key, e);
   }
 
+  /**
+   * A success clears the failure count but keeps the strike history (WR-02), so successes
+   * interleaved on a shared key cannot reset the doubling lockout. A locked entry is left alone. An
+   * entry with no strikes holds no history, so it is dropped.
+   */
   function recordSuccess(rawKey: string): void {
-    entries.delete(normalizeIp(rawKey));
+    const key = normalizeIp(rawKey);
+    const e = entries.get(key);
+    if (!e) return;
+    const now = o.now();
+    if (now < e.lockedUntil) return;
+    if (e.strikes === 0) {
+      entries.delete(key);
+      return;
+    }
+    e.failures = 0;
+    e.windowStart = now;
   }
 
   return { check, recordFailure, recordSuccess, size: () => entries.size };
