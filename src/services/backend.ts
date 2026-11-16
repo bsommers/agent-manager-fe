@@ -1,7 +1,7 @@
 import { MockAdapter } from './adapters/MockAdapter';
 import { WsAdapter } from './adapters/WsAdapter';
 import type { BackendAdapter, BackendMode } from './adapters/types';
-import { getToken } from './auth/tokenStore';
+import { clearToken, commitCandidate, getToken } from './auth/tokenStore';
 
 export interface BackendConfig {
   mode: BackendMode;
@@ -104,5 +104,11 @@ export function resolveBackendConfig(
 
 export function createBackend(config: BackendConfig): BackendAdapter {
   if (config.mode === 'demo') return new MockAdapter();
-  return new WsAdapter(config.wsUrl, { disabledReason: config.configError, getToken });
+  return new WsAdapter(config.wsUrl, {
+    disabledReason: config.configError,
+    getToken,
+    // A token is stored only once the gateway has accepted it, and dropped as soon as it is refused.
+    onAuthAccepted: commitCandidate,
+    onAuthRejected: clearToken,
+  });
 }
