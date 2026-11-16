@@ -51,3 +51,10 @@
 
 ## Refresh (verified): tree clean, master 35 ahead of origin (84193b1), single worktree, no background jobs.
 - Next step: "review and verify" for Phase 8 (code-review + verifier agents, sonnet, parallel), then live QA 18090/13000, then STATE.md + INT-02 tick. Push only on fresh "yes".
+
+## Update 2026-11-15 (review + verify done)
+- Verifier: 4/4 roadmap criteria, no code gaps, human_needed (browser QA in 08-EVIDENCE.md). Reviewer: 0 critical, 4 WR, 6 IN (08-REVIEW.md).
+- Fixed and merged (9fc262b): WR-01 (auto-trust XFF only from loopback peer; TRUST_PROXY=0 disables), WR-02, WR-03, WR-04, IN-01, IN-06a/c. Not fixed: IN-02..05, IN-06b (listed in 08-FIXES.md).
+- Gate green after merge: root 113/2307, server 33/858, tsc, builds, protocol, contract OK, tmuxKill 0, smoke-auth 9/9. Fix worktree removed.
+- INT-02 deliberately left unticked until live browser QA. Master ahead of origin (unpushed; push needs fresh "yes").
+- Next: Phase 8 live QA on 18090/13000, tick INT-02, then push.
