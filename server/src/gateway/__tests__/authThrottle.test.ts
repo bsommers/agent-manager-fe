@@ -158,6 +158,37 @@ describe('createAuthThrottle', () => {
     expect(throttle.size()).toBe(1);
   });
 
+  it('never evicts a locked entry to make room; evicts the oldest unlocked one (WR-04)', () => {
+    const { throttle } = make({ maxKeys: 5 });
+    for (let i = 0; i < 3; i++) throttle.recordFailure('locked'); // inserted first, locked
+    for (let i = 0; i < 4; i++) throttle.recordFailure(`u${i}`);
+    expect(throttle.size()).toBe(5);
+    for (let i = 0; i < 50; i++) {
+      throttle.recordFailure(`flood${i}`);
+      expect(throttle.size()).toBeLessThanOrEqual(5);
+      expect(throttle.check('locked').allowed).toBe(false);
+    }
+  });
+
+  it('keeps the strike count of a locked entry through a flood (WR-04)', () => {
+    const { throttle, advance } = make({ maxKeys: 3 });
+    for (let i = 0; i < 3; i++) throttle.recordFailure('victim'); // strikes 1, lock 500
+    advance(500);
+    for (let i = 0; i < 3; i++) throttle.recordFailure('victim'); // strikes 2, lock 1000
+    for (let i = 0; i < 20; i++) throttle.recordFailure(`flood${i}`);
+    expect(throttle.check('victim')).toEqual({ allowed: false, retryAfterMs: 1000 });
+  });
+
+  it('shares one overflow entry when every tracked entry is locked, still bounded', () => {
+    const { throttle } = make({ maxKeys: 3 });
+    for (const k of ['a', 'b', 'c']) for (let i = 0; i < 3; i++) throttle.recordFailure(k);
+    expect(throttle.check('new1').allowed).toBe(true);
+    for (let i = 0; i < 3; i++) throttle.recordFailure(`new${i}`); // spread over untracked keys
+    expect(throttle.size()).toBe(3);
+    expect(['a', 'b', 'c'].every((k) => !throttle.check(k).allowed)).toBe(true);
+    expect(throttle.check('another').allowed).toBe(false); // the overflow entry throttles the untracked
+  });
+
   it('exposes no way to store a token: methods take only a key', () => {
     const { throttle } = make();
     const canary = 'CANARY-TOKEN-abcdefghijklmnopqrstuvwxyz';
