@@ -7,7 +7,8 @@ const MAX_TRANSMISSIONS = 3;
 /** Late answers for this many recently settled requests are swallowed instead of becoming stray notices. */
 const SETTLED_MEMORY = 64;
 
-export type RequestErrorCode = ErrorCode | 'NOT_CONNECTED';
+/** SESSION_ENDED: the user logged out while the request was in flight; callers swallow it silently. */
+export type RequestErrorCode = ErrorCode | 'NOT_CONNECTED' | 'SESSION_ENDED';
 
 export class AgentRequestError extends Error {
   readonly code: RequestErrorCode;
@@ -23,6 +24,11 @@ export class AgentRequestError extends Error {
     this.reqId = opts.reqId ?? '';
     if (opts.agentId !== undefined) this.agentId = opts.agentId;
   }
+}
+
+/** True for the rejection logout produces; request callers return quietly on it. */
+export function isSessionEnded(err: unknown): boolean {
+  return err instanceof AgentRequestError && err.code === 'SESSION_ENDED';
 }
 
 export interface AckResult {
@@ -158,9 +164,16 @@ export class AgentRequests {
     }
   }
 
-  /** Drops all entries and timers without rejecting (tests). */
+  /**
+   * Ends every in-flight request with SESSION_ENDED (logout). Callers swallow that code, so no
+   * notice appears and no awaiting component is left with a forever-pending promise (IN-06).
+   */
   clear(): void {
-    for (const entry of this.inFlight.values()) this.clearTimer(entry.timer);
+    for (const [reqId, entry] of [...this.inFlight]) {
+      this.settle(reqId, () =>
+        entry.reject(new AgentRequestError('SESSION_ENDED', 'The session was ended.', { reqId })),
+      );
+    }
     this.inFlight.clear();
     this.settledIds.clear();
   }

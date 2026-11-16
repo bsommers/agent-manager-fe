@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   AgentRequests,
   AgentRequestError,
+  isSessionEnded,
   newReqId,
   REQUEST_TIMEOUT_MS,
 } from '../agentRequests';
@@ -203,17 +204,19 @@ describe('AgentRequests', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('clear drops entries and timers without rejecting', async () => {
+  it('clear rejects every in-flight request with SESSION_ENDED and clears timers (IN-06)', async () => {
     const h = layer.request(createFrame());
-    let settledState = 'pending';
-    h.promise.then(
-      () => (settledState = 'resolved'),
-      () => (settledState = 'rejected'),
-    );
+    const h2 = layer.request(createFrame());
     layer.clear();
-    await Promise.resolve();
+    const e1 = await h.promise.catch((e) => e);
+    const e2 = await h2.promise.catch((e) => e);
+    expect(e1).toBeInstanceOf(AgentRequestError);
+    expect(e1.code).toBe('SESSION_ENDED');
+    expect(isSessionEnded(e1)).toBe(true);
+    expect(isSessionEnded(e2)).toBe(true);
+    expect(isSessionEnded(new AgentRequestError('TIMEOUT', 'x'))).toBe(false);
+    expect(isSessionEnded(new Error('x'))).toBe(false);
     expect(vi.getTimerCount()).toBe(0);
-    expect(settledState).toBe('pending');
     expect(layer.handleServerMessage({ type: 'agent:ack', reqId: h.reqId, op: 'create', ok: true })).toBe('ignored');
   });
 

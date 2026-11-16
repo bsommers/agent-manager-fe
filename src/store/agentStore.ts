@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Agent, LayoutMode } from '../types/agent';
 import { agentSocket } from '../services/agentSocket';
-import { AgentRequestError, REQUEST_TIMEOUT_MS, type AckResult } from '../services/agentRequests';
+import { AgentRequestError, isSessionEnded, REQUEST_TIMEOUT_MS, type AckResult } from '../services/agentRequests';
 import { LIMITS, parseAgent, type AgentPatch, parseServerMessage, type AgentStatus, type WSMessageClient } from '../services/wsProtocol';
 import type { BackendMode } from '../services/adapters/types';
 import { useConnectionStore } from './connectionStore';
@@ -262,6 +262,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
 
   /** A create failed or timed out: remove the pending pane, restore focus only if the pane still has it. */
   const rollbackCreate = (pendingId: string, previousActive: string | null, title: string, err: unknown) => {
+    if (isSessionEnded(err)) return; // logout already emptied the store
     const st = get();
     if (!Object.prototype.hasOwnProperty.call(st.pending, pendingId)) return;
     const nextAgents = st.agents.filter((a) => a.id !== pendingId);
@@ -409,6 +410,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
         handle.promise.then(
           () => dropKilledAgent(id),
           (err: unknown) => {
+            if (isSessionEnded(err)) return; // logout already emptied the store
             if (err instanceof AgentRequestError && err.code === 'NOT_FOUND') {
               // The gateway no longer has it: drop it locally, nothing to tell the user.
               dropKilledAgent(id);
@@ -487,6 +489,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
         }
         return true;
       } catch (err) {
+        if (isSessionEnded(err)) return false; // logout already emptied the store
         pushRosterNotice(
           'update_failed',
           failTitle,

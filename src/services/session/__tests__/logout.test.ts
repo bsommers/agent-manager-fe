@@ -169,19 +169,22 @@ describe('logout (live)', () => {
     expect(re).not.toHaveBeenCalled();
   });
 
-  it('drops requests with clear() and never dispose(): no late create_failed notice', () => {
+  it('ends requests with clear() (SESSION_ENDED) and never dispose(): no late notice, no stuck promise', async () => {
     vi.useFakeTimers();
     populate();
     const clear = vi.spyOn(agentSocket.requests, 'clear');
     const dispose = vi.spyOn(agentSocket.requests, 'dispose');
     useAgentStore.getState().addAgent('New', 'tmux', 'localhost:n');
     expect(Object.keys(useAgentStore.getState().pending)).toHaveLength(1);
+    const update = useAgentStore.getState().updateAgent('a1', { name: 'Renamed' });
     logout();
     expect(clear).toHaveBeenCalledTimes(1);
     expect(dispose).not.toHaveBeenCalled();
+    // IN-06: the awaiting caller settles (it does not hang) and says nothing.
+    await expect(update).resolves.toBe(false);
     expect(useAgentStore.getState().rosterNotices).toEqual([]);
     expect(useAgentStore.getState().pending).toEqual({});
-    vi.advanceTimersByTime(60_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(useAgentStore.getState().rosterNotices).toEqual([]);
   });
 
