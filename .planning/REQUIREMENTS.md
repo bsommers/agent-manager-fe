@@ -20,7 +20,7 @@ ID scheme: `INT-nn` = M-INT-n, `UX-nn` = M-UI-n (the UI plan's `UI-nn` collides 
 
 ### Integration
 - [ ] INT-01: Transport layer with reconnect (jittered backoff, heartbeat), visible connection state, no silent mock fallback, explicit Demo mode, single `VITE_BACKEND_URL` (in progress: transport done in 03-01; visible state and docs in 03-02)
-- [ ] INT-02: Token auth and secure transport (`hello` handshake, `auth_failed`, wss for non-local, logout clears state)
+- [x] INT-02: Token auth and secure transport (`hello` handshake, `auth_failed`, wss for non-local, logout clears state)
 - [x] INT-03: Server-confirmed agent lifecycle (required `reqId` correlation, `agent:ack`/`agent:error`, added/removed/updated, `/api/agents`)
 - [ ] INT-04: Lossless ordered output (`seq`, `epoch`, resume, gap markers, LogStore, history, logs endpoint)
 - [ ] INT-05: Acked broadcast and input API (per-target results, idempotency, size and rate limits)
