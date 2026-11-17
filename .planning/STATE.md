@@ -4,7 +4,7 @@ milestone: v1.1
 milestone_name: Fan-out Close-out (active)
 current_phase_name: "wave 3: 02-03, 05-02, 05-03, plus pulled-forward Phase 10 slice 10-01/10-02"
 status: Wave 2 merged and green. Phase 3 (transport + connection UI) is complete pending manual QA. Phase 1 stays open for the human QA checkpoint only.
-stopped_at: Phase 8 merged + reviewed + verified (human_needed: browser QA pending)
+stopped_at: Phase 8 complete (live browser QA passed 2026-11-17; INT-02 ticked)
 last_updated: "2026-11-12T04:00:09.423Z"
 last_activity: 2026-11-08
 last_activity_desc: "Phase 2.1 complete (02.1-03 merged); gate passed (root 77 files / 1324 tests, server 13 / 208, tsc, builds, contract:check). INT-12 done. Flaky: server hardening liveness test under load"

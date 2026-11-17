@@ -67,3 +67,23 @@ Per-step results from a human run: not yet recorded.
 The known `hardening.test.ts` "never terminates a responsive client" flake did not occur.
 
 No file under `src/`, `server/src`, `packages/`, root `package.json`, lockfiles or `.github/` changed in this plan.
+
+
+## D. Automated browser QA run (2026-11-17, Playwright/Chromium, gateway :18090 with token, vite :13000)
+
+Run against master 75a2b99. Steps 1-6, 8-10 PASS; step 12 (TLS proxy) not run; step 4's single FAIL line is a false positive (below).
+
+| # | Result |
+|---|--------|
+| 1 | PASS dialog appears, no roster |
+| 2 | PASS dialog reappears with "Authentication failed"; exactly one WebSocket per attempt; nothing stored |
+| 3 | PASS dialog closes, Connected, roster loads |
+| 4 | PASS app WS URL is `ws://127.0.0.1:18090/ws` (no query); no request URL contains the token; sessionStorage holds only `agent-manager.token`; localStorage empty. The script's FAIL was Vite's own HMR socket `ws://localhost:13000/?token=<vite HMR token>` (dev server only, not the app token) |
+| 5 | PASS after five wrong tokens the sixth shows "Connection lost, retrying in 57s" (4429 back-off); server log line present |
+| 6 | PASS reload keeps session without dialog; a fresh browser context shows the dialog |
+| 8 | PASS header Log out: dialog opens, sessionStorage empty, roster cleared |
+| 9 | PASS palette lists Log out when signed in, absent when signed out |
+| 10 | PASS `VITE_BACKEND_URL=http://example.com:9000`: "Plaintext ws:// to example.com ..." banner, no app WebSocket opened |
+| 12 | NOT RUN (optional, needs TLS proxy) |
+
+Teardown: only my processes (found by port) stopped; ports 18090/13000/13001 free.
