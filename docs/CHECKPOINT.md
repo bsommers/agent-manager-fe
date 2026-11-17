@@ -63,3 +63,8 @@
 - Tree clean, one worktree, no background jobs, ports 18090/13000 free. Master ahead of origin (unpushed; push needs fresh "yes").
 - State unchanged from "Update 2026-11-15 (review + verify done)": review fixes merged, gate green, INT-02 unticked pending browser QA.
 - Next: Phase 8 live QA on 18090/13000 (Playwright in scratchpad), tick INT-02, then ask about push.
+
+## Refresh 2026-11-17 (pre-compact, verified)
+- Tree clean, one worktree, no background jobs. Master ahead of origin, unpushed (push needs fresh "yes").
+- Unchanged: Phase 8 review fixes merged (9fc262b), gate green, INT-02 unticked pending live browser QA.
+- Next: Phase 8 live QA on 18090/13000, tick INT-02, ask about push.
