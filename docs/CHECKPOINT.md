@@ -68,3 +68,10 @@
 - Tree clean, one worktree, no background jobs. Master ahead of origin, unpushed (push needs fresh "yes").
 - Unchanged: Phase 8 review fixes merged (9fc262b), gate green, INT-02 unticked pending live browser QA.
 - Next: Phase 8 live QA on 18090/13000, tick INT-02, ask about push.
+
+## Refresh 2026-11-20 (post Phase 8 live QA)
+- Phase 8 COMPLETE: live browser QA passed 2026-11-17 (steps 1-6, 8-10; 12 optional TLS not run); results in 08-EVIDENCE.md section D. INT-02 ticked (REQUIREMENTS.md line 23), STATE.md updated.
+- Master 51 ahead of origin (84193b1), NOTHING pushed. Push needs a fresh explicit "yes": `GH_TOKEN=$(gh auth token --user bsommers) git push origin master`.
+- Tree clean, 1 worktree, no background jobs, my ports 18090/13000/13001 free. QA scripts in scratchpad qa/ (qa8.mjs, qa8b.mjs).
+- Unfixed review items: IN-02..05, IN-06b (see 08-FIXES.md).
+- Next candidates (user has not chosen): plan 05-04, Phase 1 close (01-EVIDENCE.md), Phase 7, remaining live-QA gaps; GW-05 open until Phase 21.
