@@ -75,3 +75,6 @@
 - Tree clean, 1 worktree, no background jobs, my ports 18090/13000/13001 free. QA scripts in scratchpad qa/ (qa8.mjs, qa8b.mjs).
 - Unfixed review items: IN-02..05, IN-06b (see 08-FIXES.md).
 - Next candidates (user has not chosen): plan 05-04, Phase 1 close (01-EVIDENCE.md), Phase 7, remaining live-QA gaps; GW-05 open until Phase 21.
+
+## Refresh 2026-11-21 (pre-compact)
+- Unchanged since 2026-11-20 refresh: Phase 8 complete (INT-02 ticked), tree clean, master 52 ahead of origin (unpushed; push needs fresh "yes"), no worktrees/jobs. Next: user picks 05-04 / Phase 1 close / Phase 7.
