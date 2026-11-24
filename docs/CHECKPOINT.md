@@ -78,3 +78,9 @@
 
 ## Refresh 2026-11-21 (pre-compact)
 - Unchanged since 2026-11-20 refresh: Phase 8 complete (INT-02 ticked), tree clean, master 52 ahead of origin (unpushed; push needs fresh "yes"), no worktrees/jobs. Next: user picks 05-04 / Phase 1 close / Phase 7.
+
+## Refresh 2026-11-23 (pre-clear)
+- State: master clean, 53 ahead of origin (84193b1), no worktrees/jobs/ports.
+- User decision 2026-11-23: "1 then 2; then do Phase 7" = (1) push the 53 commits, (2) plan 05-04 + Phase 1 close (01-EVIDENCE.md), (3) then Phase 7 (full GSD flow). User asked to checkpoint and /clear first.
+- Push approval was given before the clear: on resume, confirm once ("push 53 commits?") then run `GH_TOKEN=$(gh auth token --user bsommers) git push origin master`.
+- First command after clear: verify `git status -sb`, then push, then plan 05-04.
